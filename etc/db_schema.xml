@@ -1,0 +1,166 @@
+<?xml version="1.0"?>
+<schema xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Setup/Declaration/Schema/etc/db_schema.xsd">
+    <!-- Conversations Table -->
+    <table name="afd_ai_conversation" resource="default" engine="innodb" comment="AI Chat Conversations">
+        <column xsi:type="int" name="conversation_id" unsigned="true" nullable="false" identity="true" comment="Conversation ID"/>
+        <column xsi:type="int" name="customer_id" unsigned="true" nullable="true" comment="Customer ID"/>
+        <column xsi:type="varchar" name="guest_id" nullable="true" length="64" comment="Hashed Guest Chat Token"/>
+        <column xsi:type="smallint" name="store_id" unsigned="true" nullable="false" default="0" comment="Owning Store View ID"/>
+        <column xsi:type="smallint" name="website_id" unsigned="true" nullable="false" default="0" comment="Owning Website ID"/>
+        <column xsi:type="varchar" name="title" nullable="false" length="255" default="New Chat" comment="Conversation Title"/>
+        <column xsi:type="varchar" name="conversation_type" nullable="false" length="16" default="ai" comment="AI Or Support Thread"/>
+        <column xsi:type="smallint" name="is_archived" unsigned="true" nullable="false" default="0" comment="Is Archived"/>
+        <column xsi:type="timestamp" name="created_at" on_update="false" nullable="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
+        <column xsi:type="timestamp" name="updated_at" on_update="true" nullable="false" default="CURRENT_TIMESTAMP" comment="Updated At"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="conversation_id"/>
+        </constraint>
+        <index referenceId="AFD_AI_CONV_CUSTOMER_UPDATED_AT" indexType="btree">
+            <column name="customer_id"/>
+            <column name="updated_at"/>
+        </index>
+        <index referenceId="AFD_AI_CONV_GUEST_UPDATED_AT" indexType="btree">
+            <column name="guest_id"/>
+            <column name="updated_at"/>
+        </index>
+        <index referenceId="AFD_AI_CONV_STORE_CUSTOMER_UPDATED_AT" indexType="btree">
+            <column name="store_id"/>
+            <column name="customer_id"/>
+            <column name="updated_at"/>
+        </index>
+        <index referenceId="AFD_AI_CONV_STORE_GUEST_UPDATED_AT" indexType="btree">
+            <column name="store_id"/>
+            <column name="guest_id"/>
+            <column name="updated_at"/>
+        </index>
+    </table>
+
+    <table name="afd_ai_guest_identity" resource="default" engine="innodb" comment="AI Durable Guest Identities">
+        <column xsi:type="varchar" name="token_hash" nullable="false" length="64" comment="SHA-256 Guest Chat Token"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" on_update="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
+        <column xsi:type="timestamp" name="last_seen_at" nullable="false" on_update="false" default="CURRENT_TIMESTAMP" comment="Last Seen At"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY"><column name="token_hash"/></constraint>
+        <index referenceId="AFD_AI_GUEST_IDENTITY_LAST_SEEN"><column name="last_seen_at"/></index>
+    </table>
+
+    <!-- Messages Table -->
+    <table name="afd_ai_message" resource="default" engine="innodb" comment="AI Chat History Messages">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="Entity ID"/>
+        <column xsi:type="varchar" name="session_id" nullable="false" length="255" comment="Session ID"/>
+        <column xsi:type="int" name="customer_id" unsigned="true" nullable="true" comment="Customer ID"/>
+        <column xsi:type="int" name="conversation_id" unsigned="true" nullable="true" comment="Conversation ID"/>
+        <column xsi:type="varchar" name="role" nullable="false" length="32" comment="Message Role (user/model)"/>
+        <column xsi:type="text" name="content" nullable="false" comment="Message Content"/>
+        <column xsi:type="text" name="original_content" nullable="true" comment="Original Content Before First Edit"/>
+        <column xsi:type="text" name="attachment" nullable="true" comment="User Attachment Metadata (JSON)"/>
+        <column xsi:type="timestamp" name="edited_at" nullable="true" on_update="false" comment="Edited At"/>
+        <column xsi:type="timestamp" name="deleted_at" nullable="true" on_update="false" comment="Soft Deleted At"/>
+        <column xsi:type="timestamp" name="created_at" on_update="false" nullable="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="entity_id"/>
+        </constraint>
+        <index referenceId="AFD_AI_MESSAGE_SESSION_CREATED_AT" indexType="btree">
+            <column name="session_id"/>
+            <column name="created_at"/>
+        </index>
+        <index referenceId="AFD_AI_MESSAGE_CUSTOMER_ID" indexType="btree">
+            <column name="customer_id"/>
+        </index>
+        <index referenceId="AFD_AI_MESSAGE_CONVERSATION_ENTITY_ID" indexType="btree">
+            <column name="conversation_id"/>
+            <column name="entity_id"/>
+        </index>
+        <constraint xsi:type="foreign" referenceId="AFD_AI_MSG_CONV_ID_AFD_AI_CONV_CONV_ID"
+                    table="afd_ai_message" column="conversation_id"
+                    referenceTable="afd_ai_conversation" referenceColumn="conversation_id"
+                    onDelete="SET NULL"/>
+    </table>
+    <table name="afd_ai_guest_order_access" resource="default" engine="innodb" comment="AI Guest Order Email Verification">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="ID"/>
+        <column xsi:type="varchar" name="email_hash" nullable="false" length="64" comment="Normalized Email Hash"/>
+        <column xsi:type="varchar" name="session_id" nullable="false" length="64" comment="Verified WebSocket Session Hash"/>
+        <column xsi:type="varchar" name="code_hash" nullable="false" length="64" comment="OTP Hash"/>
+        <column xsi:type="varchar" name="access_token_hash" nullable="true" length="64" comment="Guest Access Token Hash"/>
+        <column xsi:type="smallint" name="send_count" unsigned="true" nullable="false" default="0" comment="OTP Send Count"/>
+        <column xsi:type="smallint" name="attempts" unsigned="true" nullable="false" default="0" comment="OTP Attempts"/>
+        <column xsi:type="timestamp" name="expires_at" nullable="false" on_update="false" default="CURRENT_TIMESTAMP" comment="OTP Expiry"/>
+        <column xsi:type="timestamp" name="verified_at" nullable="true" on_update="false" comment="Verified At"/>
+        <column xsi:type="timestamp" name="access_expires_at" nullable="true" on_update="false" comment="Access Expiry"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" on_update="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY"><column name="entity_id"/></constraint>
+        <constraint xsi:type="unique" referenceId="AFD_AI_GUEST_ORDER_EMAIL_SESSION"><column name="email_hash"/><column name="session_id"/></constraint>
+        <index referenceId="AFD_AI_GUEST_ORDER_TOKEN"><column name="access_token_hash"/></index>
+    </table>
+
+    <table name="afd_ai_support_case" resource="default" engine="innodb" comment="AI Human Handoff Cases">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="Case ID"/>
+        <column xsi:type="varchar" name="public_id" nullable="false" length="24" comment="Customer-visible Case ID"/>
+        <column xsi:type="int" name="conversation_id" unsigned="true" nullable="true" comment="Conversation ID"/>
+        <column xsi:type="int" name="source_conversation_id" unsigned="true" nullable="true" comment="Source AI Conversation ID"/>
+        <column xsi:type="int" name="message_id" unsigned="true" nullable="true" comment="Source Message ID"/>
+        <column xsi:type="int" name="customer_id" unsigned="true" nullable="true" comment="Customer ID"/>
+        <column xsi:type="varchar" name="guest_id" nullable="true" length="64" comment="Hashed Guest Chat Token"/>
+        <column xsi:type="smallint" name="store_id" unsigned="true" nullable="false" default="0" comment="Owning Store View ID"/>
+        <column xsi:type="smallint" name="website_id" unsigned="true" nullable="false" default="0" comment="Owning Website ID"/>
+        <column xsi:type="varchar" name="category" nullable="false" length="32" default="general" comment="Case Category"/>
+        <column xsi:type="varchar" name="priority" nullable="false" length="16" default="normal" comment="Case Priority"/>
+        <column xsi:type="varchar" name="status" nullable="false" length="24" default="open" comment="Case Status"/>
+        <column xsi:type="varchar" name="subject" nullable="false" length="255" comment="Case Subject"/>
+        <column xsi:type="text" name="summary" nullable="false" comment="Customer-safe Case Summary"/>
+        <column xsi:type="text" name="context_json" nullable="true" comment="Sanitized Context JSON"/>
+        <column xsi:type="text" name="contact_email" nullable="true" comment="Encrypted Contact Email"/>
+        <column xsi:type="varchar" name="contact_email_hash" nullable="true" length="64" comment="Normalized Contact Email Hash"/>
+        <column xsi:type="int" name="admin_unread_count" unsigned="true" nullable="false" default="0" comment="Unread Customer Messages For Admin"/>
+        <column xsi:type="int" name="customer_unread_count" unsigned="true" nullable="false" default="0" comment="Unread Admin Messages For Customer"/>
+        <column xsi:type="timestamp" name="last_customer_message_at" nullable="true" on_update="false" comment="Last Customer Message At"/>
+        <column xsi:type="timestamp" name="last_admin_message_at" nullable="true" on_update="false" comment="Last Admin Message At"/>
+        <column xsi:type="int" name="assigned_admin_id" unsigned="true" nullable="true" comment="Assigned Admin User ID"/>
+        <column xsi:type="varchar" name="takeover_state" nullable="false" length="16" default="inactive" comment="Human Chat Takeover State"/>
+        <column xsi:type="timestamp" name="takeover_started_at" nullable="true" on_update="false" comment="Human Chat Started At"/>
+        <column xsi:type="timestamp" name="takeover_expires_at" nullable="true" on_update="false" comment="Human Chat Lease Expiry"/>
+        <column xsi:type="timestamp" name="takeover_ended_at" nullable="true" on_update="false" comment="Human Chat Ended At"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" on_update="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
+        <column xsi:type="timestamp" name="updated_at" nullable="false" on_update="true" default="CURRENT_TIMESTAMP" comment="Updated At"/>
+        <column xsi:type="timestamp" name="resolved_at" nullable="true" on_update="false" comment="Resolved At"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY"><column name="entity_id"/></constraint>
+        <constraint xsi:type="unique" referenceId="AFD_AI_SUPPORT_CASE_PUBLIC_ID"><column name="public_id"/></constraint>
+        <constraint xsi:type="foreign" referenceId="AFD_AI_CASE_CONV_ID_AFD_AI_CONV_CONV_ID"
+                    table="afd_ai_support_case" column="conversation_id"
+                    referenceTable="afd_ai_conversation" referenceColumn="conversation_id" onDelete="SET NULL"/>
+        <constraint xsi:type="foreign" referenceId="AFD_AI_CASE_SOURCE_CONV_ID_AFD_AI_CONV_CONV_ID"
+                    table="afd_ai_support_case" column="source_conversation_id"
+                    referenceTable="afd_ai_conversation" referenceColumn="conversation_id" onDelete="SET NULL"/>
+        <constraint xsi:type="foreign" referenceId="AFD_AI_CASE_MSG_ID_AFD_AI_MSG_ENTITY_ID"
+                    table="afd_ai_support_case" column="message_id"
+                    referenceTable="afd_ai_message" referenceColumn="entity_id" onDelete="SET NULL"/>
+        <index referenceId="AFD_AI_CASE_CUSTOMER_CREATED_AT" indexType="btree"><column name="customer_id"/><column name="created_at"/></index>
+        <index referenceId="AFD_AI_CASE_GUEST_CREATED_AT" indexType="btree"><column name="guest_id"/><column name="created_at"/></index>
+        <index referenceId="AFD_AI_CASE_STORE_UPDATED_AT" indexType="btree"><column name="store_id"/><column name="website_id"/><column name="updated_at"/></index>
+        <index referenceId="AFD_AI_CASE_STATUS_UPDATED_AT" indexType="btree"><column name="status"/><column name="updated_at"/></index>
+        <index referenceId="AFD_AI_CASE_EMAIL_UPDATED_AT" indexType="btree"><column name="contact_email_hash"/><column name="updated_at"/></index>
+        <index referenceId="AFD_AI_CASE_ADMIN_UNREAD" indexType="btree"><column name="admin_unread_count"/><column name="updated_at"/></index>
+        <index referenceId="AFD_AI_CASE_TAKEOVER_CONVERSATION" indexType="btree"><column name="takeover_state"/><column name="conversation_id"/></index>
+    </table>
+
+    <table name="afd_ai_feedback" resource="default" engine="innodb" comment="AI Message Feedback and Quality Signals">
+        <column xsi:type="int" name="feedback_id" unsigned="true" nullable="false" identity="true" comment="Feedback ID"/>
+        <column xsi:type="int" name="conversation_id" unsigned="true" nullable="false" comment="Conversation ID"/>
+        <column xsi:type="int" name="message_id" unsigned="true" nullable="false" comment="Assistant Message ID"/>
+        <column xsi:type="int" name="customer_id" unsigned="true" nullable="true" comment="Customer ID"/>
+        <column xsi:type="varchar" name="guest_id" nullable="true" length="64" comment="Hashed Guest Chat Token"/>
+        <column xsi:type="varchar" name="rating" nullable="false" length="16" comment="Positive or Negative"/>
+        <column xsi:type="varchar" name="reason" nullable="true" length="64" comment="Feedback Reason"/>
+        <column xsi:type="text" name="comment" nullable="true" comment="Optional Customer Comment"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" on_update="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
+        <column xsi:type="timestamp" name="updated_at" nullable="false" on_update="true" default="CURRENT_TIMESTAMP" comment="Updated At"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY"><column name="feedback_id"/></constraint>
+        <constraint xsi:type="unique" referenceId="AFD_AI_FEEDBACK_MESSAGE_ID"><column name="message_id"/></constraint>
+        <constraint xsi:type="foreign" referenceId="AFD_AI_FEEDBACK_CONV_ID_AFD_AI_CONV_CONV_ID"
+                    table="afd_ai_feedback" column="conversation_id"
+                    referenceTable="afd_ai_conversation" referenceColumn="conversation_id" onDelete="CASCADE"/>
+        <constraint xsi:type="foreign" referenceId="AFD_AI_FEEDBACK_MSG_ID_AFD_AI_MSG_ENTITY_ID"
+                    table="afd_ai_feedback" column="message_id"
+                    referenceTable="afd_ai_message" referenceColumn="entity_id" onDelete="CASCADE"/>
+        <index referenceId="AFD_AI_FEEDBACK_RATING_CREATED_AT" indexType="btree"><column name="rating"/><column name="created_at"/></index>
+    </table>
+</schema>
