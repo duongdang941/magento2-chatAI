@@ -1,0 +1,29 @@
+{
+  "name": "afd/module-ai",
+  "description": "Magento 2 storefront AI assistant and human support gateway",
+  "type": "magento2-module",
+  "version": "1.1.0",
+  "license": "proprietary",
+  "require": {
+    "php": "^8.2",
+    "magento/framework": "*",
+    "magento/module-catalog": "*",
+    "magento/module-checkout": "*",
+    "magento/module-cms": "*",
+    "magento/module-customer": "*",
+    "magento/module-email": "*",
+    "magento/module-product-alert": "*",
+    "magento/module-sales": "*"
+  },
+  "suggest": {
+    "amasty/module-request-a-quote": "Enables the optional Quote Cart target."
+  },
+  "autoload": {
+    "files": [
+      "registration.php"
+    ],
+    "psr-4": {
+      "Afd\\AI\\": ""
+    }
+  }
+}
