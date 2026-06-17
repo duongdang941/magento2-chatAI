@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <preference for="Afd\AI\Api\CatalogVisibilityPolicyInterface" type="Afd\AI\Model\Catalog\CatalogVisibilityPolicy"/>
+    <preference for="Afd\AI\Api\AgentToolInterface" type="Afd\AI\Model\AgentTool" />
+    <preference for="Afd\AI\Api\ConfigInterface" type="Afd\AI\Model\Api\Config" />
+    <preference for="Afd\AI\Api\Data\AiConfigInterface" type="Afd\AI\Model\Data\AiConfig" />
+    <preference for="Afd\AI\Api\ProductRendererInterface" type="Afd\AI\Model\ProductRenderer" />
+    <preference for="Afd\AI\Api\Data\ToolResponseInterface" type="Afd\AI\Model\Data\ToolResponse" />
+    <preference for="Afd\AI\Api\Data\MessageInterface" type="Afd\AI\Model\Message" />
+    <preference for="Afd\AI\Api\MessageRepositoryInterface" type="Afd\AI\Model\MessageRepository" />
+    <preference for="Afd\AI\Api\Data\ConversationInterface" type="Afd\AI\Model\Conversation" />
+    <preference for="Afd\AI\Api\ConversationRepositoryInterface" type="Afd\AI\Model\ConversationRepository" />
+    <preference for="Afd\AI\Api\ConversationManagementInterface" type="Afd\AI\Model\ConversationManagement" />
+    <preference for="Afd\AI\Api\QuoteCartAdapterInterface" type="Afd\AI\Model\Cart\OptionalQuoteCartAdapter" />
+
+    <type name="Afd\AI\Model\Tool\FulltextProductCollectionFactory">
+        <arguments>
+            <argument name="collectionTypes" xsi:type="array">
+                <item name="elasticsearch7" xsi:type="string">elasticsearchFulltextSearchCollection</item>
+            </argument>
+        </arguments>
+    </type>
+
+    <!-- This database still contains product attributes from an uninstalled
+         Bss_GiftCard module. The compatibility virtual types preserve those
+         legacy values long enough for Magento's fulltext indexer to read the
+         catalog; they do not re-enable the missing GiftCard module. -->
+    <virtualType name="Bss\GiftCard\Model\Attribute\Source\Backend\Amounts" type="Magento\Eav\Model\Entity\Attribute\Backend\ArrayBackend"/>
+    <virtualType name="Bss\GiftCard\Model\Attribute\Source\Backend\Template" type="Magento\Eav\Model\Entity\Attribute\Backend\ArrayBackend"/>
+    <virtualType name="Bss\GiftCard\Model\Attribute\Source\Type" type="Magento\Eav\Model\Entity\Attribute\Source\Table"/>
+    <virtualType name="Bss\GiftCard\Model\Attribute\Source\Price" type="Magento\Eav\Model\Entity\Attribute\Source\Table"/>
+    <virtualType name="Bss\GiftCard\Model\Attribute\Source\Template" type="Magento\Eav\Model\Entity\Attribute\Source\Table"/>
+    <virtualType name="Bss\GiftCard\Model\Attribute\Source\Pattern" type="Magento\Eav\Model\Entity\Attribute\Source\Table"/>
+
+    <type name="Magento\Framework\Console\CommandListInterface">
+        <arguments>
+            <argument name="commands" xsi:type="array">
+                <item name="afd_ai_migrate_legacy_jsonl_history" xsi:type="object">Afd\AI\Console\Command\MigrateLegacyJsonlHistoryCommand</item>
+                <item name="afd_ai_gateway_credentials" xsi:type="object">Afd\AI\Console\Command\GatewayCredentialsCommand</item>
+            </argument>
+        </arguments>
+    </type>
+
+</config>
