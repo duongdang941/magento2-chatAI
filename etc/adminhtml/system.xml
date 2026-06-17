@@ -1,0 +1,590 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
+    <system>
+        <tab id="afd" translate="label" sortOrder="100">
+            <label>Afd Extensions</label>
+        </tab>
+
+        <section id="afd_ai" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+            <label>Store Assistant</label>
+            <tab>afd</tab>
+            <resource>Afd_AI::config</resource>
+            <group id="general" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>General Chat</label>
+                <field id="enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable Store Assistant</label>
+                    <comment>Enable AI chat for storefront shoppers.</comment>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="persist_guest_history" translate="label comment" type="select" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Persist Guest Chat History</label>
+                    <comment>Store guest conversations in the AI database so they remain available after the browser is reopened. Ownership uses an opaque, HTTP-only browser identifier.</comment>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="expose_coupon_codes" translate="label comment" type="select" sortOrder="25" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Allow AI to Share Coupon Codes</label>
+                    <comment>Disabled by default. Enable only for coupon rules whose codes are safe to disclose to every eligible shopper in this store view.</comment>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="chat_server_url" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Chat Server WebSocket URL</label>
+                    <comment>Optional override for a local or separate gateway. Leave empty in production to use this store's secure Base URL with /ai-gateway/. HTTPS stores automatically use WSS; the configured WebSocket origin is added to Magento CSP automatically.</comment>
+                </field>
+            </group>
+            <group id="attachments" translate="label" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Images &amp; Attachments</label>
+                <comment>Image generation is controlled here. Provider-specific image model credentials remain under AI Provider &amp; Models.</comment>
+                <group id="generation" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Image Generation</label>
+                    <comment>These settings control image requests after a provider image model has been configured.</comment>
+                <field id="image_generation_enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable Image Generation</label>
+                    <comment>Allow the selected AI provider to generate images.</comment>
+                    <config_path>afd_ai/general/image_generation_enabled</config_path>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="image_size" translate="label" type="select" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Generated Image Size</label>
+                    <config_path>afd_ai/general/cockpit_image_size</config_path>
+                    <source_model>Afd\AI\Model\Config\Source\ImageSize</source_model>
+                    <depends><field id="image_generation_enabled">1</field></depends>
+                </field>
+                <field id="image_quality" translate="label comment" type="select" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Generated Image Quality</label>
+                    <comment>Available for OpenAI-compatible image providers. Higher quality normally consumes more quota.</comment>
+                    <config_path>afd_ai/general/cockpit_image_quality</config_path>
+                    <source_model>Afd\AI\Model\Config\Source\ImageQuality</source_model>
+                    <depends>
+                        <field id="afd_ai/providers/provider" separator=",">cockpit,openai,openrouter,9router</field>
+                        <field id="image_generation_enabled">1</field>
+                    </depends>
+                </field>
+                <field id="image_timeout_ms" translate="label comment" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Image Generation Timeout (Milliseconds)</label>
+                    <comment>Allowed range: 30000–300000.</comment>
+                    <config_path>afd_ai/image_generation/timeout_ms</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                    <depends><field id="image_generation_enabled">1</field></depends>
+                </field>
+                </group>
+                <group id="upload_limits" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Uploads &amp; Vision Limits</label>
+                    <comment>Transport, image-size and vision concurrency limits for shopper uploads.</comment>
+                <field id="max_image_bytes" translate="label comment" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Maximum Uploaded Image Size (Bytes)</label>
+                    <comment>Allowed range: 262144–16777216 bytes. The WebSocket infrastructure limit must be at least as large.</comment>
+                    <config_path>afd_ai/attachments/max_image_bytes</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="max_images_per_message" translate="label comment" type="text" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Maximum Images per Message</label>
+                    <comment>Allowed range: 1–4.</comment>
+                    <config_path>afd_ai/attachments/max_images_per_message</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="max_total_image_bytes" translate="label comment" type="text" sortOrder="70" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Maximum Combined Image Bytes</label>
+                    <comment>Total decoded image bytes per message. Keep this below the WebSocket budget after base64 overhead.</comment>
+                    <config_path>afd_ai/attachments/max_total_image_bytes</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="max_total_encoded_bytes" translate="label comment" type="text" sortOrder="80" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Maximum Combined Base64 Bytes</label>
+                    <comment>Total encoded bytes per message. The default reserves 2 MiB for JSON, text and history inside an 8 MiB WebSocket frame.</comment>
+                    <config_path>afd_ai/attachments/max_total_encoded_bytes</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="max_total_pixels" translate="label comment" type="text" sortOrder="90" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Maximum Combined Pixels</label>
+                    <comment>Total width × height across every uploaded image.</comment>
+                    <config_path>afd_ai/attachments/max_total_pixels</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="vision_concurrency" translate="label comment" type="text" sortOrder="100" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Concurrent Vision Requests</label>
+                    <comment>Dedicated vision pool. Keep this lower than total model concurrency so text chat retains capacity.</comment>
+                    <config_path>afd_ai/attachments/vision_concurrency</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="cost_units_per_minute" translate="label comment" type="text" sortOrder="110" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Vision Cost Units per Shopper / Minute</label>
+                    <comment>Weighted by image count and bytes, rather than request count only.</comment>
+                    <config_path>afd_ai/attachments/cost_units_per_minute</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="network_cost_units_per_minute" translate="label comment" type="text" sortOrder="120" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Vision Cost Units per Network / Minute</label>
+                    <comment>Limits guest session rotation from one client network.</comment>
+                    <config_path>afd_ai/attachments/network_cost_units_per_minute</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="global_cost_units_per_minute" translate="label comment" type="text" sortOrder="130" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Global Vision Cost Units per Minute</label>
+                    <comment>Protects the provider and the gateway from aggregate vision bursts.</comment>
+                    <config_path>afd_ai/attachments/global_cost_units_per_minute</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                </group>
+            </group>
+            <group id="providers" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>AI Provider &amp; Models (Start Here)</label>
+                <comment>Choose one provider first. Only the matching provider settings are shown below; common chat, image and voice limits are in their own groups.</comment>
+                <field id="provider" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>AI Provider</label>
+                    <comment>This choice controls which provider credentials, models and provider-only voice settings are available.</comment>
+                    <config_path>afd_ai/general/provider</config_path>
+                    <source_model>Afd\AI\Model\Config\Source\AiProvider</source_model>
+                </field>
+
+                <group id="gemini" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Google Gemini</label>
+                    <comment>Google Gemini credentials and models.</comment>
+                    <depends><field id="provider">gemini</field></depends>
+                    <field id="gemini_api_key" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Gemini API Key</label>
+                        <config_path>afd_ai/general/gemini_api_key</config_path>
+                        <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
+                    </field>
+                    <field id="gemini_model" translate="label comment" type="select" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Gemini Chat Model</label>
+                        <comment>Text model used by Gemini chat.</comment>
+                        <config_path>afd_ai/general/gemini_model</config_path>
+                        <source_model>Afd\AI\Model\Config\Source\GeminiModel</source_model>
+                    </field>
+                    <field id="gemini_voice_model" translate="label comment" type="select" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Gemini Voice Dictation Model</label>
+                        <comment>Audio-capable Gemini model used for voice dictation.</comment>
+                        <config_path>afd_ai/voice/gemini_model</config_path>
+                        <source_model>Afd\AI\Model\Config\Source\GeminiModel</source_model>
+                    </field>
+                    <field id="gemini_image_model" translate="label comment" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Gemini Image Model</label>
+                        <comment>Gemini image-generation model, for example gemini-3.1-flash-image.</comment>
+                        <config_path>afd_ai/general/gemini_image_model</config_path>
+                    </field>
+                </group>
+
+                <group id="openai" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>OpenAI</label>
+                    <comment>OpenAI chat, transcription and optional Realtime voice settings.</comment>
+                    <depends><field id="provider">openai</field></depends>
+                    <field id="openai_api_key" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>OpenAI API Key</label>
+                        <config_path>afd_ai/general/openai_api_key</config_path>
+                        <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
+                    </field>
+                    <field id="openai_model" translate="label" type="select" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>OpenAI Chat Model</label>
+                        <config_path>afd_ai/general/openai_model</config_path>
+                        <source_model>Afd\AI\Model\Config\Source\OpenAiModel</source_model>
+                    </field>
+                    <field id="voice_transcription_model" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Voice Dictation Model</label>
+                        <comment>Audio transcription model, for example gpt-4o-mini-transcribe.</comment>
+                        <config_path>afd_ai/voice/transcription_model</config_path>
+                    </field>
+                    <field id="live_voice_enabled" translate="label comment" type="select" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>OpenAI Realtime Live Voice</label>
+                        <comment>Enable only when this provider is OpenAI.</comment>
+                        <config_path>afd_ai/voice/live_enabled</config_path>
+                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    </field>
+                    <field id="live_voice_openai_api_key" translate="label comment" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Live Voice API Key</label>
+                        <comment>Sent only to the Node gateway and never to the shopper browser.</comment>
+                        <config_path>afd_ai/voice/live_openai_api_key</config_path>
+                        <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
+                        <depends><field id="live_voice_enabled">1</field></depends>
+                    </field>
+                    <field id="live_voice_model" translate="label comment" type="text" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Live Voice Model</label>
+                        <comment>OpenAI audio model, for example gpt-realtime-1.5.</comment>
+                        <config_path>afd_ai/voice/live_model</config_path>
+                        <depends><field id="live_voice_enabled">1</field></depends>
+                    </field>
+                    <field id="live_voice_max_sessions_per_minute" translate="label comment" type="text" sortOrder="70" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Live Voice Sessions per Minute</label>
+                        <comment>Per customer or stable guest session. Allowed range: 1–30.</comment>
+                        <config_path>afd_ai/voice/live_max_sessions_per_minute</config_path>
+                        <validate>validate-number validate-greater-than-zero</validate>
+                        <depends><field id="live_voice_enabled">1</field></depends>
+                    </field>
+                    <field id="live_voice_max_duration_seconds" translate="label comment" type="text" sortOrder="80" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Live Voice Maximum Session Duration (Seconds)</label>
+                        <comment>The browser ends the call locally after this duration. Allowed range: 30–1800.</comment>
+                        <config_path>afd_ai/voice/live_max_duration_seconds</config_path>
+                        <validate>validate-number validate-greater-than-zero</validate>
+                        <depends><field id="live_voice_enabled">1</field></depends>
+                    </field>
+                </group>
+
+                <group id="openrouter" translate="label comment" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>OpenRouter</label>
+                    <comment>OpenRouter credentials and model.</comment>
+                    <depends><field id="provider">openrouter</field></depends>
+                    <field id="openrouter_api_key" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>OpenRouter API Key</label>
+                        <config_path>afd_ai/general/openrouter_api_key</config_path>
+                        <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
+                    </field>
+                    <field id="openrouter_model" translate="label" type="select" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>OpenRouter Chat Model</label>
+                        <config_path>afd_ai/general/openrouter_model</config_path>
+                        <source_model>Afd\AI\Model\Config\Source\OpenRouterModel</source_model>
+                    </field>
+                    <field id="voice_transcription_model" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Voice Dictation Model</label>
+                        <comment>Audio transcription model for this provider.</comment>
+                        <config_path>afd_ai/voice/transcription_model</config_path>
+                    </field>
+                </group>
+
+                <group id="nine_router" translate="label comment" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>9router</label>
+                    <comment>9router endpoint, credentials and model.</comment>
+                    <depends><field id="provider">9router</field></depends>
+                    <field id="nine_router_api_key" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>9router API Key</label>
+                        <config_path>afd_ai/general/nine_router_api_key</config_path>
+                        <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
+                    </field>
+                    <field id="nine_router_base_url" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>9router Base URL</label>
+                        <comment>OpenAI-compatible endpoint URL.</comment>
+                        <config_path>afd_ai/general/nine_router_base_url</config_path>
+                    </field>
+                    <field id="nine_router_model" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>9router Chat Model</label>
+                        <comment>Model ID returned by the provider.</comment>
+                        <config_path>afd_ai/general/nine_router_model</config_path>
+                    </field>
+                    <field id="voice_transcription_model" translate="label comment" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Voice Dictation Model</label>
+                        <comment>Audio transcription model for this provider.</comment>
+                        <config_path>afd_ai/voice/transcription_model</config_path>
+                    </field>
+                </group>
+
+                <group id="cockpit" translate="label comment" type="text" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Cockpit</label>
+                    <comment>Local or remote OpenAI-compatible Cockpit endpoint.</comment>
+                    <depends><field id="provider">cockpit</field></depends>
+                    <field id="cockpit_api_key" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Cockpit API Key</label>
+                        <config_path>afd_ai/general/cockpit_api_key</config_path>
+                        <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
+                    </field>
+                    <field id="cockpit_base_url" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Cockpit OpenAI-compatible Base URL</label>
+                        <comment>Set the endpoint supplied by the deployment; do not assume a local hostname in production.</comment>
+                        <config_path>afd_ai/general/cockpit_base_url</config_path>
+                    </field>
+                    <field id="cockpit_model" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Cockpit Chat Model</label>
+                        <comment>Model ID offered by Cockpit.</comment>
+                        <config_path>afd_ai/general/cockpit_model</config_path>
+                    </field>
+                    <field id="voice_transcription_model" translate="label comment" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Voice Dictation Model</label>
+                        <comment>Audio transcription model for this provider.</comment>
+                        <config_path>afd_ai/voice/transcription_model</config_path>
+                    </field>
+                </group>
+
+                <group id="compatible_image" translate="label comment" type="text" sortOrder="70" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>OpenAI-compatible Image Model</label>
+                    <comment>Shared by OpenAI, OpenRouter, 9router and Cockpit when image generation is enabled.</comment>
+                    <depends>
+                        <field id="provider" separator=",">cockpit,openai,openrouter,9router</field>
+                    </depends>
+                    <field id="openai_compatible_image_model" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Image Model</label>
+                        <config_path>afd_ai/general/cockpit_image_model</config_path>
+                    </field>
+                </group>
+            </group>
+
+            <group id="voice_general" translate="label" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Voice Dictation &amp; Limits</label>
+                <field id="dictation_enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable Voice Dictation</label>
+                    <comment>Records locally and sends the audio only to the selected provider for transient transcription. Audio is never stored in chat history.</comment>
+                    <config_path>afd_ai/voice/enabled</config_path>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="max_duration_seconds" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Maximum Recording Duration (Seconds)</label>
+                    <comment>Allowed range: 5–300 seconds.</comment>
+                    <config_path>afd_ai/voice/max_duration_seconds</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="max_audio_bytes" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Maximum Recording Size (Bytes)</label>
+                    <comment>Allowed range: 262144–4194304 bytes. This remains below the gateway WebSocket payload limit after base64 encoding.</comment>
+                    <config_path>afd_ai/voice/max_audio_bytes</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="timeout_ms" translate="label comment" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Transcription Timeout (Milliseconds)</label>
+                    <comment>Allowed range: 10000–180000.</comment>
+                    <config_path>afd_ai/voice/timeout_ms</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="requests_per_minute" translate="label comment" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Transcriptions per Minute</label>
+                    <comment>Per customer or stable guest session. Allowed range: 1–30.</comment>
+                    <config_path>afd_ai/voice/requests_per_minute</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="max_concurrent_per_identity" translate="label comment" type="text" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Concurrent Transcriptions per Shopper</label>
+                    <comment>Allowed range: 1–2. Keep at 1 to avoid duplicate microphone requests.</comment>
+                    <config_path>afd_ai/voice/max_concurrent_per_identity</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+            </group>
+
+            <group id="advanced" translate="label" type="text" sortOrder="100" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Advanced Operations &amp; Integrations</label>
+            <group id="agent" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Quality &amp; Tool Budget</label>
+                <field id="max_tool_rounds" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Maximum Agent Tool Rounds</label>
+                    <comment>Provider reasoning rounds per response. Allowed range: 1–12. Higher values improve difficult retrieval but increase latency and usage.</comment>
+                    <config_path>afd_ai/agent/max_tool_rounds</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="max_tool_executions" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Maximum Tool Executions per Message</label>
+                    <comment>Total Magento, web and image tool executions. Allowed range: 1–30.</comment>
+                    <config_path>afd_ai/agent/max_tool_executions</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="max_category_calls" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Maximum Category Lookups per Message</label>
+                    <comment>Allowed range: 1–10. Product searches are not counted as category lookups.</comment>
+                    <config_path>afd_ai/agent/max_category_calls</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="block_duplicate_tool_calls" translate="label comment" type="select" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Block Duplicate Tool Calls</label>
+                    <comment>Prevent the model from repeating the same tool with identical arguments in one response.</comment>
+                    <config_path>afd_ai/agent/block_duplicate_tool_calls</config_path>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="max_output_tokens" translate="label comment" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Maximum Output Tokens</label>
+                    <comment>Allowed range: 256–8192. Provider support may vary.</comment>
+                    <config_path>afd_ai/agent/max_output_tokens</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="max_model_history_messages" translate="label comment" type="text" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Messages Included in Model Context</label>
+                    <comment>Maximum recent messages considered before the token budget is applied. Allowed range: 4–40.</comment>
+                    <config_path>afd_ai/agent/max_model_history_messages</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="max_history_tokens" translate="label comment" type="text" sortOrder="70" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Conversation History Token Budget</label>
+                    <comment>Approximate input-token budget for recent chat history. Newest messages are retained first. Allowed range: 512–64000.</comment>
+                    <config_path>afd_ai/agent/max_history_tokens</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="max_tool_context_tokens" translate="label comment" type="text" sortOrder="80" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Tool Result Token Budget</label>
+                    <comment>Approximate maximum model context for each Magento or search tool result. Full frontend and audit payloads are not changed. Allowed range: 256–24000.</comment>
+                    <config_path>afd_ai/agent/max_tool_context_tokens</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="provider_stream_timeout_ms" translate="label comment" type="text" sortOrder="90" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Provider Stream Timeout (Milliseconds)</label>
+                    <comment>Allowed range: 10000–300000.</comment>
+                    <config_path>afd_ai/agent/provider_stream_timeout_ms</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+            </group>
+
+            <group id="image_usage_limits" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Image Usage Limits</label>
+                <field id="customer_per_hour" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Logged-in Customer Images per Hour</label>
+                    <comment>Allowed range: 1–100.</comment>
+                    <config_path>afd_ai/image_generation/customer_per_hour</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="customer_per_day" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Logged-in Customer Images per Day</label>
+                    <comment>Allowed range: 1–500.</comment>
+                    <config_path>afd_ai/image_generation/customer_per_day</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="guest_per_hour" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Guest Images per Hour</label>
+                    <comment>Applied to the stable guest browser identity. Allowed range: 1–50.</comment>
+                    <config_path>afd_ai/image_generation/guest_per_hour</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="guest_per_day" translate="label comment" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Guest Images per Day</label>
+                    <comment>Allowed range: 1–200.</comment>
+                    <config_path>afd_ai/image_generation/guest_per_day</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="cooldown_seconds" translate="label comment" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Image Request Cooldown (Seconds)</label>
+                    <comment>Minimum delay between requests by the same shopper. Allowed range: 0–3600.</comment>
+                    <config_path>afd_ai/image_generation/cooldown_seconds</config_path>
+                    <validate>validate-number</validate>
+                </field>
+                <field id="max_concurrent_per_identity" translate="label comment" type="text" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Concurrent Images per Shopper</label>
+                    <comment>Allowed range: 1–3. Keep at 1 for predictable provider usage.</comment>
+                    <config_path>afd_ai/image_generation/max_concurrent_per_identity</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+            </group>
+
+            <group id="traffic_limits" translate="label" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Shopper Rate Limits</label>
+                <field id="messages_per_minute" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Messages per Minute</label>
+                    <comment>Per customer or stable guest session. Allowed range: 1–120.</comment>
+                    <config_path>afd_ai/rate_limits/messages_per_minute</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="product_pages_per_minute" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Product Pages per Minute</label>
+                    <comment>Pagination requests per shopper. Allowed range: 1–120.</comment>
+                    <config_path>afd_ai/rate_limits/product_pages_per_minute</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="address_updates_per_minute" translate="label" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Address Updates per Minute</label>
+                    <config_path>afd_ai/rate_limits/address_updates_per_minute</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="address_updates_per_hour" translate="label" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Address Updates per Hour</label>
+                    <config_path>afd_ai/rate_limits/address_updates_per_hour</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+            </group>
+            <group id="gateway_capacity" translate="label" type="text" sortOrder="40" showInDefault="1" showInWebsite="0" showInStore="0">
+                <label>Gateway Capacity</label>
+                <field id="concurrent_model_requests" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Concurrent Model Requests</label>
+                    <comment>Global shared capacity across gateway replicas. Allowed range: 1–1000.</comment>
+                    <config_path>afd_ai/capacity/concurrent_model_requests</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="queue_depth" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Maximum Queue Depth</label>
+                    <comment>Allowed range: 1–10000.</comment>
+                    <config_path>afd_ai/capacity/queue_depth</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="queue_wait_ms" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Maximum Queue Wait (Milliseconds)</label>
+                    <comment>Allowed range: 1000–300000.</comment>
+                    <config_path>afd_ai/capacity/queue_wait_ms</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="model_lease_ms" translate="label comment" type="text" sortOrder="40" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Model Request Lease (Milliseconds)</label>
+                    <comment>Allowed range: 10000–600000 and should exceed the provider timeout.</comment>
+                    <config_path>afd_ai/capacity/model_lease_ms</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+            </group>
+
+            <group id="store_knowledge" translate="label" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Magento Content</label>
+                <field id="enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Search Magento CMS Content</label>
+                    <comment>Use active CMS pages and blocks as authoritative sources for policies, delivery, payment, warranty and FAQ answers.</comment>
+                    <config_path>afd_ai/knowledge/enabled</config_path>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+            </group>
+
+            <group id="human_handoff" translate="label" type="text" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Support Team</label>
+                <field id="enabled" translate="label" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable Human Handoff</label>
+                    <config_path>afd_ai/support/enabled</config_path>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="recipient_email" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Support Queue Email</label>
+                    <comment>Cases are always saved before email is attempted.</comment>
+                    <config_path>afd_ai/support/recipient_email</config_path>
+                    <validate>validate-email</validate>
+                </field>
+            </group>
+
+            <group id="privacy_retention" translate="label" type="text" sortOrder="70" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Data Retention</label>
+                <field id="conversation_retention_days" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Conversation Retention (Days)</label>
+                    <comment>Allowed range: 1–730 days.</comment>
+                    <config_path>afd_ai/privacy/conversation_retention_days</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="resolved_case_retention_days" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Resolved Case Retention (Days)</label>
+                    <comment>Allowed range: 1–2555 days.</comment>
+                    <config_path>afd_ai/privacy/resolved_case_retention_days</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+            </group>
+
+            <group id="magento_oauth" translate="label" type="text" sortOrder="80" showInDefault="1" showInWebsite="0" showInStore="0">
+                <label>Magento OAuth</label>
+                <field id="consumer_key" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Consumer Key</label>
+                    <config_path>afd_ai/general/magento_consumer_key</config_path>
+                    <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
+                </field>
+                <field id="consumer_secret" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Consumer Secret</label>
+                    <config_path>afd_ai/general/magento_consumer_secret</config_path>
+                    <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
+                </field>
+                <field id="access_token" translate="label" type="text" sortOrder="30" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Access Token</label>
+                    <config_path>afd_ai/general/magento_access_token</config_path>
+                    <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
+                </field>
+                <field id="access_token_secret" translate="label" type="text" sortOrder="40" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Access Token Secret</label>
+                    <config_path>afd_ai/general/magento_access_token_secret</config_path>
+                    <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
+                </field>
+            </group>
+            <group id="gateway_security" translate="label" type="text" sortOrder="90" showInDefault="1" showInWebsite="0" showInStore="0">
+                <label>Gateway Security &amp; Sync</label>
+                <field id="node_sync_secret" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Node Service HMAC Secret</label>
+                    <comment>This value is read-only so an Admin configuration save cannot change it. Copy it to every Node gateway as AI_NODE_SYNC_SECRET. To retrieve both active Node credentials from the command line, run: bin/magento afd:ai:gateway:credentials</comment>
+                    <config_path>afd_ai/general/node_sync_secret</config_path>
+                    <backend_model>Afd\AI\Model\Config\Backend\ProtectedGatewaySecret</backend_model>
+                    <frontend_model>Afd\AI\Block\Adminhtml\System\Config\GatewaySecret</frontend_model>
+                </field>
+                <field id="ws_ticket_secret" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>WebSocket Ticket Secret</label>
+                    <comment>This value is read-only so an Admin configuration save cannot change it. Copy it to every Node gateway as AI_WS_TICKET_SECRET. To retrieve both active Node credentials from the command line, run: bin/magento afd:ai:gateway:credentials</comment>
+                    <config_path>afd_ai/general/ws_ticket_secret</config_path>
+                    <backend_model>Afd\AI\Model\Config\Backend\ProtectedGatewaySecret</backend_model>
+                    <frontend_model>Afd\AI\Block\Adminhtml\System\Config\GatewaySecret</frontend_model>
+                </field>
+                <field id="node_sync_status" translate="label" type="note" sortOrder="30" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Node Configuration Sync Status</label>
+                    <config_path>afd_ai/general/node_sync_status</config_path>
+                    <frontend_model>Afd\AI\Block\Adminhtml\System\Config\NodeSyncStatus</frontend_model>
+                </field>
+            </group>
+            </group>
+        </section>
+    </system>
+</config>
