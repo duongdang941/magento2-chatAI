@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<csp_whitelist xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Csp/etc/csp_whitelist.xsd">
+    <policies>
+        <policy id="connect-src">
+            <values>
+                <!-- Live Voice uses a short-lived credential and WebRTC
+                     signalling directly with OpenAI. The long-lived key is
+                     never available in the browser. -->
+                <value id="afd_ai_openai_realtime" type="host">api.openai.com</value>
+            </values>
+        </policy>
+    </policies>
+</csp_whitelist>
