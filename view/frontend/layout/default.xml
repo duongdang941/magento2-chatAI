@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+    <head>
+        <css src="Afd_AI::css/fonts.css"/>
+        <css src="Afd_AI::css/chat-widget.css"/>
+        <css src="Afd_AI::css/composer-actions.css"/>
+    </head>
+    <body>
+        <referenceContainer name="before.body.end">
+            <block class="Afd\AI\Block\ChatWidget" name="afd.ai.chat.widget" template="Afd_AI::chat/interface.phtml">
+                <block class="Afd\AI\Block\ChatWidget" name="afd.ai.chat.widget.sidebar" as="sidebar" template="Afd_AI::chat/partials/sidebar.phtml"/>
+                <block class="Afd\AI\Block\ChatWidget" name="afd.ai.chat.widget.history_search" as="history_search" template="Afd_AI::chat/partials/history-search.phtml"/>
+                <block class="Afd\AI\Block\ChatWidget" name="afd.ai.chat.widget.delete_confirmation" as="delete_confirmation" template="Afd_AI::chat/partials/delete-confirmation.phtml"/>
+                <block class="Afd\AI\Block\ChatWidget" name="afd.ai.chat.widget.main" as="main" template="Afd_AI::chat/partials/main.phtml">
+                    <block class="Afd\AI\Block\ChatWidget" name="afd.ai.chat.widget.header" as="header" template="Afd_AI::chat/partials/header.phtml"/>
+                    <block class="Afd\AI\Block\ChatWidget" name="afd.ai.chat.widget.settings" as="settings" template="Afd_AI::chat/partials/settings.phtml"/>
+                    <block class="Afd\AI\Block\ChatWidget" name="afd.ai.chat.widget.conversation" as="conversation" template="Afd_AI::chat/partials/conversation.phtml"/>
+                    <block class="Afd\AI\Block\ChatWidget" name="afd.ai.chat.widget.composer" as="composer" template="Afd_AI::chat/partials/composer.phtml"/>
+                </block>
+                <block class="Afd\AI\Block\ChatWidget" name="afd.ai.chat.widget.launcher" as="launcher" template="Afd_AI::chat/partials/launcher.phtml"/>
+            </block>
+        </referenceContainer>
+    </body>
+</page>
