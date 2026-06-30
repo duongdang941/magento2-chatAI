@@ -1,0 +1,209 @@
+.afd-ai-chat__generated-image {
+    // Keep completed generations as a compact chat card. The full-resolution
+    // image remains available from the Open image action.
+    width: ~"min(100%, 18rem)";
+    margin: 0.95rem 0 0;
+
+    &-progress {
+        // Keep a stable box while the elapsed-time label changes from one to
+        // two or three digits. A shrink-to-fit inline flex made the 100%-wide
+        // placeholder repeatedly grow and contract with that text.
+        display: flex;
+        width: 14rem;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.62rem;
+        max-width: 100%;
+    }
+
+    &-placeholder {
+        position: relative;
+        display: grid;
+        // Slightly larger than the former compact placeholder, while still
+        // respecting narrow/mobile chat columns.
+        width: 100%;
+        aspect-ratio: 1;
+        place-items: center;
+        overflow: hidden;
+        border: 1px solid ~"color-mix(in srgb, var(--afd-chat-accent-live) 24%, transparent)";
+        border-radius: 0.875rem;
+        background: ~"color-mix(in srgb, var(--afd-chat-accent-live) 11%, #303030)";
+        box-shadow: inset 0 1px 0 ~"color-mix(in srgb, var(--afd-chat-accent-live) 15%, transparent)",
+            0 8px 24px ~"color-mix(in srgb, var(--afd-chat-accent-live) 8%, transparent)";
+    }
+
+    &-dots {
+        position: absolute;
+        inset: 0;
+        display: block;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        opacity: 0.38;
+        animation: afd-ai-chat-image-dot-field-opacity 1.75s ease-in-out infinite;
+        pointer-events: none;
+    }
+
+    &-progress-copy {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.42rem;
+        color: ~"color-mix(in srgb, var(--afd-chat-accent-live) 52%, var(--afd-chat-text-secondary-live))";
+        font-size: ~"calc(0.78rem * var(--afd-chat-font-scale))";
+        line-height: 1.3;
+
+        .material-symbols-outlined {
+            color: var(--afd-chat-accent-live);
+            font-size: 1rem;
+        }
+    }
+
+    &-error {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.65rem 0.75rem;
+        border: 1px solid fade(@afd-chat-danger, 34%);
+        border-radius: @afd-chat-radius-md;
+        background: fade(@afd-chat-danger, 9%);
+        color: @afd-chat-danger;
+        font-size: ~"calc(0.78rem * var(--afd-chat-font-scale))";
+    }
+
+    &-result {
+        position: relative;
+        display: block;
+        margin: 0;
+        overflow: hidden;
+        border: 1px solid @afd-chat-border;
+        border-radius: @afd-chat-radius-md;
+        background: @afd-chat-surface-raised;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+    }
+
+    &-img {
+        display: block;
+        width: 100%;
+        height: auto;
+        max-height: 34rem;
+        object-fit: contain;
+        background: @afd-chat-surface-raised;
+    }
+
+    &-actions {
+        position: absolute;
+        right: 0.6rem;
+        bottom: 0.6rem;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        flex-wrap: nowrap;
+        gap: 0.4rem;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(0.35rem);
+        transition: opacity 0.16s @afd-chat-ease, transform 0.16s @afd-chat-ease;
+    }
+
+    &-action {
+        .afd-chat-button-reset();
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 2rem;
+        width: 2rem;
+        height: 2rem;
+        min-height: 2rem;
+        padding: 0;
+        border: 1px solid rgba(255, 255, 255, 0.48);
+        border-radius: 999px;
+        background: rgba(18, 18, 22, 0.78);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+        color: #ffffff;
+        cursor: pointer;
+        text-decoration: none;
+        -webkit-backdrop-filter: blur(10px);
+        backdrop-filter: blur(10px);
+        transition: background 0.16s @afd-chat-ease, border-color 0.16s @afd-chat-ease, color 0.16s @afd-chat-ease, transform 0.16s @afd-chat-ease;
+
+        &:hover,
+        &:focus-visible {
+            border-color: var(--afd-chat-accent-live);
+            background: ~"color-mix(in srgb, var(--afd-chat-accent-live) 32%, rgba(18, 18, 22, 0.86))";
+            color: #ffffff;
+            outline: none;
+            transform: translateY(-1px);
+        }
+
+        .material-symbols-outlined {
+            font-size: 1rem;
+        }
+    }
+
+}
+
+.afd-ai-chat__generated-image-result:hover > .afd-ai-chat__generated-image-actions,
+.afd-ai-chat__generated-image-result:focus-within > .afd-ai-chat__generated-image-actions {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+}
+
+@keyframes afd-ai-chat-image-dot-field-opacity {
+    50% { opacity: 0.56; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .afd-ai-chat__generated-image-dots {
+        animation: none;
+    }
+}
+
+.afd-ai-chat[data-ui-theme="light"] {
+    .afd-ai-chat__generated-image {
+        &-placeholder {
+            border-color: ~"color-mix(in srgb, var(--afd-chat-accent-live) 22%, #ffffff)";
+            background: ~"color-mix(in srgb, var(--afd-chat-accent-live) 9%, #f0f1f5)";
+            box-shadow: inset 0 1px 0 ~"color-mix(in srgb, var(--afd-chat-accent-live) 10%, #ffffff)",
+                0 8px 24px ~"color-mix(in srgb, var(--afd-chat-accent-live) 7%, transparent)";
+        }
+
+        &-progress-copy {
+            color: ~"color-mix(in srgb, var(--afd-chat-accent-live) 58%, var(--afd-chat-text-secondary-live))";
+        }
+
+        &-result {
+            border-color: var(--afd-chat-border-live);
+            background: var(--afd-chat-surface-live);
+            box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+        }
+
+        &-img {
+            background: #f7f8fb;
+        }
+
+        &-action {
+            border-color: rgba(255, 255, 255, 0.68);
+            background: rgba(20, 24, 32, 0.74);
+            color: #ffffff;
+
+            &:hover,
+            &:focus-visible {
+                border-color: var(--afd-chat-accent-live);
+                background: ~"color-mix(in srgb, var(--afd-chat-accent-live) 28%, rgba(20, 24, 32, 0.84))";
+                color: #ffffff;
+            }
+        }
+    }
+}
+
+@media (hover: none), (pointer: coarse) {
+    .afd-ai-chat__generated-image-actions {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateY(0);
+    }
+}

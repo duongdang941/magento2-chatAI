@@ -1,0 +1,361 @@
+.afd-ai-chat__product-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
+    width: 100%;
+    gap: 10px;
+    margin: 12px 0 0;
+}
+
+.afd-ai-chat__product-result-set {
+    width: 100%;
+}
+
+.afd-ai-chat__product-coverage {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.38rem;
+    margin-top: 0.75rem;
+    color: @afd-chat-text-muted;
+
+    > .material-symbols-outlined {
+        flex: 0 0 auto;
+        color: var(--afd-chat-accent-live);
+        font-size: 0.95rem;
+        line-height: 1;
+    }
+}
+
+.afd-ai-chat__product-pagination {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.55rem 0.8rem;
+    margin-top: 0.75rem;
+    padding: 0.62rem 0;
+    border-top: 1px solid fade(@afd-chat-border, 82%);
+}
+
+.afd-ai-chat__product-pagination-summary {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1.25rem;
+    // Porto/Hyva applies a paragraph bottom margin after the widget styles.
+    // It must not participate in the grid row or the summary sits off-centre.
+    margin: 0 !important;
+    color: @afd-chat-text-muted;
+    font-size: ~"calc(0.74rem * var(--afd-chat-font-scale))";
+    line-height: 1.2;
+}
+
+.afd-ai-chat__product-pagination-actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.afd-ai-chat__product-pagination-btn,
+.afd-ai-chat__product-pagination-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2rem;
+    gap: 0.28rem;
+    padding: 0.32rem 0.56rem;
+    border: 1px solid fade(@afd-chat-accent, 35%);
+    border-radius: @afd-chat-radius-sm;
+    background: @afd-chat-accent-soft;
+    color: var(--afd-chat-accent-live);
+    font-size: ~"calc(0.72rem * var(--afd-chat-font-scale))";
+    font-weight: 680;
+    line-height: 1;
+    text-decoration: none;
+}
+
+.afd-ai-chat__product-pagination-btn {
+    cursor: pointer;
+}
+
+.afd-ai-chat__product-pagination-link {
+    // The storefront theme sets links back to block layout. Keep this action
+    // as a flex control so its label and Material Symbol stay centred.
+    display: inline-flex !important;
+    height: 2rem;
+    padding-top: 0;
+    padding-bottom: 0;
+    box-sizing: border-box;
+}
+
+.afd-ai-chat__product-pagination-link > span {
+    display: inline-flex;
+    align-items: center;
+    height: 1rem;
+    line-height: 1rem;
+}
+
+.afd-ai-chat__product-pagination-btn:hover:not(:disabled),
+.afd-ai-chat__product-pagination-link:hover {
+    border-color: var(--afd-chat-accent-live);
+    background: fade(@afd-chat-accent, 18%);
+    color: var(--afd-chat-accent-live);
+}
+
+.afd-ai-chat__product-pagination-btn:disabled {
+    cursor: progress;
+    opacity: 0.65;
+}
+
+.afd-ai-chat__product-pagination-btn .material-symbols-outlined {
+    font-size: 0.95rem;
+}
+
+.afd-ai-chat__product-pagination-link-icon {
+    flex: 0 0 0.95rem;
+    justify-content: center;
+    width: 0.95rem;
+    height: 0.95rem;
+    margin: 0;
+    font-size: 0.95rem;
+    line-height: 1;
+    vertical-align: middle;
+    transform: none;
+}
+
+.afd-ai-chat__product-pagination-icon--spinning {
+    animation: afd-spin 0.85s linear infinite;
+}
+
+.afd-ai-chat__product-card {
+    .afd-chat-card();
+    display: flex;
+    overflow: hidden;
+    flex-direction: column;
+    min-width: 0;
+    border-color: rgba(255, 255, 255, 0.11);
+    border-radius: 8px;
+    background: rgba(20, 20, 23, 0.76);
+    transition: transform 0.16s @afd-chat-ease, border-color 0.16s @afd-chat-ease, background 0.16s @afd-chat-ease;
+}
+
+.afd-ai-chat__product-card:hover {
+    border-color: rgba(255, 255, 255, 0.22);
+    background: rgba(28, 28, 32, 0.86);
+    transform: translateY(-1px);
+}
+
+.afd-ai-chat__product-media-link,
+.afd-ai-chat__product-name-link {
+    display: block;
+    color: inherit;
+    text-decoration: none;
+}
+
+.afd-ai-chat__product-img-wrap {
+    position: relative;
+    width: 100%;
+    height: ~"clamp(112px, 14vw, 138px)";
+    min-height: 0;
+    max-height: 138px;
+    overflow: hidden;
+    background: #101113;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.afd-ai-chat__product-img {
+    width: 100%;
+    height: 100%;
+    padding: 8px;
+    object-fit: contain;
+    object-position: center center;
+}
+
+.afd-ai-chat__product-info {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    min-width: 0;
+}
+
+h4.afd-ai-chat__product-name {
+    margin: 0;
+    overflow: hidden;
+    color: @afd-chat-text;
+    font-size: ~"calc(13px * var(--afd-chat-font-scale))";
+    font-weight: 740;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: normal;
+}
+
+.afd-ai-chat__product-pricing {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 6px;
+    min-width: 0;
+
+    .price-box,
+    .normal-price,
+    .special-price,
+    .old-price,
+    .price-wrapper {
+        display: inline-flex;
+        align-items: baseline;
+        min-width: 0;
+        margin: 0;
+        line-height: 1.25;
+    }
+
+    .price-box {
+        flex-wrap: wrap;
+        gap: 4px 6px;
+    }
+
+    .normal-price,
+    .special-price {
+        color: #a8b0ff;
+        font-size: ~"calc(13px * var(--afd-chat-font-scale))";
+        font-weight: 760;
+    }
+
+    .old-price {
+        order: -1;
+        color: @afd-chat-text-faint;
+        font-size: ~"calc(11px * var(--afd-chat-font-scale))";
+        font-weight: 500;
+    }
+
+    .old-price .price {
+        text-decoration: line-through;
+    }
+
+    .price-label {
+        margin-right: 4px;
+        color: @afd-chat-text-muted;
+        font-size: ~"calc(11px * var(--afd-chat-font-scale))";
+        font-weight: 600;
+    }
+
+    .price {
+        color: inherit;
+    }
+
+    .minimal-price-link {
+        color: var(--afd-chat-accent-live);
+        font-size: ~"calc(11px * var(--afd-chat-font-scale))";
+        text-decoration: none;
+    }
+}
+
+.afd-ai-chat__product-actions {
+    display: block;
+    margin-top: auto;
+}
+
+.afd-ai-chat__product-form {
+    display: block;
+    margin: 0;
+}
+
+.afd-ai-chat__product-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    width: 100%;
+    min-height: 36px;
+    gap: 6px;
+    padding: 0 10px;
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.035);
+    color: @afd-chat-text;
+    cursor: pointer;
+    font-size: ~"calc(12px * var(--afd-chat-font-scale))";
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 1;
+    text-decoration: none !important;
+    white-space: nowrap;
+}
+
+.afd-ai-chat__product-form .afd-ai-chat__product-btn {
+    width: 100%;
+}
+
+.afd-ai-chat__product-btn:hover {
+    border-color: rgba(255, 255, 255, 0.24);
+    background: rgba(255, 255, 255, 0.07);
+    color: #ffffff;
+}
+
+.afd-ai-chat__product-btn--secondary {
+    color: @afd-chat-text-muted;
+}
+
+.afd-ai-chat__product-btn--primary {
+    border-color: rgba(122, 132, 255, 0.45);
+    background: rgba(122, 132, 255, 0.2);
+    color: #ffffff;
+    box-shadow: none;
+}
+
+.afd-ai-chat__product-btn--primary:hover {
+    border-color: rgba(143, 151, 255, 0.58);
+    background: rgba(122, 132, 255, 0.3);
+}
+
+.afd-ai-chat__product-btn .material-symbols-outlined {
+    flex: 0 0 auto;
+    font-size: 15px;
+}
+
+.afd-ai-chat[data-ui-theme="light"] {
+    .afd-ai-chat__product-card {
+        border-color: var(--afd-chat-border-live);
+        background: var(--afd-chat-surface-live);
+        box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+    }
+
+    .afd-ai-chat__product-img-wrap {
+        background: #f7f8fb;
+        border-bottom-color: var(--afd-chat-border-live);
+    }
+
+    h4.afd-ai-chat__product-name {
+        color: var(--afd-chat-text-live);
+    }
+
+    .afd-ai-chat__product-price-old {
+        color: var(--afd-chat-text-muted-live);
+    }
+
+    .afd-ai-chat__product-price-current {
+        color: var(--afd-chat-accent-live);
+    }
+
+    .afd-ai-chat__product-btn {
+        border-color: var(--afd-chat-border-live);
+        background: #ffffff;
+        color: var(--afd-chat-text-live);
+
+        &:hover {
+            background: var(--afd-chat-surface-hover-live);
+            color: var(--afd-chat-text-live);
+        }
+
+        &--primary {
+            border-color: rgba(94, 106, 210, 0.38);
+            background: rgba(94, 106, 210, 0.11);
+            color: #293177;
+            box-shadow: none;
+
+            &:hover {
+                background: rgba(94, 106, 210, 0.18);
+                color: #20265f;
+            }
+        }
+    }
+}

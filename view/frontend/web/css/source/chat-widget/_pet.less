@@ -1,0 +1,256 @@
+.afd-ai-chat__bubble {
+    position: absolute;
+    z-index: 4;
+    right: 0;
+    bottom: ~"calc(100% + 0.75rem)";
+    display: flex;
+    align-items: flex-start;
+    width: 17rem;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    border: 1px solid @afd-chat-border-strong;
+    border-radius: @afd-chat-radius-md;
+    background: @afd-chat-surface-raised;
+    box-shadow: @afd-chat-shadow-sm;
+    pointer-events: auto;
+    cursor: pointer;
+}
+
+.afd-ai-chat__bubble-copy {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.afd-ai-chat__bubble-title,
+.afd-ai-chat__bubble-text {
+    margin: 0;
+}
+
+.afd-ai-chat__bubble-title {
+    color: @afd-chat-text;
+    font-size: ~"calc(0.82rem * var(--afd-chat-font-scale))";
+    font-weight: 720;
+    line-height: 1.25;
+}
+
+.afd-ai-chat__bubble-text {
+    color: @afd-chat-text-muted;
+    font-size: ~"calc(0.76rem * var(--afd-chat-font-scale))";
+    line-height: 1.35;
+}
+
+.afd-ai-chat__bubble-close {
+    .afd-chat-button-reset();
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 0.4rem;
+    color: @afd-chat-text-muted;
+    cursor: pointer;
+
+    &:hover {
+        background: rgba(255, 255, 255, 0.06);
+        color: @afd-chat-text;
+    }
+
+    .material-symbols-outlined {
+        font-size: 0.95rem;
+    }
+}
+
+
+.afd-ai-chat__bubble-tail {
+    position: absolute;
+    right: 1.45rem;
+    bottom: -0.45rem;
+    width: 0.85rem;
+    height: 0.85rem;
+    border-right: 1px solid @afd-chat-border-strong;
+    border-bottom: 1px solid @afd-chat-border-strong;
+    background: @afd-chat-surface-raised;
+    transform: rotate(45deg);
+}
+
+.afd-ai-chat__fab {
+    position: relative;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: 1.5rem;
+    background: transparent;
+    box-shadow: none;
+    color: @afd-chat-text;
+    cursor: grab;
+    pointer-events: auto;
+    touch-action: none;
+    transition: transform 0.18s @afd-chat-ease, filter 0.18s @afd-chat-ease;
+
+    &:hover {
+        transform: translateY(-2px);
+    }
+
+    &:active {
+        transform: scale(0.98);
+    }
+}
+
+
+.afd-ai-chat__pet-shadow {
+    position: absolute;
+    right: 16%;
+    bottom: 0.45rem;
+    left: 16%;
+    height: 0.6rem;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.32);
+    filter: blur(3px);
+}
+
+.afd-ai-chat__pet-sprite {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    background-repeat: no-repeat;
+    background-size: 800% 900%;
+    filter: drop-shadow(0 14px 18px rgba(0, 0, 0, 0.28));
+    image-rendering: pixelated;
+    will-change: background-position;
+}
+
+
+.afd-ai-chat__pet-close {
+    position: absolute;
+    top: 0.18rem;
+    right: 0.18rem;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.45rem;
+    height: 1.45rem;
+    border-radius: 999px;
+    background: @afd-chat-user-bg;
+    color: @afd-chat-user-text;
+    font-size: 0.95rem;
+    box-shadow: @afd-chat-shadow-sm;
+}
+
+.afd-ai-chat__fab-badge {
+    position: absolute;
+    top: 0.22rem;
+    right: 0.22rem;
+    z-index: 3;
+    width: 0.72rem;
+    height: 0.72rem;
+    border: 2px solid @afd-chat-bg;
+    border-radius: 999px;
+    background: @afd-chat-success;
+}
+
+.afd-ai-chat {
+    &--left {
+        .afd-ai-chat__bubble {
+            right: auto;
+            left: 0;
+        }
+
+        .afd-ai-chat__bubble-tail {
+            right: auto;
+            left: 1.45rem;
+        }
+    }
+
+    &--top {
+        .afd-ai-chat__bubble {
+            top: ~"calc(100% + 0.75rem)";
+            bottom: auto;
+        }
+
+        .afd-ai-chat__bubble-tail {
+            top: -0.45rem;
+            bottom: auto;
+            border: 0;
+            border-top: 1px solid @afd-chat-border-strong;
+            border-left: 1px solid @afd-chat-border-strong;
+        }
+    }
+
+    &--dragging {
+        .afd-ai-chat__fab,
+        .afd-ai-chat__fab:hover {
+            cursor: grabbing;
+            filter: drop-shadow(0 18px 22px rgba(0, 0, 0, 0.28));
+            transform: none;
+        }
+    }
+
+    &--open {
+        // Keep the draggable launcher usable outside the window, but place it
+        // below the chat surface so it can never intercept composer/actions
+        // when the two overlap on a narrow viewport.
+        .afd-ai-chat__fab {
+            z-index: 2;
+        }
+
+        .afd-ai-chat__pet-sprite {
+            filter: drop-shadow(0 16px 20px rgba(0, 0, 0, 0.32)) drop-shadow(0 0 10px fade(@afd-chat-accent, 22%));
+        }
+    }
+}
+
+.afd-ai-chat {
+    &[data-ui-theme="light"] {
+        .afd-ai-chat__bubble {
+            border-color: var(--afd-chat-border-live);
+            background: var(--afd-chat-surface-live);
+            box-shadow: 0 12px 34px rgba(15, 23, 42, 0.12);
+        }
+
+        .afd-ai-chat__bubble-title {
+            color: var(--afd-chat-text-live);
+        }
+
+        .afd-ai-chat__bubble-text,
+        .afd-ai-chat__bubble-close {
+            color: var(--afd-chat-text-muted-live);
+        }
+
+        .afd-ai-chat__bubble-close:hover {
+            background: rgba(94, 106, 210, 0.08);
+            color: var(--afd-chat-text-live);
+        }
+
+        .afd-ai-chat__bubble-tail {
+            border-color: var(--afd-chat-border-live);
+            background: var(--afd-chat-surface-live);
+        }
+
+        .afd-ai-chat__fab-badge {
+            border-color: var(--afd-chat-bg-live);
+        }
+
+        .afd-ai-chat__pet-shadow {
+            background: rgba(15, 15, 15, 0.2);
+        }
+
+        .afd-ai-chat__pet-sprite {
+            filter: drop-shadow(0 2px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 16px 20px rgba(15, 15, 15, 0.24));
+        }
+
+        &.afd-ai-chat--open .afd-ai-chat__pet-sprite {
+            filter: drop-shadow(0 2px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 18px 22px rgba(15, 15, 15, 0.28)) drop-shadow(0 0 10px rgba(94, 106, 210, 0.22));
+        }
+    }
+}

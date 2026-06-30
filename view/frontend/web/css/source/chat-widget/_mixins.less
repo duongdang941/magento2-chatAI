@@ -1,0 +1,25 @@
+.afd-chat-focus-ring() {
+    outline: 2px solid ~"color-mix(in srgb, var(--afd-chat-accent-live) 70%, transparent)";
+    outline-offset: 2px;
+}
+
+.afd-chat-button-reset() {
+    appearance: none;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+}
+
+.afd-chat-truncate() {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.afd-chat-card() {
+    border: 1px solid @afd-chat-border;
+    border-radius: @afd-chat-radius-md;
+    background: @afd-chat-surface-raised;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}

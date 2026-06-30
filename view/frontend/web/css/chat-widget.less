@@ -1,0 +1,69 @@
+/**
+ * Afd AI Chat Widget
+ * Entrypoint only. Component styles live in css/source/chat-widget.
+ */
+
+#afd-ai-chat-scope {
+    width: 0;
+    height: 0;
+    margin: 0;
+    padding: 0;
+
+    @import "source/chat-widget/_tokens.less";
+    @import "source/chat-widget/_mixins.less";
+    @import "source/chat-widget/_base.less";
+    @import "source/chat-widget/_shell.less";
+    @import "source/chat-widget/_sidebar.less";
+    @import "source/chat-widget/_messages.less";
+    @import "source/chat-widget/_composer.less";
+    @import "source/chat-widget/_settings.less";
+    @import "source/chat-widget/_confirmation.less";
+    @import "source/chat-widget/_welcome.less";
+    @import "source/chat-widget/_guest-order.less";
+    @import "source/chat-widget/_order-address.less";
+    @import "source/chat-widget/_products.less";
+    @import "source/chat-widget/_generated-images.less";
+    @import "source/chat-widget/_pet.less";
+    @import "source/chat-widget/_responsive.less";
+    @import "source/chat-widget/_glass.less";
+    // Keep every close action on one shared Accent-aware colour system. This
+    // import stays last so component-specific geometry cannot override it.
+    @import "source/chat-widget/_close-buttons.less";
+
+    // Keep this small composition contract at the entrypoint. Magento's
+    // preprocessor can retain an imported partial during local static builds;
+    // these final rules guarantee the latest composer order even in that
+    // situation.
+    .afd-ai-chat__composer-editor--voice-enabled {
+        grid-template-columns: 2rem minmax(0, 1fr) 2rem 2rem;
+
+        .afd-ai-chat__input { grid-column: 2; }
+        .afd-ai-chat__send-btn { grid-column: 4; }
+    }
+
+    .afd-ai-chat__voice-btn { grid-column: 3; }
+
+    .afd-ai-chat__composer-editor--live-voice-enabled {
+        grid-template-columns: 2rem minmax(0, 1fr) 2rem 2rem;
+
+        .afd-ai-chat__input { grid-column: 2; }
+        .afd-ai-chat__send-btn { grid-column: 4; }
+    }
+
+    .afd-ai-chat__live-voice-btn { grid-column: 3; }
+
+    .afd-ai-chat__composer-editor--voice-enabled.afd-ai-chat__composer-editor--live-voice-enabled {
+        grid-template-columns: 2rem minmax(0, 1fr) 2rem 2rem 2rem;
+
+        .afd-ai-chat__send-btn { grid-column: 5; }
+        .afd-ai-chat__live-voice-btn { grid-column: 4; }
+    }
+
+    .afd-ai-chat__composer-shell--expanded {
+        .afd-ai-chat__input-icon-btn:not(.afd-ai-chat__voice-btn):not(.afd-ai-chat__live-voice-btn) { order: 1; }
+        .afd-ai-chat__composer-spacer { order: 2; }
+        .afd-ai-chat__voice-btn { order: 3; }
+        .afd-ai-chat__live-voice-btn { order: 4; }
+        .afd-ai-chat__send-btn { order: 5; }
+    }
+}

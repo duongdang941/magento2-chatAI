@@ -1,0 +1,122 @@
+// Accent is a cue, not the foreground colour. Mixing it into a neutral theme
+// surface keeps close actions recognisable without sacrificing icon contrast.
+.afd-ai-chat {
+    --afd-chat-close-bg: ~"color-mix(in srgb, var(--afd-chat-accent-live) 8%, #24242a)";
+    --afd-chat-close-border: ~"color-mix(in srgb, var(--afd-chat-accent-live) 24%, rgba(255, 255, 255, 0.18))";
+    --afd-chat-close-icon: ~"color-mix(in srgb, var(--afd-chat-accent-live) 16%, #f4f4f5)";
+    --afd-chat-close-hover-bg: ~"color-mix(in srgb, var(--afd-chat-accent-live) 15%, #34343b)";
+    --afd-chat-close-hover-border: ~"color-mix(in srgb, var(--afd-chat-accent-live) 42%, rgba(255, 255, 255, 0.26))";
+    --afd-chat-close-hover-icon: ~"color-mix(in srgb, var(--afd-chat-accent-live) 24%, #ffffff)";
+    --afd-chat-close-focus-ring: ~"color-mix(in srgb, var(--afd-chat-accent-live) 28%, transparent)";
+}
+
+.afd-ai-chat[data-ui-theme="light"] {
+    --afd-chat-close-bg: ~"color-mix(in srgb, var(--afd-chat-accent-live) 6%, #f3f3f3)";
+    --afd-chat-close-border: ~"color-mix(in srgb, var(--afd-chat-accent-live) 20%, #d6d6d6)";
+    --afd-chat-close-icon: ~"color-mix(in srgb, var(--afd-chat-accent-live) 16%, #303030)";
+    --afd-chat-close-hover-bg: ~"color-mix(in srgb, var(--afd-chat-accent-live) 12%, #ededed)";
+    --afd-chat-close-hover-border: ~"color-mix(in srgb, var(--afd-chat-accent-live) 38%, #bdbdbd)";
+    --afd-chat-close-hover-icon: ~"color-mix(in srgb, var(--afd-chat-accent-live) 24%, #0d0d0d)";
+    --afd-chat-close-focus-ring: ~"color-mix(in srgb, var(--afd-chat-accent-live) 24%, transparent)";
+}
+
+// Shared colour treatment for every button whose action closes or dismisses
+// chat UI. Individual components retain their own size, position and radius.
+.afd-ai-chat__header-btn--close,
+.afd-ai-chat__history-search-close,
+.afd-ai-chat__settings-close,
+.afd-ai-chat__sidebar-drawer-close,
+.afd-ai-chat__image-viewer-close,
+.afd-ai-chat__bubble-close,
+.afd-ai-chat__attachment-remove,
+.afd-ai-chat__pet-close {
+    border: 1px solid var(--afd-chat-close-border);
+    background: var(--afd-chat-close-bg);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    color: var(--afd-chat-close-icon);
+    transition: background 0.16s @afd-chat-ease,
+        border-color 0.16s @afd-chat-ease,
+        color 0.16s @afd-chat-ease,
+        box-shadow 0.16s @afd-chat-ease;
+}
+
+.afd-ai-chat__header-btn--close:hover,
+.afd-ai-chat__header-btn--close:focus-visible,
+.afd-ai-chat__history-search-close:hover,
+.afd-ai-chat__history-search-close:focus-visible,
+.afd-ai-chat__settings-close:hover,
+.afd-ai-chat__settings-close:focus-visible,
+.afd-ai-chat__sidebar-drawer-close:hover,
+.afd-ai-chat__sidebar-drawer-close:focus-visible,
+.afd-ai-chat__image-viewer-close:hover,
+.afd-ai-chat__image-viewer-close:focus-visible,
+.afd-ai-chat__bubble-close:hover,
+.afd-ai-chat__bubble-close:focus-visible,
+.afd-ai-chat__attachment-remove:hover,
+.afd-ai-chat__attachment-remove:focus-visible,
+.afd-ai-chat__fab:hover .afd-ai-chat__pet-close,
+.afd-ai-chat__fab:focus-visible .afd-ai-chat__pet-close {
+    border-color: var(--afd-chat-close-hover-border);
+    background: var(--afd-chat-close-hover-bg);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+    color: var(--afd-chat-close-hover-icon);
+    outline: 0;
+}
+
+.afd-ai-chat__header-btn--close:focus-visible,
+.afd-ai-chat__history-search-close:focus-visible,
+.afd-ai-chat__settings-close:focus-visible,
+.afd-ai-chat__sidebar-drawer-close:focus-visible,
+.afd-ai-chat__image-viewer-close:focus-visible,
+.afd-ai-chat__bubble-close:focus-visible,
+.afd-ai-chat__attachment-remove:focus-visible,
+.afd-ai-chat__fab:focus-visible .afd-ai-chat__pet-close {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07),
+        0 0 0 3px var(--afd-chat-close-focus-ring);
+}
+
+// Theme rules in settings have intentionally higher specificity than the
+// component defaults, so match it here to keep every close action consistent.
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__header-btn--close,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__history-search-close,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__settings-close,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__sidebar-drawer-close,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__image-viewer-close,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__bubble-close,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__attachment-remove,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__pet-close {
+    border-color: var(--afd-chat-close-border);
+    background: var(--afd-chat-close-bg);
+    color: var(--afd-chat-close-icon);
+}
+
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__header-btn--close:hover,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__header-btn--close:focus-visible,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__history-search-close:hover,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__history-search-close:focus-visible,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__settings-close:hover,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__settings-close:focus-visible,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__sidebar-drawer-close:hover,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__sidebar-drawer-close:focus-visible,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__image-viewer-close:hover,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__image-viewer-close:focus-visible,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__bubble-close:hover,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__bubble-close:focus-visible,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__attachment-remove:hover,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__attachment-remove:focus-visible,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__fab:hover .afd-ai-chat__pet-close,
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__fab:focus-visible .afd-ai-chat__pet-close {
+    border-color: var(--afd-chat-close-hover-border);
+    background: var(--afd-chat-close-hover-bg);
+    color: var(--afd-chat-close-hover-icon);
+}
+
+.afd-ai-chat__header-btn--close .material-symbols-outlined,
+.afd-ai-chat__history-search-close .material-symbols-outlined,
+.afd-ai-chat__settings-close .material-symbols-outlined,
+.afd-ai-chat__sidebar-drawer-close .material-symbols-outlined,
+.afd-ai-chat__image-viewer-close .material-symbols-outlined,
+.afd-ai-chat__bubble-close .material-symbols-outlined,
+.afd-ai-chat__attachment-remove .material-symbols-outlined {
+    color: inherit;
+}

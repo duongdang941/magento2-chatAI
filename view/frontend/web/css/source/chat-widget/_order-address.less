@@ -1,0 +1,393 @@
+.afd-ai-chat {
+    &__order-address-form {
+        width: ~"min(100%, 42rem)";
+        margin-top: 0.78rem;
+        position: relative;
+        overflow: hidden;
+        border: 1px solid @afd-chat-border-strong;
+        border-radius: @afd-chat-radius-md;
+        background: @afd-chat-surface-raised;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        color: @afd-chat-text;
+        font-family: @afd-chat-font;
+
+        &--success {
+            border-color: fade(@afd-chat-success, 45%);
+        }
+
+        &--expired {
+            // The expiry state is conveyed by the timer icon and overlay. Keep
+            // the card outline tied to the shopper's selected accent so a
+            // stale warning colour never clashes with the chat appearance.
+            border-color: var(--afd-chat-accent-live);
+        }
+
+        &--wide {
+            .afd-ai-chat__order-address-form-grid {
+                // Keep the edit card deterministic even when an inherited
+                // storefront rule targets generic form grids.
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+            }
+
+            .afd-ai-chat__order-address-form-field--wide {
+                grid-column: 1 / -1;
+            }
+        }
+    }
+
+    &__order-address-form-head {
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+        min-width: 0;
+        padding: 0.88rem 0.92rem 0;
+    }
+
+    &__order-address-form-heading {
+        min-width: 0;
+    }
+
+    &__order-address-form-countdown {
+        display: inline-flex;
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 0.3rem;
+        min-height: 1.72rem;
+        margin-left: auto;
+        padding: 0 0.52rem;
+        border: 1px solid ~"color-mix(in srgb, var(--afd-chat-accent-live) 30%, transparent)";
+        border-radius: 999px;
+        background: @afd-chat-accent-soft;
+        color: var(--afd-chat-accent-live);
+        font-size: ~"calc(0.7rem * var(--afd-chat-font-scale))";
+        font-variant-numeric: tabular-nums;
+        font-weight: 720;
+        line-height: 1;
+
+        .material-symbols-outlined {
+            font-size: 0.92rem;
+        }
+    }
+
+    &__order-address-form-icon {
+        display: inline-flex;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        width: 2.15rem;
+        height: 2.15rem;
+        border: 1px solid ~"color-mix(in srgb, var(--afd-chat-accent-live) 36%, transparent)";
+        border-radius: 0.66rem;
+        background: @afd-chat-accent-soft;
+        color: var(--afd-chat-accent-live);
+        font-size: 1.1rem;
+
+        .afd-ai-chat__order-address-form--success & {
+            border-color: fade(@afd-chat-success, 36%);
+            background: fade(@afd-chat-success, 12%);
+            color: @afd-chat-success;
+        }
+    }
+
+    &__order-address-form-kicker,
+    &__order-address-form-title {
+        margin: 0;
+    }
+
+    &__order-address-form-kicker {
+        color: @afd-chat-text-faint;
+        font-size: ~"calc(0.65rem * var(--afd-chat-font-scale))";
+        font-weight: 720;
+        letter-spacing: 0.075em;
+        line-height: 1.2;
+        text-transform: uppercase;
+    }
+
+    &__order-address-form-title {
+        margin-top: 0.14rem;
+        color: @afd-chat-text;
+        font-size: ~"calc(0.94rem * var(--afd-chat-font-scale))";
+        font-weight: 720;
+        line-height: 1.25;
+    }
+
+    &__order-address-form-body {
+        display: flex;
+        flex-direction: column;
+        gap: 0.7rem;
+        padding: 0.78rem 0.92rem 0.94rem;
+    }
+
+    &__order-address-form-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 0.7rem;
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+        border: 0;
+
+        &:disabled {
+            min-inline-size: 0;
+        }
+    }
+
+    &__order-address-form-copy {
+        margin: 0;
+        color: @afd-chat-text-secondary;
+        font-size: ~"calc(0.77rem * var(--afd-chat-font-scale))";
+        line-height: 1.48;
+
+        &--success {
+            padding: 0.74rem 0.92rem 0.95rem;
+        }
+
+        &--expired {
+            padding: 0.74rem 0.92rem 0.95rem;
+        }
+    }
+
+    &__order-address-form-types {
+        display: inline-flex;
+        align-self: flex-start;
+        gap: 0.22rem;
+        padding: 0.2rem;
+        border: 1px solid @afd-chat-border;
+        border-radius: @afd-chat-radius-sm;
+        background: @afd-chat-bg;
+    }
+
+    &__order-address-form-type {
+        .afd-chat-button-reset();
+        min-height: 1.95rem;
+        padding: 0 0.66rem;
+        border-radius: 0.38rem;
+        color: @afd-chat-text-muted;
+        font-size: ~"calc(0.72rem * var(--afd-chat-font-scale))";
+        font-weight: 680;
+        cursor: pointer;
+        transition: background 0.16s @afd-chat-ease, color 0.16s @afd-chat-ease;
+
+        &:hover:not(:disabled) {
+            color: @afd-chat-text;
+        }
+
+        &--active {
+            background: @afd-chat-surface-hover;
+            color: @afd-chat-text;
+        }
+
+        &:disabled {
+            cursor: wait;
+            opacity: 0.58;
+        }
+    }
+
+    &__order-address-form-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 0.6rem;
+    }
+
+    &__order-address-form-field {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        gap: 0.3rem;
+        color: @afd-chat-text-secondary;
+        font-size: ~"calc(0.7rem * var(--afd-chat-font-scale))";
+        font-weight: 680;
+        line-height: 1.25;
+
+        &--wide {
+            grid-column: auto;
+        }
+
+        input,
+        select {
+            width: 100%;
+            min-width: 0;
+            height: 2.35rem;
+            padding: 0 0.66rem;
+            border: 1px solid @afd-chat-border-strong;
+            border-radius: @afd-chat-radius-sm;
+            background: @afd-chat-bg;
+            color: @afd-chat-text;
+            caret-color: @afd-chat-text;
+            font: inherit;
+            font-size: ~"calc(0.78rem * var(--afd-chat-font-scale))";
+            font-weight: 500;
+            outline: 0;
+            transition: border-color 0.16s @afd-chat-ease, background 0.16s @afd-chat-ease;
+
+            &::placeholder {
+                color: @afd-chat-text-faint;
+                opacity: 1;
+            }
+
+            &:hover:not(:disabled) {
+                border-color: ~"color-mix(in srgb, var(--afd-chat-accent-live) 44%, transparent)";
+            }
+
+            &:focus,
+            &:focus-visible {
+                border-color: var(--afd-chat-accent-live);
+                box-shadow: none !important;
+                outline: 0 !important;
+            }
+
+            &:disabled {
+                cursor: wait;
+                opacity: 0.6;
+            }
+        }
+
+        select {
+            cursor: pointer;
+            padding-right: 0.48rem;
+            -webkit-appearance: auto;
+            appearance: auto;
+
+            option {
+                background: @afd-chat-bg;
+                color: @afd-chat-text;
+            }
+        }
+    }
+
+    &__order-address-form-notice {
+        margin: 0;
+        padding: 0.54rem 0.62rem;
+        border: 1px solid @afd-chat-border;
+        border-radius: @afd-chat-radius-sm;
+        background: rgba(255, 255, 255, 0.035);
+        color: @afd-chat-text-secondary;
+        font-size: ~"calc(0.72rem * var(--afd-chat-font-scale))";
+        line-height: 1.42;
+
+        &--success {
+            border-color: fade(@afd-chat-success, 38%);
+            background: fade(@afd-chat-success, 10%);
+            color: #a7f3d0;
+        }
+
+        &--error {
+            border-color: fade(@afd-chat-danger, 38%);
+            background: fade(@afd-chat-danger, 10%);
+            color: #fecdd3;
+        }
+    }
+
+    &__order-address-form-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 0.04rem;
+    }
+
+    &__order-address-form-submit {
+        .afd-chat-button-reset();
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 2.18rem;
+        padding: 0 0.78rem;
+        border: 1px solid var(--afd-chat-accent-live);
+        border-radius: @afd-chat-radius-sm;
+        background: var(--afd-chat-accent-live);
+        color: #ffffff;
+        font: inherit;
+        font-size: ~"calc(0.75rem * var(--afd-chat-font-scale))";
+        font-weight: 680;
+        cursor: pointer;
+        transition: filter 0.16s @afd-chat-ease, transform 0.16s @afd-chat-ease;
+
+        &:hover:not(:disabled) {
+            filter: brightness(1.07);
+            transform: translateY(-1px);
+        }
+
+        &:focus-visible {
+            .afd-chat-focus-ring();
+        }
+
+        &:disabled {
+            cursor: wait;
+            opacity: 0.58;
+        }
+    }
+
+    &[data-ui-theme="light"] {
+        .afd-ai-chat__order-address-form {
+            border-color: var(--afd-chat-border-live);
+            background: var(--afd-chat-surface-live);
+            box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+
+            &--expired {
+                border-color: var(--afd-chat-accent-live);
+            }
+        }
+
+        .afd-ai-chat__order-address-form-kicker,
+        .afd-ai-chat__order-address-form-field {
+            color: var(--afd-chat-text-muted-live);
+        }
+
+        .afd-ai-chat__order-address-form-title,
+        .afd-ai-chat__order-address-form-field input,
+        .afd-ai-chat__order-address-form-field select,
+        .afd-ai-chat__order-address-form-type--active {
+            color: var(--afd-chat-text-live);
+        }
+
+        .afd-ai-chat__order-address-form-copy,
+        .afd-ai-chat__order-address-form-type {
+            color: var(--afd-chat-text-secondary-live);
+        }
+
+        .afd-ai-chat__order-address-form-types,
+        .afd-ai-chat__order-address-form-field input,
+        .afd-ai-chat__order-address-form-field select,
+        .afd-ai-chat__order-address-form-notice {
+            border-color: var(--afd-chat-border-live);
+            background: var(--afd-chat-bg-live);
+        }
+
+        .afd-ai-chat__order-address-form-type--active {
+            background: var(--afd-chat-surface-hover-live);
+        }
+
+        .afd-ai-chat__order-address-form-notice {
+            color: var(--afd-chat-text-secondary-live);
+
+            &--success {
+                color: #166534;
+            }
+
+            &--error {
+                color: #a51d45;
+            }
+        }
+
+        .afd-ai-chat__order-address-form-field select option {
+            background: var(--afd-chat-bg-live);
+            color: var(--afd-chat-text-live);
+        }
+
+    }
+}
+
+.afd-ai-chat--tiny {
+    .afd-ai-chat__order-address-form-head,
+    .afd-ai-chat__order-address-form-body {
+        padding-right: 0.75rem;
+        padding-left: 0.75rem;
+    }
+
+    .afd-ai-chat__order-address-form-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .afd-ai-chat__order-address-form-submit {
+        width: 100%;
+    }
+}

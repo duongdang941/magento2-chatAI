@@ -1,0 +1,423 @@
+// Responsive behaviour follows the chat window state. The root element owns
+// modifier states; individual BEM elements remain independent elsewhere.
+.afd-ai-chat {
+    // The chat window is resizable, so compact is based on its measured width
+    // rather than the browser viewport alone. It only condenses settings;
+    // the sidebar itself follows the overlay drawer below.
+    &--compact-sidebar {
+        // A compact window cannot afford a separate 220px settings navigation.
+        .afd-ai-chat__settings-panel {
+            grid-template-columns: minmax(0, 1fr);
+            width: ~"min(100%, 34rem)";
+        }
+
+        .afd-ai-chat__settings-nav {
+            display: none;
+        }
+
+        .afd-ai-chat__settings-content {
+            padding: 0.85rem;
+        }
+
+        .afd-ai-chat__settings-row {
+            align-items: stretch;
+            flex-direction: column;
+            gap: 0.55rem;
+        }
+
+        .afd-ai-chat__settings-control-stack {
+            justify-content: flex-start;
+        }
+
+        .afd-ai-chat__segmented {
+            width: 100%;
+        }
+
+        .afd-ai-chat__segment {
+            flex: 1;
+            justify-content: center;
+        }
+
+        .afd-ai-chat__feedback-details {
+            grid-template-columns: minmax(0, 1fr);
+            align-items: stretch;
+
+            &-heading {
+                grid-column: 1;
+            }
+
+            &-submit {
+                justify-self: end;
+            }
+        }
+    }
+
+    // Touch/mobile uses an overlay drawer so chat content keeps its full width.
+    &--mobile-layout {
+        .afd-ai-chat__mobile-sidebar-toggle {
+            display: inline-flex;
+        }
+
+        .afd-ai-chat__sidebar {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 11;
+            flex: ~"0 0 min(17.5rem, calc(100% - 2.75rem))";
+            width: ~"min(17.5rem, calc(100% - 2.75rem))";
+            min-width: 0;
+            overflow: hidden;
+            border-right-color: @afd-chat-border;
+            box-shadow: 18px 0 42px rgba(0, 0, 0, 0.34);
+            opacity: 0;
+            pointer-events: none;
+            transform: translateX(-104%);
+            transition: transform 0.2s @afd-chat-ease, opacity 0.2s @afd-chat-ease;
+        }
+
+        .afd-ai-chat__sidebar-drawer-close {
+            display: inline-flex;
+        }
+
+        .afd-ai-chat__sidebar-top {
+            padding-right: 3.75rem;
+        }
+
+        // The close button only occupies the brand row. New Chat belongs to
+        // the regular sidebar grid and must never overflow over chat header.
+        .afd-ai-chat__new-chat-btn {
+            width: 100%;
+        }
+
+        &.afd-ai-chat--mobile-sidebar-open {
+            .afd-ai-chat__sidebar {
+                opacity: 1;
+                pointer-events: auto;
+                transform: translateX(0);
+            }
+        }
+
+        &[data-ui-theme="light"] {
+            &.afd-ai-chat--mobile-sidebar-open .afd-ai-chat__sidebar {
+                box-shadow: 18px 0 42px rgba(15, 23, 42, 0.14);
+            }
+        }
+
+        .afd-ai-chat__mobile-sidebar-backdrop {
+            position: absolute;
+            inset: 0;
+            z-index: 10;
+            display: block;
+            width: 100%;
+            height: 100%;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            cursor: pointer;
+        }
+    }
+
+}
+
+// The chat script adds these modifiers from the measured popup width. This
+// preserves container-query behaviour while remaining compatible with the
+// Magento LESS compiler used during static-content deployment.
+.afd-ai-chat--narrow {
+    .afd-ai-chat__header {
+        gap: 0.6rem;
+        min-height: 3.25rem;
+        padding: 0 0.65rem;
+    }
+
+    .afd-ai-chat__header-left {
+        flex: 1 1 auto;
+        gap: 0.55rem;
+        overflow: hidden;
+    }
+
+    .afd-ai-chat__title {
+        min-width: 0;
+    }
+
+    .afd-ai-chat__welcome {
+        padding: 1rem;
+    }
+
+    .afd-ai-chat__welcome-inner {
+        justify-content: flex-start;
+        gap: 1rem;
+        padding-top: 0.75rem;
+    }
+
+    .afd-ai-chat__welcome-title {
+        font-size: ~"calc(1.45rem * var(--afd-chat-font-scale))";
+    }
+
+    .afd-ai-chat__suggestions,
+    .afd-ai-chat__product-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .afd-ai-chat__suggestion-card {
+        min-height: 0;
+        padding: 0.75rem;
+    }
+
+    .afd-ai-chat__capabilities {
+        padding: 0.75rem;
+    }
+
+    .afd-ai-chat__capabilities-list {
+        gap: 0.4rem;
+    }
+
+    .afd-ai-chat__footer {
+        padding: 0.65rem;
+    }
+}
+
+.afd-ai-chat--tiny {
+    .afd-ai-chat__header-left {
+        gap: 0.5rem;
+    }
+
+    .afd-ai-chat__connection {
+        display: inline-flex;
+    }
+
+    .afd-ai-chat__welcome {
+        padding: 0.8rem;
+    }
+
+    .afd-ai-chat__welcome-title {
+        font-size: ~"calc(1.3rem * var(--afd-chat-font-scale))";
+    }
+
+    .afd-ai-chat__welcome-desc {
+        margin-top: 0.5rem;
+        font-size: ~"calc(0.87rem * var(--afd-chat-font-scale))";
+    }
+
+    .afd-ai-chat__suggestion-card {
+        grid-template-columns: 1.9rem minmax(0, 1fr);
+        gap: 0.6rem;
+        padding: 0.7rem;
+    }
+
+    .afd-ai-chat__suggestion-icon {
+        width: 1.9rem;
+        height: 1.9rem;
+    }
+
+    .afd-ai-chat__capabilities-title {
+        margin-bottom: 0.5rem;
+    }
+
+    .afd-ai-chat__capability {
+        gap: 0.3rem;
+        padding: 0.28rem 0.45rem;
+        font-size: ~"calc(0.68rem * var(--afd-chat-font-scale))";
+    }
+
+    .afd-ai-chat__footer {
+        padding: 0.5rem;
+    }
+}
+
+@media (max-width: 640px), (hover: none) and (pointer: coarse) {
+    .afd-ai-chat__resize-handle {
+        display: none !important;
+    }
+}
+
+@media (max-width: 860px) {
+    .afd-ai-chat {
+        &__header {
+            cursor: default;
+            touch-action: auto;
+        }
+
+        &__window-shell {
+            width: ~"calc(100vw - 1rem)";
+            height: ~"calc(100vh - 1rem)";
+        }
+
+        &:not(.afd-ai-chat--compact-sidebar) {
+            .afd-ai-chat__sidebar {
+                flex-basis: 210px;
+                width: 210px;
+            }
+        }
+
+        &__suggestions,
+        &__product-grid {
+            grid-template-columns: 1fr;
+        }
+
+        &__settings-panel {
+            grid-template-columns: 56px minmax(0, 1fr);
+        }
+
+        &__settings-nav-item {
+            justify-content: center;
+            padding: 0.58rem 0;
+
+            span:last-child {
+                display: none;
+            }
+        }
+    }
+}
+
+@media (max-width: 860px) and (hover: none) {
+    .afd-ai-chat {
+        &__sidebar-item {
+            padding-right: 5.7rem;
+        }
+
+        &__sidebar-item-actions {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(-50%);
+        }
+    }
+}
+
+@media (max-width: 640px) {
+    .afd-ai-chat {
+        right: 0.8rem;
+        bottom: 0.8rem;
+        width: 4.6rem;
+
+        &__window-shell {
+            top: 0.375rem;
+            left: 0.375rem;
+            width: ~"calc(100vw - 0.75rem)";
+            height: ~"calc(100dvh - 0.75rem)";
+            transform: none;
+        }
+
+        &__window {
+            position: relative;
+            border-radius: 0.8rem;
+        }
+
+        &:not(.afd-ai-chat--compact-sidebar) {
+            .afd-ai-chat__sidebar {
+                position: absolute;
+                top: 0;
+                bottom: 0;
+                left: 0;
+                z-index: 11;
+                flex: ~"0 0 min(19rem, calc(100% - 2.75rem))";
+                width: ~"min(19rem, calc(100% - 2.75rem))";
+                border-right-color: @afd-chat-border;
+                box-shadow: 18px 0 42px rgba(0, 0, 0, 0.34);
+                opacity: 0;
+                pointer-events: none;
+                transform: translateX(-104%);
+                transition: transform 0.2s @afd-chat-ease, opacity 0.2s @afd-chat-ease;
+            }
+
+            &.afd-ai-chat--mobile-sidebar-open {
+                .afd-ai-chat__sidebar {
+                    opacity: 1;
+                    pointer-events: auto;
+                    transform: translateX(0);
+                }
+            }
+
+        }
+
+        &__sidebar-item {
+            padding-right: 5.7rem;
+        }
+
+        &__sidebar-item-actions {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(-50%);
+        }
+
+        &__header {
+            min-height: 52px;
+            gap: 0.35rem;
+            padding: 0 0.65rem;
+        }
+
+        &__header-actions &__header-btn:first-child {
+            display: none;
+        }
+
+        &__connection {
+            display: none;
+        }
+
+        &__messages {
+            padding: 1rem 0.85rem;
+        }
+
+        &__msg-bubble-user {
+            padding: 0.68rem 0.75rem;
+            font-size: ~"calc(0.85rem * var(--afd-chat-font-scale))";
+        }
+
+        &__msg-bubble-ai {
+            padding: 0.05rem 0 0.1rem;
+            font-size: ~"calc(0.85rem * var(--afd-chat-font-scale))";
+        }
+
+        &__footer {
+            padding: 0.7rem;
+        }
+
+        &__welcome {
+            padding: 1rem;
+        }
+
+        &__welcome-inner {
+            justify-content: flex-start;
+            padding-top: 1rem;
+        }
+
+        &__suggestion-card {
+            min-height: 0;
+        }
+
+        &__bubble {
+            width: ~"min(17rem, calc(100vw - 1.6rem))";
+        }
+
+        &__settings-overlay {
+            padding: 0.55rem;
+        }
+
+        &__settings-panel {
+            grid-template-columns: 1fr;
+        }
+
+        &__settings-nav {
+            display: none;
+        }
+
+        &__settings-content {
+            padding: 0.8rem;
+        }
+
+        &__settings-row {
+            align-items: stretch;
+            flex-direction: column;
+            gap: 0.6rem;
+        }
+
+        &__segmented {
+            width: 100%;
+        }
+
+        &__segment {
+            flex: 1;
+            justify-content: center;
+        }
+    }
+}

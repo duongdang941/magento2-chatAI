@@ -1,0 +1,104 @@
+@keyframes afd-bounce-subtle {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4px); }
+}
+
+@keyframes afd-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.48; }
+}
+
+@keyframes afd-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.afd-ai-chat {
+    --afd-chat-accent-live: @afd-chat-accent;
+    --afd-chat-bg-live: @afd-chat-bg;
+    --afd-chat-surface-live: @afd-chat-surface;
+    --afd-chat-surface-raised-live: @afd-chat-surface-raised;
+    --afd-chat-surface-hover-live: @afd-chat-surface-hover;
+    --afd-chat-accent-soft-live: ~"color-mix(in srgb, var(--afd-chat-accent-live) 12%, transparent)";
+    --afd-chat-text-live: @afd-chat-text;
+    --afd-chat-text-secondary-live: @afd-chat-text-secondary;
+    --afd-chat-text-muted-live: @afd-chat-text-muted;
+    --afd-chat-text-faint-live: @afd-chat-text-faint;
+    --afd-chat-border-live: @afd-chat-border;
+    --afd-chat-border-strong-live: @afd-chat-border-strong;
+    --afd-chat-font-scale: 1;
+    --afd-chat-density-scale: 1;
+    position: fixed;
+    right: 1.5rem;
+    bottom: 1.5rem;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    width: 5rem;
+    aspect-ratio: 192 / 208;
+    color: @afd-chat-text;
+    font-family: @afd-chat-font;
+    pointer-events: none;
+
+    &[data-ui-font-size="small"] {
+        --afd-chat-font-scale: 0.92;
+    }
+
+    &[data-ui-font-size="large"] {
+        --afd-chat-font-scale: 1.08;
+    }
+
+    &[data-ui-density="compact"] {
+        --afd-chat-density-scale: 0.92;
+    }
+
+    &--dragging {
+        cursor: grabbing;
+        user-select: none;
+    }
+
+    [x-cloak] {
+        display: none !important;
+    }
+
+    .custom-scrollbar {
+        scrollbar-width: thin;
+        scrollbar-color: #55565d transparent;
+
+        &::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        &::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        &::-webkit-scrollbar-thumb {
+            border: 2px solid transparent;
+            border-radius: 999px;
+            background: #55565d;
+            background-clip: padding-box;
+
+            &:hover {
+                background: #70717a;
+                background-clip: padding-box;
+            }
+        }
+    }
+
+    .afd-bounce-subtle {
+        animation: afd-bounce-subtle 3s ease-in-out infinite;
+    }
+
+    .afd-rotate {
+        animation: afd-spin 1.2s linear infinite;
+    }
+
+    button:focus-visible,
+    a:focus-visible,
+    input:focus-visible,
+    [role="button"]:focus-visible {
+        .afd-chat-focus-ring();
+    }
+}
