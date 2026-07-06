@@ -1,0 +1,30 @@
+{
+  "name": "ai-chat-server",
+  "version": "1.0.0",
+  "description": "Node.js WebSocket API for Magento AI Chat",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/start.js",
+    "dev": "node --watch server.js",
+    "watch": "npm run dev",
+    "test": "node --test test/*.test.js",
+    "quality:gate": "node scripts/quality-gate.mjs",
+    "benchmark:health-redis": "node scripts/benchmark-health-and-redis.mjs",
+    "benchmark:context": "node scripts/benchmark-context-reduction.mjs",
+    "test:manual:voice": "node test/manual-voice-ws-contract.mjs",
+    "test:integration": "node scripts/integration-smoke.mjs",
+    "validate:shopping": "node scripts/validate-shopping-search.mjs",
+    "generate:conversation-evals": "node scripts/generate-conversation-evals.mjs",
+    "evaluate:conversations": "node scripts/evaluate-conversation-evals.mjs"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "axios": "^1.6.8",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "ioredis": "^5.11.1",
+    "mysql2": "^3.19.1",
+    "ws": "^8.16.0"
+  }
+}
