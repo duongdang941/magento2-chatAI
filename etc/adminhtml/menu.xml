@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Backend:etc/menu.xsd">
+    <menu>
+        <add id="Afd_AI::store_assistant" title="Store Assistant" module="Afd_AI" sortOrder="90"
+             parent="Magento_Backend::content" resource="Magento_Backend::content"/>
+        <add id="Afd_AI::support_cases" title="Support Inbox" module="Afd_AI" sortOrder="10"
+             parent="Afd_AI::store_assistant" action="afd_ai/supportcase/index" resource="Afd_AI::support_cases"/>
+        <add id="Afd_AI::quality" title="Quality" module="Afd_AI" sortOrder="20"
+             parent="Afd_AI::store_assistant" action="afd_ai/quality/index" resource="Afd_AI::quality"/>
+        <add id="Afd_AI::configuration" title="Configuration" module="Afd_AI" sortOrder="30"
+             parent="Afd_AI::store_assistant" action="adminhtml/system_config/edit/section/afd_ai" resource="Afd_AI::config"/>
+    </menu>
+</config>

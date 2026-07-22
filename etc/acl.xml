@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Acl/etc/acl.xsd">
+    <acl>
+        <resources>
+            <resource id="Magento_Backend::admin">
+                <resource id="Afd_AI::config" title="AI Configuration API Access" sortOrder="100" />
+                <resource id="Afd_AI::chat_gateway" title="AI Chat Gateway API Access" sortOrder="110" />
+                <resource id="Afd_AI::support_cases" title="Store Assistant Support Cases" sortOrder="120" />
+                <resource id="Afd_AI::quality" title="Store Assistant Quality Dashboard" sortOrder="130" />
+            </resource>
+        </resources>
+    </acl>
+</config>
