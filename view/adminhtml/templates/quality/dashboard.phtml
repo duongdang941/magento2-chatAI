@@ -1,0 +1,31 @@
+<?php
+/** @var \Afd\AI\Block\Adminhtml\Quality\Dashboard $block */
+/** @var \Magento\Framework\Escaper $escaper */
+$metrics = $block->getMetrics();
+?>
+<div class="admin__fieldset-wrapper">
+    <div class="admin__fieldset-wrapper-title"><strong class="title"><?= $escaper->escapeHtml(__('Last 30 days')) ?></strong></div>
+    <div class="admin__fieldset-wrapper-content">
+        <table class="admin__table-secondary">
+            <tbody>
+            <tr><th><?= $escaper->escapeHtml(__('Responses rated')) ?></th><td><?= (int)$metrics['feedback_total'] ?></td></tr>
+            <tr><th><?= $escaper->escapeHtml(__('Helpful responses')) ?></th><td><?= (int)$metrics['positive'] ?> (<?= $escaper->escapeHtml((string)$metrics['helpful_rate']) ?>%)</td></tr>
+            <tr><th><?= $escaper->escapeHtml(__('Unhelpful responses')) ?></th><td><?= (int)$metrics['negative'] ?></td></tr>
+            <tr><th><?= $escaper->escapeHtml(__('Open human-support cases')) ?></th><td><?= (int)$metrics['open_cases'] ?></td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+<div class="admin__fieldset-wrapper">
+    <div class="admin__fieldset-wrapper-title"><strong class="title"><?= $escaper->escapeHtml(__('Recent unhelpful responses')) ?></strong></div>
+    <div class="admin__fieldset-wrapper-content">
+        <table class="data-grid">
+            <thead><tr><th class="data-grid-th"><?= $escaper->escapeHtml(__('Conversation')) ?></th><th class="data-grid-th"><?= $escaper->escapeHtml(__('Message')) ?></th><th class="data-grid-th"><?= $escaper->escapeHtml(__('Reason')) ?></th><th class="data-grid-th"><?= $escaper->escapeHtml(__('Comment')) ?></th><th class="data-grid-th"><?= $escaper->escapeHtml(__('Created')) ?></th></tr></thead>
+            <tbody>
+            <?php foreach ($block->getRecentNegativeFeedback() as $row): ?>
+                <tr class="data-row"><td><?= (int)$row['conversation_id'] ?></td><td><?= (int)$row['message_id'] ?></td><td><?= $escaper->escapeHtml((string)$row['reason']) ?></td><td><?= $escaper->escapeHtml((string)$row['comment']) ?></td><td><?= $escaper->escapeHtml((string)$row['created_at']) ?></td></tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
