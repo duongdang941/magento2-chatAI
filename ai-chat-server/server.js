@@ -553,9 +553,8 @@ wss.on('connection', async (ws, req) => {
         // never accepted as a field in a browser message or model tool call.
         catalogScope: auth.catalogScope || null,
         pageContext: auth.pageContext || null,
-        ticketExpiresAt: Number(auth.expiresAt) || 0,
-        // Stable across reconnects and ticket rotation so a new one-minute
-        // ticket cannot reset chat or mutation throttles.
+        // Stable across reconnects so a new short-lived connection ticket
+        // cannot reset chat or mutation throttles.
         rateLimitKey: customerId ? `customer:${customerId}` : `session:${auth.sessionId}`,
         networkRateLimitKey: `network:${crypto.createHash('sha256')
             .update(String(req.socket?.remoteAddress || 'unknown'), 'utf8')
@@ -619,10 +618,6 @@ wss.on('connection', async (ws, req) => {
                 return;
             }
             const client = clientData.get(ws);
-            if (client?.ticketExpiresAt > 0 && Date.now() >= client.ticketExpiresAt) {
-                ws.close(4001, 'Chat authentication expired');
-                return;
-            }
             if (client?.role === 'support_admin'
                 && !['support_subscribe', 'support_typing'].includes(String(data.action || ''))) {
                 ws.send(JSON.stringify({

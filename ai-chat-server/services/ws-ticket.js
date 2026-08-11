@@ -50,8 +50,10 @@ function decryptCheckoutSession(encryptedSession, secret) {
 }
 
 /**
- * Validates a Magento-issued, short-lived ticket. It intentionally contains
- * only the identity needed for a socket connection and no provider secrets.
+ * Validates a Magento-issued, short-lived ticket at WebSocket admission. It
+ * intentionally contains only the identity needed for a socket connection and
+ * no provider secrets. Its expiry limits opening a connection, not the life
+ * of an already-authenticated WebSocket session.
  */
 export function verifyWebSocketTicket(ticket, secret = process.env.AI_WS_TICKET_SECRET || '') {
     if (String(secret).length < 32) {

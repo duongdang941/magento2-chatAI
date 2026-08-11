@@ -124,12 +124,10 @@ const {
                         this.socket.onopen = () => {
                             this.wsConnected = true;
                             this.wsHasEverConnected = true;
-                            this.scheduleTicketRefresh();
                         };
                         this.socket.onmessage = (event) => { try { this.handleWsMessage(JSON.parse(event.data)); } catch(e) {} };
                         this.socket.onclose = () => {
                             this.wsConnected = false;
-                            this.clearTicketRefresh();
                             this.handleActiveRequestDisconnect();
                             if (this.isOpen && this.wsHasEverConnected) {
                                 this.wsReconnectTimer = setTimeout(() => this.connectWebSocket(), 3000);
@@ -164,40 +162,6 @@ const {
 
                 this.connectionAttempted = true;
                 this.connectWebSocket();
-            },
-
-            scheduleTicketRefresh() {
-                this.clearTicketRefresh();
-                // Magento tickets are valid for one minute. Reconnect before
-                // expiry when idle. Closing an active socket cancels the
-                // model run, so defer rotation until that response settles.
-                this.ticketRefreshTimer = window.setTimeout(() => {
-                    this.ticketRefreshTimer = null;
-                    if (this.isLoading) {
-                        this.ticketRefreshDeferred = true;
-                        return;
-                    }
-                    this.refreshWebSocketTicket();
-                }, 45000);
-            },
-
-            refreshWebSocketTicket() {
-                this.ticketRefreshDeferred = false;
-                if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-                    this.socket.close(4000, 'Refreshing chat authentication');
-                }
-            },
-
-            refreshDeferredWebSocketTicket() {
-                if (!this.ticketRefreshDeferred) return;
-                this.refreshWebSocketTicket();
-            },
-
-            clearTicketRefresh() {
-                if (this.ticketRefreshTimer) {
-                    window.clearTimeout(this.ticketRefreshTimer);
-                    this.ticketRefreshTimer = null;
-                }
             },
 
             handleComposerInput() {

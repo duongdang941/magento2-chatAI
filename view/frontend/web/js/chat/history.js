@@ -19,6 +19,39 @@ const {
     MAX_MODEL_HISTORY_MESSAGES
 } = context.helpers;
 
+        const messageHydrationFingerprint = (message = {}) => {
+            const parts = Array.isArray(message.parts) ? message.parts : [];
+            const textFromParts = parts
+                .filter(part => String(part?.type || 'text') === 'text')
+                .map(part => String(part?.raw || part?.content || ''))
+                .filter(Boolean)
+                .join('\n\n');
+            const normalizedParts = parts.map((part) => {
+                const type = String(part?.type || 'text');
+                if (type === 'products') {
+                    return [
+                        type,
+                        Array.isArray(part?.payload?.product_ids)
+                            ? part.payload.product_ids.map(id => Number(id) || 0).filter(Boolean)
+                            : []
+                    ];
+                }
+                if (type === 'image') return [type, String(part?.url || '')];
+                return [type, String(part?.raw || part?.content || '')];
+            });
+
+            return JSON.stringify([
+                message.role === 'user' ? 'user' : 'assistant',
+                String(message.source || ''),
+                // Live streaming messages deliberately keep text in `parts`
+                // until finalization, whereas durable history also has a
+                // flattened `content` field. Prefer the shared part text so
+                // those two representations resolve to one turn.
+                textFromParts || String(message.content || ''),
+                normalizedParts
+            ]);
+        };
+
         return {
             loadConversations(page = 1, append = false) {
                 const requestedPage = Math.max(1, Number(page) || 1);
@@ -279,24 +312,64 @@ const {
                 this.nextMessageCursor = Number(data.next_before_message_id) || null;
 
                 if (data.refresh === true) {
-                    const existingIndexes = new Map();
+                    const existingIndexesByEntityId = new Map();
+                    const transientIndexesByFingerprint = new Map();
                     this.messages.forEach((message, index) => {
                         const entityId = Number(message?.entity_id) || 0;
-                        if (entityId) existingIndexes.set(entityId, index);
+                        if (entityId) {
+                            const indexes = existingIndexesByEntityId.get(entityId) || [];
+                            indexes.push(index);
+                            existingIndexesByEntityId.set(entityId, indexes);
+                            return;
+                        }
+                        const fingerprint = messageHydrationFingerprint(message);
+                        const indexes = transientIndexesByFingerprint.get(fingerprint) || [];
+                        indexes.push(index);
+                        transientIndexesByFingerprint.set(fingerprint, indexes);
                     });
+
+                    // A guest page can be restored from sessionStorage while
+                    // a former refresh is also represented in that snapshot.
+                    // Keep one canonical slot for every durable message and
+                    // discard *all* equivalent snapshot copies. A Map from
+                    // entity id to one index is insufficient here: it leaves
+                    // an earlier duplicate untouched when two existing
+                    // entries carry the same entity id.
+                    const usedExistingIndexes = new Set();
+                    const replacementByIndex = new Map();
+                    const indexesToRemove = new Set();
+                    const additions = [];
                     pageMessages.forEach((message) => {
                         const entityId = Number(message?.entity_id) || 0;
-                        const existingIndex = entityId ? existingIndexes.get(entityId) : undefined;
-                        if (existingIndex !== undefined) {
-                            this.messages.splice(existingIndex, 1, {
-                                ...this.messages[existingIndex],
-                                ...message
-                            });
-                        } else {
-                            this.messages.push(message);
-                            if (entityId) existingIndexes.set(entityId, this.messages.length - 1);
+                        const fingerprint = messageHydrationFingerprint(message);
+                        const matchingIndexes = [
+                            ...(entityId ? (existingIndexesByEntityId.get(entityId) || []) : []),
+                            ...(transientIndexesByFingerprint.get(fingerprint) || [])
+                        ]
+                            .filter((index, position, indexes) => indexes.indexOf(index) === position)
+                            .filter(index => !usedExistingIndexes.has(index) && !indexesToRemove.has(index))
+                            .sort((left, right) => left - right);
+                        const canonicalIndex = matchingIndexes.shift();
+
+                        if (canonicalIndex === undefined) {
+                            additions.push(message);
+                            return;
                         }
+
+                        usedExistingIndexes.add(canonicalIndex);
+                        replacementByIndex.set(canonicalIndex, {
+                            ...this.messages[canonicalIndex],
+                            ...message
+                        });
+                        matchingIndexes.forEach((index) => {
+                            usedExistingIndexes.add(index);
+                            indexesToRemove.add(index);
+                        });
                     });
+                    this.messages = this.messages
+                        .filter((message, index) => !indexesToRemove.has(index))
+                        .map((message, index) => replacementByIndex.get(index) || message);
+                    this.messages.push(...additions);
                     this.enforceSingleActiveOrderAddressForm();
                     this.hasStartedChat = this.messages.length > 0;
                     this.isHistoryLoading = false;

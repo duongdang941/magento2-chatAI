@@ -1627,6 +1627,11 @@ const {
                         if (savedMessage) {
                             savedMessage.entity_id = entityId;
                             this.scheduleGuestSessionSnapshot();
+                            // Persist the durable entity id immediately. A
+                            // browser reload between the response and a
+                            // debounced snapshot must not restore this turn as
+                            // an anonymous transient duplicate.
+                            this.persistGuestSessionSnapshot?.();
                         }
                     } else if (data.role === 'assistant' && entityId) {
                         const savedMessage = [...this.messages].reverse().find((message) => (
@@ -1642,6 +1647,7 @@ const {
                             // feedback state from the response it replaced.
                             savedMessage.feedbackBusy = false;
                             this.scheduleGuestSessionSnapshot();
+                            this.persistGuestSessionSnapshot?.();
                         }
                     }
                     return;
@@ -1717,13 +1723,10 @@ const {
                         });
                     }
 
-                    // A model may publish customer-facing prose, then decide a
-                    // second retrieval is needed. Start the following text in a
-                    // new message so the live timeline stays between the two
-                    // visible response phases instead of overwriting either.
-                    if (nextActivity.state === 'running') {
-                        this.currentAiMessageIndex = -1;
-                    }
+                    // A tool action belongs to the current assistant turn.
+                    // Keeping its cursor intact means a later final chunk and
+                    // the selected product grid stay in one response rather
+                    // than becoming two visually independent answers.
                     this.statusMessage = this.toolActivityLabel(nextActivity);
                     this.isLoading = true;
                     this.scrollToBottom();
@@ -1984,7 +1987,6 @@ const {
                     this.pendingOrderAddressFormParts = [];
                     this.pendingGuestOrderAccessParts = [];
                     this.clearResponseWatchdog();
-                    this.refreshDeferredWebSocketTicket?.();
                     this.messages.push({
                         role: 'assistant',
                         feedbackEnabled: false,
@@ -2014,7 +2016,6 @@ const {
                     this.activeRequestId = null;
                     this.responseStartedAt = 0;
                     this.clearResponseWatchdog();
-                    this.refreshDeferredWebSocketTicket?.();
                     // Rating transport state is unrelated to response
                     // generation. A completed turn must always be interactive.
                     this.messages.forEach((message) => {
@@ -2045,7 +2046,6 @@ const {
                     this.pendingGuestOrderAccessParts = [];
                     this.responseStartedAt = 0;
                     this.clearResponseWatchdog();
-                    this.refreshDeferredWebSocketTicket?.();
                     if (!data.request_id || data.request_id === this.activeRequestId) {
                         this.activeRequestId = null;
                     }
@@ -2062,12 +2062,33 @@ const {
                     : null;
 
                 if (!message || message.role !== 'assistant' || !Array.isArray(message.parts)) {
-                    message = { role: 'assistant', feedbackEnabled: false, feedbackBusy: false, parts: [] };
+                    message = {
+                        role: 'assistant',
+                        request_id: this.activeRequestId || '',
+                        feedbackEnabled: false,
+                        feedbackBusy: false,
+                        parts: []
+                    };
                     this.messages.push(message);
                     this.currentAiMessageIndex = this.messages.length - 1;
                 }
 
-                message.parts.push(...this.pendingProductParts);
+                this.pendingProductParts.forEach((incoming) => {
+                    const existingIndex = message.parts.findIndex(part => part?.type === 'products');
+                    if (existingIndex === -1) {
+                        message.parts.push(incoming);
+                        return;
+                    }
+
+                    // The gateway may publish an older candidate during a
+                    // rolling deploy, then the final candidate for the same
+                    // request. Preserve the existing part id so a pending
+                    // pagination action stays associated with this one grid.
+                    message.parts.splice(existingIndex, 1, {
+                        ...incoming,
+                        id: message.parts[existingIndex].id
+                    });
+                });
                 this.pendingProductParts = [];
                 this.scheduleGuestSessionSnapshot();
             },

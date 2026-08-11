@@ -72,6 +72,77 @@ export function buildCatalogProductsPayload(content = {}, args = {}) {
     };
 }
 
+/**
+ * History deliberately never stores a signed continuation token. Recreate a
+ * fresh, bounded token from the persisted pagination contract only after the
+ * authenticated gateway has loaded that conversation for its owner.
+ */
+export function rehydrateCatalogContinuation(payload = {}) {
+    if (!payload || typeof payload !== 'object') return payload;
+
+    const paginationSource = payload.pagination && typeof payload.pagination === 'object'
+        ? payload.pagination
+        : null;
+    if (!paginationSource) return payload;
+
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    const pageSize = clampInteger(
+        paginationSource.page_size,
+        1,
+        MAX_CATALOG_PAGE_SIZE,
+        DEFAULT_CATALOG_PAGE_SIZE
+    );
+    const page = clampInteger(paginationSource.page, 1, 10000, 1);
+    const total = Math.max(
+        items.length,
+        clampInteger(paginationSource.total ?? payload.total, 0, Number.MAX_SAFE_INTEGER, items.length)
+    );
+    const hasMore = paginationSource.has_more === true && total > items.length;
+    const cardsShownAfterPage = page * pageSize;
+    const canLoadMore = hasMore && cardsShownAfterPage < MAX_CATALOG_CARDS_IN_CHAT;
+    const scope = normalizeCatalogScope(
+        payload.scope,
+        Number(payload.scope?.category_id) || 0,
+        payload.direct_add_only === true || payload.scope?.direct_add_only === true
+    );
+    const continuation = canLoadMore
+        ? createCatalogPageToken({
+            query: String(payload.query || ''),
+            categoryId: scope.category_id || 0,
+            page: page + 1,
+            pageSize,
+            directAddOnly: scope.direct_add_only
+        })
+        : null;
+
+    return {
+        ...payload,
+        total,
+        coverage: {
+            ...(payload.coverage && typeof payload.coverage === 'object' ? payload.coverage : {}),
+            shown: items.length,
+            total,
+            remaining: Math.max(0, total - items.length),
+            complete: !hasMore && items.length >= total
+        },
+        pagination: {
+            ...paginationSource,
+            page,
+            page_size: pageSize,
+            total,
+            returned: items.length,
+            has_more: hasMore,
+            next_page: hasMore ? page + 1 : null,
+            can_load_more: Boolean(continuation),
+            chat_card_limit: MAX_CATALOG_CARDS_IN_CHAT,
+            truncated_for_chat: hasMore && !continuation
+        },
+        scope,
+        direct_add_only: scope.direct_add_only,
+        continuation
+    };
+}
+
 export function createCatalogPageToken(context = {}) {
     const page = clampInteger(context.page, 2, 10000, 2);
     const pageSize = clampInteger(context.pageSize, 1, MAX_CATALOG_PAGE_SIZE, DEFAULT_CATALOG_PAGE_SIZE);

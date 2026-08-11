@@ -709,8 +709,9 @@ class ChatMessagePayload
             $normalizedPayload['scope'] = $scope;
         }
 
-        // Continuation tokens are intentionally transient. A persisted chat
-        // must not retain a token that can expire or outlive its gateway run.
+        // Continuation tokens are intentionally transient. The authenticated
+        // Node gateway issues a fresh token from this safe pagination contract
+        // when it rehydrates a persisted conversation.
         return $normalizedPayload;
     }
 
