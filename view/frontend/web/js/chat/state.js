@@ -50,8 +50,6 @@
             wsHasEverConnected: false,
             wsConnected: false,
             wsReconnectTimer: null,
-            ticketRefreshTimer: null,
-            ticketRefreshDeferred: false,
             transportNotice: null,
             activeRequestId: null,
             responseStartedAt: 0,

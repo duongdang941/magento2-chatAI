@@ -1,5 +1,6 @@
 import { activeAddressFormCacheKey } from './address-update-admission.js';
 import { issueAddressFormToken } from './address-form-token.js';
+import { rehydrateCatalogContinuation } from './catalog-pagination.js';
 import { summarizeError } from './error-summary.js';
 
 /**
@@ -21,6 +22,13 @@ export function createHistoryMessagePreparer({
     return async function prepareHistoryMessages(sourceMessages, client, conversationId) {
         const messages = (Array.isArray(sourceMessages) ? sourceMessages : [])
             .map(message => normalizeStoredAssistantMessage(message));
+        messages.forEach(message => {
+            (Array.isArray(message?.parts) ? message.parts : []).forEach(part => {
+                if (part?.type === 'products' && part.payload && typeof part.payload === 'object') {
+                    part.payload = rehydrateCatalogContinuation(part.payload);
+                }
+            });
+        });
         const now = Date.now();
         const cacheKey = activeAddressFormCacheKey(client, conversationId);
         const cached = await runtime.getAuthCache(cacheKey);
