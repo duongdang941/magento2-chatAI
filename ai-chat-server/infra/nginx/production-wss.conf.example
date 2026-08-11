@@ -1,0 +1,30 @@
+# Add this HTTPS virtual host to the store edge after loading
+# production-upstream.conf.example in Nginx's `http {}` context. TLS should
+# be protected by the approved WAF/CDN before traffic reaches this server.
+server {
+    listen 443 ssl http2;
+    server_name shop.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/shop.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/shop.example.com/privkey.pem;
+
+    location /ai-gateway/ {
+        limit_req zone=afd_ai_connection_rate burst=12 nodelay;
+        limit_conn afd_ai_connection_limit 12;
+
+        proxy_pass http://afd_ai_gateway_replicas;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 3600s;
+    }
+
+    # Scrape /ai-gateway/internal/metrics only from a private monitoring
+    # network and send X-Afd-AI-Metrics-Token there.
+}

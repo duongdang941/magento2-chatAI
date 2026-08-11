@@ -1,0 +1,111 @@
+<?php
+declare(strict_types=1);
+
+namespace Afd\AI\Model\Security;
+
+use Afd\AI\Model\Config\Config as AiConfig;
+use Magento\Framework\Session\Config as SessionConfig;
+
+class WebSocketTicketIssuer
+{
+    private const AUDIENCE = 'afd-ai-websocket';
+    private const TTL_SECONDS = 60;
+
+    public function __construct(
+        private readonly AiConfig $config,
+        private readonly SessionConfig $sessionConfig
+    ) {
+    }
+
+    public function issue(?int $customerId, string $sessionId): string
+    {
+        $secret = $this->webSocketSecret();
+
+        return $this->sign([
+            'aud' => self::AUDIENCE,
+            'sub' => $customerId && $customerId > 0 ? (string)$customerId : null,
+            // Keep the stable, non-sensitive session fingerprint for gateway
+            // rate limiting and guest-history scope.
+            'sid' => hash('sha256', $sessionId),
+            // The checkout session ID is encrypted for the trusted gateway.
+            // A loopback WebSocket uses a different host than Magento, so the
+            // browser cannot forward its afd.test cookie to Node. The gateway
+            // can decrypt this short-lived claim only after verifying the JWT,
+            // then present it solely to the HMAC-protected internal cart route.
+            'sct' => $this->encryptCheckoutSessionId($sessionId, $secret),
+            'scn' => (string)$this->sessionConfig->getName(),
+        ]);
+    }
+
+    public function issueAdmin(int $adminId, string $adminName, string $sessionId): string
+    {
+        if ($adminId < 1 || trim($sessionId) === '') {
+            throw new \InvalidArgumentException('A valid administrator session is required.');
+        }
+
+        return $this->sign([
+            'aud' => self::AUDIENCE,
+            'role' => 'support_admin',
+            'aid' => $adminId,
+            'name' => mb_substr(trim($adminName) ?: 'Support team', 0, 80),
+            'sid' => hash('sha256', 'admin:' . $adminId . ':' . $sessionId),
+        ]);
+    }
+
+    /** @param array<string, mixed> $claims */
+    private function sign(array $claims): string
+    {
+        $secret = $this->webSocketSecret();
+
+        $now = time();
+        $header = $this->base64UrlEncode(json_encode([
+            'alg' => 'HS256',
+            'typ' => 'JWT',
+        ], JSON_THROW_ON_ERROR));
+        $payload = $this->base64UrlEncode(json_encode($claims + [
+            'jti' => bin2hex(random_bytes(16)),
+            'iat' => $now,
+            'exp' => $now + self::TTL_SECONDS,
+        ], JSON_THROW_ON_ERROR));
+        $signature = $this->base64UrlEncode(hash_hmac('sha256', $header . '.' . $payload, $secret, true));
+
+        return $header . '.' . $payload . '.' . $signature;
+    }
+
+    private function webSocketSecret(): string
+    {
+        $secret = $this->config->getWebSocketTicketSecret();
+        if (strlen($secret) < 32) {
+            throw new \RuntimeException('The Afd AI WebSocket ticket secret is not configured securely.');
+        }
+
+        return $secret;
+    }
+
+    private function base64UrlEncode(string $value): string
+    {
+        return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
+    }
+
+    private function encryptCheckoutSessionId(string $sessionId, string $secret): string
+    {
+        $nonce = random_bytes(12);
+        $tag = '';
+        $key = hash_hmac('sha256', 'afd-ai-websocket-ticket-session-v1', $secret, true);
+        $ciphertext = openssl_encrypt(
+            $sessionId,
+            'aes-256-gcm',
+            $key,
+            OPENSSL_RAW_DATA,
+            $nonce,
+            $tag,
+            self::AUDIENCE
+        );
+
+        if ($ciphertext === false || strlen($tag) !== 16) {
+            throw new \RuntimeException('Could not secure the WebSocket session ticket.');
+        }
+
+        return $this->base64UrlEncode($nonce . $tag . $ciphertext);
+    }
+}

@@ -1,0 +1,81 @@
+            <!-- Footer: Message Input (always visible) -->
+            <footer class="afd-ai-chat__footer"
+                    @paste="handleComposerPaste($event)"
+                    @drop.prevent="handleComposerDrop($event)"
+                    @dragover.prevent>
+                <div class="afd-ai-chat__human-support-mode" x-show="humanSupportActive" x-cloak>
+                    <span class="afd-ai-chat__human-support-mode-dot" aria-hidden="true"></span>
+                    <span>Chatting with <strong x-text="humanSupportAgentLabel || 'Support team'"></strong></span>
+                    <small>AI is paused</small>
+                </div>
+                <div class="afd-ai-chat__support-closed-mode" x-show="supportConversationClosed" x-cloak>
+                    <span class="material-symbols-outlined" aria-hidden="true">lock</span>
+                    <span><strong>Ticket closed.</strong> This conversation is read-only, but its history remains available.</span>
+                </div>
+                <template x-if="uploadError">
+                    <p class="afd-ai-chat__upload-error" x-text="uploadError"></p>
+                </template>
+                <div class="afd-ai-chat__composer-shell"
+                     x-show="!supportConversationClosed"
+                     :class="{ 'afd-ai-chat__composer-shell--expanded': isComposerExpanded || imageAttachments.length > 0 }">
+                    <template x-if="imageAttachments.length">
+                        <div class="afd-ai-chat__attachment-preview-list">
+                            <template x-for="(attachment, attachmentIndex) in imageAttachments" :key="attachment.previewUrl + attachmentIndex">
+                                <div class="afd-ai-chat__attachment-preview">
+                                    <img :src="attachment.previewUrl"
+                                         :alt="attachment.name"
+                                         class="afd-ai-chat__attachment-thumb">
+                                    <button type="button"
+                                            class="afd-ai-chat__attachment-remove"
+                                            @click="removeImageAttachment(attachmentIndex)"
+                                            :aria-label="'Remove ' + attachment.name">
+                                        <span class="material-symbols-outlined">close</span>
+                                    </button>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                    <div class="afd-ai-chat__composer-editor">
+                        <input x-ref="imageInput"
+                               class="afd-ai-chat__file-input"
+                               type="file"
+                               accept="image/jpeg,image/png,image/webp"
+                               multiple
+                               @change="handleImageFileChange($event)">
+                        <textarea x-ref="composerInput"
+                                  x-model="userInput"
+                                  @input="handleComposerInput()"
+                                  @keydown="handleComposerKeydown($event)"
+                                  class="afd-ai-chat__input"
+                                  placeholder="Message..."
+                                  rows="1"></textarea>
+                    <div class="afd-ai-chat__composer-bar">
+                        <button type="button"
+                                class="afd-ai-chat__input-icon-btn"
+                                :class="{ 'afd-ai-chat__input-icon-btn--active': imageAttachments.length > 0 }"
+                                :disabled="!canUploadImages || isReadingAttachments"
+                                @click="openImagePicker()">
+                            <span class="material-symbols-outlined">add</span>
+                        </button>
+                        <div class="afd-ai-chat__composer-spacer"></div>
+                        <template x-if="!isLoading">
+                            <button type="button" @click="sendMessage"
+                                    :disabled="isReadingAttachments || (!userInput.trim() && imageAttachments.length === 0)"
+                                    class="afd-ai-chat__send-btn"
+                                    aria-label="Send message"
+                                    title="Send message">
+                                <span class="material-symbols-outlined">arrow_upward</span>
+                            </button>
+                        </template>
+                        <template x-if="isLoading">
+                            <button type="button" @click.stop.prevent="stopCurrentResponse()"
+                                    class="afd-ai-chat__send-btn afd-ai-chat__send-btn--stop"
+                                    aria-label="Stop generating"
+                                    title="Stop generating">
+                                <span class="material-symbols-outlined">stop</span>
+                            </button>
+                        </template>
+                    </div>
+                    </div>
+                </div>
+            </footer>

@@ -1,0 +1,83 @@
+name: afd-ai-gateway
+
+x-gateway-environment: &gateway-environment
+  NODE_ENV: production
+  PORT: 3001
+  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+  ALLOW_IN_MEMORY_STATE: "false"
+  MAGENTO_API_URL: ${MAGENTO_API_URL}
+  MAGENTO_HOST: ${MAGENTO_HOST}
+  AI_NODE_SYNC_SECRET: ${AI_NODE_SYNC_SECRET}
+  AI_WS_TICKET_SECRET: ${AI_WS_TICKET_SECRET}
+  AI_METRICS_TOKEN: ${AI_METRICS_TOKEN}
+  MAX_MESSAGES_PER_MINUTE: ${MAX_MESSAGES_PER_MINUTE:-15}
+  MAX_CONCURRENT_MODEL_REQUESTS: ${MAX_CONCURRENT_MODEL_REQUESTS:-32}
+  MAX_QUEUE_DEPTH: ${MAX_QUEUE_DEPTH:-200}
+  MAX_QUEUE_WAIT_MS: ${MAX_QUEUE_WAIT_MS:-30000}
+  MODEL_LEASE_MS: ${MODEL_LEASE_MS:-90000}
+
+x-gateway-common: &gateway-common
+  build:
+    context: ..
+    dockerfile: infra/Dockerfile
+  restart: unless-stopped
+  environment: *gateway-environment
+  depends_on:
+    redis:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+    interval: 15s
+    timeout: 5s
+    retries: 3
+
+services:
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command: ["sh", "-c", "redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  gateway-1:
+    <<: *gateway-common
+    environment:
+      <<: *gateway-environment
+      GATEWAY_INSTANCE_ID: gateway-1
+
+  gateway-2:
+    <<: *gateway-common
+    environment:
+      <<: *gateway-environment
+      GATEWAY_INSTANCE_ID: gateway-2
+
+  gateway-3:
+    <<: *gateway-common
+    environment:
+      <<: *gateway-environment
+      GATEWAY_INSTANCE_ID: gateway-3
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      gateway-1:
+        condition: service_healthy
+      gateway-2:
+        condition: service_healthy
+      gateway-3:
+        condition: service_healthy
+    ports:
+      - "${GATEWAY_PORT:-3001}:8080"
+    volumes:
+      - ./infra/nginx/gateway.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  redis-data:

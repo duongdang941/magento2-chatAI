@@ -1,0 +1,142 @@
+<?php
+/** @var \Afd\AI\Block\Adminhtml\SupportCase\View $block */
+/** @var \Magento\Framework\Escaper $escaper */
+$case = $block->getCase();
+$tickets = $block->getTickets();
+$messages = $block->getTranscript();
+$lastMessageId = $messages ? (int)end($messages)['entity_id'] : 0;
+$closed = !$block->canReply();
+$chatConfig = [
+    '#afd-ai-admin-chat' => [
+        'Afd_AI/js/support-chat' => [
+            'caseId' => (int)$case->getId(),
+            'conversationId' => (int)$case->getData('conversation_id'),
+            'messagesUrl' => $block->getMessagesUrl(),
+            'replyUrl' => $block->getReplyUrl(),
+            'markReadUrl' => $block->getMarkReadUrl(),
+            'socketTicketUrl' => $block->getUrl('afd_ai/supportcase/socketTicket'),
+            'lastMessageId' => $lastMessageId,
+        ],
+    ],
+];
+?>
+<div id="afd-ai-chat-scope" class="afd-ai-support-page">
+    <div class="afd-ai-support-toolbar">
+        <a href="<?= $escaper->escapeUrl($block->getUrl('afd_ai/supportcase/index')) ?>">← <?= $escaper->escapeHtml(__('Support inbox')) ?></a>
+        <div><strong><?= $escaper->escapeHtml($block->getContactEmail() ?: (string)__('Unknown email')) ?></strong><span><?= $escaper->escapeHtml(__('%1 ticket(s)', count($tickets))) ?></span></div>
+    </div>
+
+    <div class="afd-ai-chat afd-ai-chat--admin"
+         id="afd-ai-admin-chat"
+         data-ui-theme="light"
+         data-ui-density="comfortable"
+         data-ui-font-size="medium">
+        <p class="afd-ai-support-notice" data-role="notice" hidden></p>
+        <section class="afd-ai-chat__window" aria-label="<?= $escaper->escapeHtmlAttr(__('Customer support inbox')) ?>">
+            <aside class="afd-ai-chat__sidebar" aria-label="<?= $escaper->escapeHtmlAttr(__('Tickets from this customer')) ?>">
+                <div class="afd-ai-chat__sidebar-content">
+                    <div class="afd-ai-chat__sidebar-top afd-ai-support-sidebar-top">
+                        <div class="afd-ai-chat__brand">
+                            <span class="afd-ai-chat__brand-icon afd-ai-support-brand-icon" aria-hidden="true">S</span>
+                            <div>
+                                <p class="afd-ai-chat__brand-name"><?= $escaper->escapeHtml(__('Human Support')) ?></p>
+                                <p class="afd-ai-chat__brand-sub"><?= $escaper->escapeHtml($block->getContactEmail()) ?></p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="afd-ai-chat__sidebar-label afd-ai-support-sidebar-label">
+                        <h3><?= $escaper->escapeHtml(__('Tickets')) ?> <span class="afd-ai-support-ticket-total"><?= count($tickets) ?></span></h3>
+                    </div>
+                    <div class="afd-ai-chat__sidebar-list custom-scrollbar" data-role="ticket-list">
+                        <?php foreach ($tickets as $ticket): ?>
+                            <?php $selected = (int)$ticket['entity_id'] === (int)$case->getId(); ?>
+                            <div class="afd-ai-chat__sidebar-item-wrap<?= $selected ? ' afd-ai-chat__sidebar-item-wrap--active' : '' ?><?= (int)$ticket['admin_unread_count'] > 0 ? ' is-unread' : '' ?>"
+                                 data-role="ticket-wrap">
+                                <button type="button"
+                                        class="afd-ai-chat__sidebar-item<?= $selected ? ' afd-ai-chat__sidebar-item--active' : '' ?>"
+                                        data-role="ticket"
+                                        data-case-id="<?= (int)$ticket['entity_id'] ?>"
+                                        data-conversation-id="<?= (int)$ticket['conversation_id'] ?>"
+                                        aria-pressed="<?= $selected ? 'true' : 'false' ?>">
+                                    <span class="afd-ai-support-ticket-icon" aria-hidden="true">#</span>
+                                    <span class="afd-ai-chat__sidebar-item-copy">
+                                        <span class="afd-ai-chat__sidebar-item-title">
+                                            <span class="afd-ai-chat__sidebar-item-title-track"><?= $escaper->escapeHtml((string)$ticket['subject']) ?></span>
+                                        </span>
+                                        <span class="afd-ai-support-ticket-meta">
+                                            <span><?= $escaper->escapeHtml((string)$ticket['public_id']) ?></span>
+                                            <span><?= $escaper->escapeHtml((string)$ticket['status']) ?></span>
+                                        </span>
+                                    </span>
+                                    <?php if ((int)$ticket['admin_unread_count'] > 0): ?>
+                                        <span class="afd-ai-support-unread" data-role="unread-count"><?= (int)$ticket['admin_unread_count'] ?></span>
+                                    <?php endif; ?>
+                                </button>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </aside>
+
+            <main class="afd-ai-chat__main">
+                <header class="afd-ai-chat__header">
+                    <button type="button" class="afd-ai-chat__mobile-sidebar-toggle" data-role="sidebar-toggle" aria-label="<?= $escaper->escapeHtmlAttr(__('Open tickets')) ?>">☰</button>
+                    <div class="afd-ai-chat__header-left">
+                        <h2 class="afd-ai-chat__title">Store Assistant</h2>
+                        <span class="afd-ai-chat__connection afd-ai-chat__connection--online"><?= $escaper->escapeHtml(__('Live')) ?></span>
+                    </div>
+                    <div class="afd-ai-chat__header-actions">
+                        <span class="afd-ai-support-case-id" data-role="case-public-id"><?= $escaper->escapeHtml((string)$case->getData('public_id')) ?></span>
+                        <a href="<?= $escaper->escapeUrl($block->getUrl('afd_ai/supportcase/index')) ?>"
+                           class="afd-ai-chat__header-btn afd-ai-chat__header-btn--close afd-ai-support-close"
+                           aria-label="<?= $escaper->escapeHtmlAttr(__('Close')) ?>">×</a>
+                    </div>
+                </header>
+
+                <div class="afd-ai-support-ticket-context">
+                    <strong data-role="case-subject"><?= $escaper->escapeHtml((string)$case->getData('subject')) ?></strong>
+                    <span data-role="case-status"><?= $escaper->escapeHtml((string)$case->getData('status')) ?></span>
+                    <span data-role="case-priority"><?= $escaper->escapeHtml((string)$case->getData('priority')) ?></span>
+                    <span data-role="case-category"><?= $escaper->escapeHtml((string)$case->getData('category')) ?></span>
+                    <span data-role="case-summary" hidden><?= $escaper->escapeHtml((string)$case->getData('summary')) ?></span>
+                </div>
+
+                <div class="afd-ai-chat__messages-wrapper">
+                    <div class="afd-ai-chat__messages custom-scrollbar" data-role="messages" aria-live="polite">
+                        <?php foreach ($messages as $message): ?>
+                            <?php $isCustomer = $message['role'] === 'user'; $isAgent = $message['source'] === 'support_agent'; ?>
+                            <?php if ($isAgent): ?>
+                                <div class="afd-ai-chat__msg-user" data-message-id="<?= (int)$message['entity_id'] ?>">
+                                    <div class="afd-ai-chat__msg-user-content"><div class="afd-ai-chat__msg-user-stack"><div class="afd-ai-chat__msg-bubble-user"><div class="afd-ai-chat__msg-user-text"><?= /* @noEscape */ nl2br($escaper->escapeHtml($message['text'])) ?></div></div></div></div>
+                                </div>
+                            <?php else: ?>
+                                <div class="afd-ai-chat__msg-ai" data-message-id="<?= (int)$message['entity_id'] ?>">
+                                    <div class="afd-ai-chat__msg-content"><div class="afd-ai-chat__msg-assistant-stack"><div class="<?= $isCustomer ? 'afd-ai-chat__msg-bubble-customer' : 'afd-ai-chat__msg-bubble-ai' ?>">
+                                        <div class="afd-ai-chat__msg-part"><?= /* @noEscape */ nl2br($escaper->escapeHtml($message['text'])) ?></div>
+                                    </div></div></div>
+                                </div>
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+
+                <footer class="afd-ai-chat__footer">
+                    <form class="afd-ai-chat__composer-shell" data-role="composer"
+                          action="<?= $escaper->escapeUrl($block->getReplyUrl()) ?>" method="post" <?= $closed ? 'hidden' : '' ?>>
+                        <?= $block->getBlockHtml('formkey') ?>
+                        <input type="hidden" name="entity_id" value="<?= (int)$case->getId() ?>">
+                        <div class="afd-ai-chat__composer-editor">
+                            <button type="button" class="afd-ai-chat__input-icon-btn" disabled aria-label="<?= $escaper->escapeHtmlAttr(__('Attachments are unavailable')) ?>">+</button>
+                            <textarea class="afd-ai-chat__input" name="reply" maxlength="4000" rows="1" required placeholder="<?= $escaper->escapeHtmlAttr(__('Message…')) ?>" aria-label="<?= $escaper->escapeHtmlAttr(__('Reply to this customer')) ?>"></textarea>
+                            <div class="afd-ai-chat__composer-bar"><div class="afd-ai-chat__composer-spacer"></div><button type="submit" class="afd-ai-chat__send-btn" aria-label="<?= $escaper->escapeHtmlAttr(__('Send reply')) ?>" disabled>↑</button></div>
+                        </div>
+                    </form>
+                    <div class="afd-ai-support-closed" data-role="closed" <?= $closed ? '' : 'hidden' ?>><?= $escaper->escapeHtml(__('This ticket is closed. Reopen it before replying.')) ?></div>
+                </footer>
+            </main>
+        </section>
+    </div>
+</div>
+<script type="text/x-magento-init">
+<?= /* @noEscape */ json_encode($chatConfig, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>
+</script>

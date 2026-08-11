@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<csp_whitelist xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Csp/etc/csp_whitelist.xsd">
+    <policies>
+        <policy id="connect-src">
+            <values>
+                <value id="afd_ai_websocket" type="host">ws://localhost:3001</value>
+                <value id="afd_ai_websocket_loopback" type="host">ws://127.0.0.1:3001</value>
+                <value id="afd_ai_websocket_store" type="host">ws://afd.test:3001</value>
+            </values>
+        </policy>
+    </policies>
+</csp_whitelist>

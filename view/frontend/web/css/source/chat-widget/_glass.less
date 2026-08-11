@@ -1,0 +1,107 @@
+// Glass mode changes surface alpha only. Applying `opacity` to the whole chat
+// would also fade text, icons and focus states, making the interface unreadable.
+.afd-ai-chat {
+    --afd-chat-glass-alpha: 1;
+    --afd-chat-glass-content-alpha: 0.94;
+    --afd-chat-glass-rgb: 24, 24, 29;
+    --afd-chat-glass-raised-rgb: 36, 36, 42;
+
+    &[data-ui-theme="light"] {
+        --afd-chat-glass-rgb: 255, 255, 255;
+        --afd-chat-glass-raised-rgb: 248, 249, 252;
+    }
+
+    &[data-ui-glass="true"] {
+        .afd-ai-chat__window {
+            border-color: ~"color-mix(in srgb, var(--afd-chat-accent-live) 20%, rgba(var(--afd-chat-glass-rgb), 0.45))";
+            background: ~"rgba(var(--afd-chat-glass-rgb), var(--afd-chat-glass-alpha))";
+            box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28),
+                inset 0 1px 0 rgba(255, 255, 255, 0.12);
+            -webkit-backdrop-filter: saturate(135%) blur(20px);
+            backdrop-filter: saturate(135%) blur(20px);
+        }
+
+        .afd-ai-chat__main,
+        .afd-ai-chat__header,
+        .afd-ai-chat__footer {
+            background: ~"rgba(var(--afd-chat-glass-rgb), var(--afd-chat-glass-alpha))";
+        }
+
+        .afd-ai-chat__sidebar {
+            background: ~"rgba(var(--afd-chat-glass-rgb), var(--afd-chat-glass-alpha))";
+        }
+
+        .afd-ai-chat__header,
+        .afd-ai-chat__footer,
+        .afd-ai-chat__sidebar {
+            border-color: ~"rgba(var(--afd-chat-glass-rgb), 0.32)";
+        }
+
+        .afd-ai-chat__sidebar-top {
+            background: ~"rgba(var(--afd-chat-glass-raised-rgb), var(--afd-chat-glass-alpha))";
+        }
+
+        // In expanded mode the sidebar and Store Assistant header must use the
+        // same live glass colour/alpha. Child sections stay transparent so
+        // they do not stack another tint on top. Mobile keeps its stronger
+        // drawer treatment below.
+        &:not(.afd-ai-chat--mobile-layout) {
+            .afd-ai-chat__sidebar {
+                background: ~"rgba(var(--afd-chat-glass-rgb), var(--afd-chat-glass-alpha))";
+            }
+
+            .afd-ai-chat__sidebar-top,
+            .afd-ai-chat__sidebar-content,
+            .afd-ai-chat__sidebar-list,
+            .afd-ai-chat__sidebar-footer {
+                background: transparent;
+            }
+        }
+
+        .afd-ai-chat__msg-bubble-ai {
+            padding: 0.72rem 0.82rem;
+            border: 1px solid ~"rgba(var(--afd-chat-glass-rgb), 0.2)";
+            border-radius: 0.8rem;
+            background: ~"rgba(var(--afd-chat-glass-rgb), var(--afd-chat-glass-content-alpha))";
+            box-shadow: 0 8px 26px rgba(0, 0, 0, 0.08);
+            -webkit-backdrop-filter: blur(12px);
+            backdrop-filter: blur(12px);
+        }
+
+        .afd-ai-chat__composer-shell {
+            background: ~"rgba(var(--afd-chat-glass-raised-rgb), var(--afd-chat-glass-content-alpha))";
+            -webkit-backdrop-filter: blur(12px);
+            backdrop-filter: blur(12px);
+        }
+
+        .afd-ai-chat__settings-panel,
+        .afd-ai-chat__settings-card {
+            // Settings remain readable even when the shopper drags the slider
+            // all the way to zero.
+            background: ~"rgba(var(--afd-chat-glass-rgb), 0.96)";
+            -webkit-backdrop-filter: blur(22px);
+            backdrop-filter: blur(22px);
+        }
+
+        // A narrow-screen sidebar is an overlay drawer above the conversation.
+        // It needs its own stronger surface; inheriting the main chat alpha
+        // makes two independent text layers visually collide.
+        &.afd-ai-chat--mobile-sidebar-open {
+            .afd-ai-chat__sidebar {
+                border-right-color: ~"color-mix(in srgb, var(--afd-chat-accent-live) 16%, rgba(var(--afd-chat-glass-rgb), 0.72))";
+                background: ~"rgba(var(--afd-chat-glass-rgb), 0.96)";
+                box-shadow: 18px 0 42px rgba(0, 0, 0, 0.24);
+                -webkit-backdrop-filter: saturate(125%) blur(24px);
+                backdrop-filter: saturate(125%) blur(24px);
+            }
+
+            .afd-ai-chat__sidebar-top {
+                background: ~"rgba(var(--afd-chat-glass-raised-rgb), 0.94)";
+            }
+
+            .afd-ai-chat__sidebar-footer {
+                background: ~"rgba(var(--afd-chat-glass-rgb), 0.96)";
+            }
+        }
+    }
+}

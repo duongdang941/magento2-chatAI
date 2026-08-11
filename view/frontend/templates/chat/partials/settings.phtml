@@ -1,0 +1,236 @@
+                    <div x-show="isSettingsOpen"
+                         x-transition
+                         x-cloak
+                         class="afd-ai-chat__settings-overlay"
+                         @click.self="closeSettings()">
+                        <section class="afd-ai-chat__settings-panel"
+                                 role="dialog"
+                                 aria-modal="true"
+                                 aria-labelledby="afd-ai-chat-settings-title">
+                            <aside class="afd-ai-chat__settings-nav" aria-label="Settings sections">
+                                <p class="afd-ai-chat__settings-nav-kicker">Settings</p>
+                                <button type="button" class="afd-ai-chat__settings-nav-item afd-ai-chat__settings-nav-item--active">
+                                    <span class="material-symbols-outlined">light_mode</span>
+                                    <span>Appearance</span>
+                                </button>
+                                <p class="afd-ai-chat__settings-nav-note">Saved on this browser for your next visit.</p>
+                            </aside>
+
+                            <div class="afd-ai-chat__settings-content">
+                                <header class="afd-ai-chat__settings-header">
+                                    <div>
+                                        <h3 id="afd-ai-chat-settings-title" class="afd-ai-chat__settings-title">Appearance</h3>
+                                        <p class="afd-ai-chat__settings-subtitle">Store assistant preferences</p>
+                                    </div>
+                                    <button type="button" class="afd-ai-chat__settings-close" @click="closeSettings()">
+                                        <span class="material-symbols-outlined">close</span>
+                                    </button>
+                                </header>
+
+                                <div class="afd-ai-chat__settings-card">
+                                    <div class="afd-ai-chat__settings-row">
+                                        <div class="afd-ai-chat__settings-copy">
+                                            <p class="afd-ai-chat__settings-label">Theme</p>
+                                            <p class="afd-ai-chat__settings-help">Light, dark, or system</p>
+                                        </div>
+                                        <div class="afd-ai-chat__segmented" role="group" aria-label="Theme">
+                                            <button type="button"
+                                                    class="afd-ai-chat__segment"
+                                                    :class="{ 'afd-ai-chat__segment--active': uiSettings.theme === 'light' }"
+                                                    @click="setUiSetting('theme', 'light')">
+                                                <span class="material-symbols-outlined">light_mode</span>
+                                                <span>Light</span>
+                                            </button>
+                                            <button type="button"
+                                                    class="afd-ai-chat__segment"
+                                                    :class="{ 'afd-ai-chat__segment--active': uiSettings.theme === 'dark' }"
+                                                    @click="setUiSetting('theme', 'dark')">
+                                                <span class="material-symbols-outlined">dark_mode</span>
+                                                <span>Dark</span>
+                                            </button>
+                                            <button type="button"
+                                                    class="afd-ai-chat__segment"
+                                                    :class="{ 'afd-ai-chat__segment--active': uiSettings.theme === 'system' }"
+                                                    @click="setUiSetting('theme', 'system')">
+                                                <span class="material-symbols-outlined">computer</span>
+                                                <span>System</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="afd-ai-chat__settings-row">
+                                        <div class="afd-ai-chat__settings-copy">
+                                            <p class="afd-ai-chat__settings-label">Accent</p>
+                                            <p class="afd-ai-chat__settings-help" x-text="uiSettings.accent"></p>
+                                        </div>
+                                        <div class="afd-ai-chat__settings-control-stack">
+                                            <div class="afd-ai-chat__swatches" role="group" aria-label="Accent presets">
+                                                <button type="button"
+                                                        class="afd-ai-chat__swatch"
+                                                        style="--afd-chat-swatch: #c32654"
+                                                        :class="{ 'afd-ai-chat__swatch--active': uiSettings.accent === '#c32654' }"
+                                                        @click="setUiSetting('accent', '#c32654')"
+                                                        aria-label="Brand rose"></button>
+                                                <button type="button"
+                                                        class="afd-ai-chat__swatch"
+                                                        style="--afd-chat-swatch: #8f2847"
+                                                        :class="{ 'afd-ai-chat__swatch--active': uiSettings.accent === '#8f2847' }"
+                                                        @click="setUiSetting('accent', '#8f2847')"
+                                                        aria-label="Burgundy"></button>
+                                                <button type="button"
+                                                        class="afd-ai-chat__swatch"
+                                                        style="--afd-chat-swatch: #be123c"
+                                                        :class="{ 'afd-ai-chat__swatch--active': uiSettings.accent === '#be123c' }"
+                                                        @click="setUiSetting('accent', '#be123c')"
+                                                        aria-label="Rose"></button>
+                                            </div>
+                                            <label class="afd-ai-chat__color-field">
+                                                <input type="color"
+                                                       x-model="uiSettings.accent"
+                                                       @input="setUiSetting('accent', $event.target.value)"
+                                                       aria-label="Accent color">
+                                                <span x-text="uiSettings.accent"></span>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="afd-ai-chat__settings-row">
+                                        <div class="afd-ai-chat__settings-copy">
+                                            <p class="afd-ai-chat__settings-label">Text size</p>
+                                            <p class="afd-ai-chat__settings-help">Changes the chat text immediately.</p>
+                                        </div>
+                                        <div class="afd-ai-chat__segmented" role="group" aria-label="Text size">
+                                            <button type="button"
+                                                    class="afd-ai-chat__segment"
+                                                    :class="{ 'afd-ai-chat__segment--active': uiSettings.fontSize === 'small' }"
+                                                    @click="setUiSetting('fontSize', 'small')">
+                                                <span>Small</span>
+                                            </button>
+                                            <button type="button"
+                                                    class="afd-ai-chat__segment"
+                                                    :class="{ 'afd-ai-chat__segment--active': uiSettings.fontSize === 'medium' }"
+                                                    @click="setUiSetting('fontSize', 'medium')">
+                                                <span>Default</span>
+                                            </button>
+                                            <button type="button"
+                                                    class="afd-ai-chat__segment"
+                                                    :class="{ 'afd-ai-chat__segment--active': uiSettings.fontSize === 'large' }"
+                                                    @click="setUiSetting('fontSize', 'large')">
+                                                <span>Large</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="afd-ai-chat__settings-row afd-ai-chat__settings-row--glass">
+                                        <div class="afd-ai-chat__settings-copy">
+                                            <p class="afd-ai-chat__settings-label">Chatbox opacity</p>
+                                            <p class="afd-ai-chat__settings-help">Lower the opacity for a frosted-glass view of the page.</p>
+                                        </div>
+                                        <label class="afd-ai-chat__glass-control">
+                                            <span class="afd-ai-chat__glass-track-wrap">
+                                                <input type="range"
+                                                       min="0"
+                                                       max="100"
+                                                       step="5"
+                                                       :value="uiSettings.glassOpacity"
+                                                       @input="setUiSetting('glassOpacity', $event.target.value)"
+                                                       aria-label="Chatbox opacity"
+                                                       :aria-valuetext="glassOpacityLabel()">
+                                            </span>
+                                            <output x-text="glassOpacityLabel()"></output>
+                                        </label>
+                                    </div>
+
+                                    <div class="afd-ai-chat__settings-row">
+                                        <div class="afd-ai-chat__settings-copy">
+                                            <p class="afd-ai-chat__settings-label">Message spacing</p>
+                                            <p class="afd-ai-chat__settings-help" x-text="messageSpacingHelp()"></p>
+                                        </div>
+                                        <div class="afd-ai-chat__segmented" role="group" aria-label="Message spacing">
+                                            <button type="button"
+                                                    class="afd-ai-chat__segment"
+                                                    :class="{ 'afd-ai-chat__segment--active': uiSettings.density === 'comfortable' }"
+                                                    @click="setUiSetting('density', 'comfortable')">
+                                                <span>Roomy</span>
+                                            </button>
+                                            <button type="button"
+                                                    class="afd-ai-chat__segment"
+                                                    :class="{ 'afd-ai-chat__segment--active': uiSettings.density === 'compact' }"
+                                                    @click="setUiSetting('density', 'compact')">
+                                                <span>Compact</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="afd-ai-chat__settings-row">
+                                        <div class="afd-ai-chat__settings-copy">
+                                            <p class="afd-ai-chat__settings-label">Pet motion</p>
+                                            <p class="afd-ai-chat__settings-help">Animate the pet while chatting or dragging</p>
+                                        </div>
+                                        <label class="afd-ai-chat__switch">
+                                            <input type="checkbox"
+                                                   x-model="uiSettings.petMotion"
+                                                   @change="setUiSetting('petMotion', $event.target.checked)"
+                                                   aria-label="Enable pet motion">
+                                            <span></span>
+                                        </label>
+                                    </div>
+
+                                    <div class="afd-ai-chat__settings-row">
+                                        <div class="afd-ai-chat__settings-copy">
+                                            <p class="afd-ai-chat__settings-label">Pet</p>
+                                            <p class="afd-ai-chat__settings-help">Selected pet</p>
+                                        </div>
+                                        <div class="afd-ai-chat__settings-pet">
+                                            <span class="afd-ai-chat__settings-pet-sprite"
+                                                  style="--afd-pet-choice-image: url('<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::images/shadow-wolf-pet-spritesheet.webp')) ?>');"
+                                                  aria-hidden="true"></span>
+                                            <span>Shadow Wolf</span>
+                                            <span class="afd-ai-chat__settings-pill">Selected</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="afd-ai-chat__settings-row">
+                                        <div class="afd-ai-chat__settings-copy">
+                                            <p class="afd-ai-chat__settings-label">Launcher position</p>
+                                            <p class="afd-ai-chat__settings-help">Reset the draggable pet to the default corner</p>
+                                        </div>
+                                        <button type="button" class="afd-ai-chat__settings-action-btn" @click="resetLauncherPosition()">
+                                            <span class="material-symbols-outlined">restart_alt</span>
+                                            <span>Reset</span>
+                                        </button>
+                                    </div>
+
+                                    <div class="afd-ai-chat__settings-row afd-ai-chat__settings-row--privacy">
+                                        <div class="afd-ai-chat__settings-copy">
+                                            <p class="afd-ai-chat__settings-label">Chat data</p>
+                                            <p class="afd-ai-chat__settings-help">Export or permanently delete your Store Assistant conversations and feedback.</p>
+                                            <p class="afd-ai-chat__settings-privacy-notice"
+                                               x-show="privacyNotice"
+                                               :class="'afd-ai-chat__settings-privacy-notice--' + privacyNoticeVariant"
+                                               role="status"
+                                               aria-live="polite"
+                                               x-text="privacyNotice"></p>
+                                        </div>
+                                        <div class="afd-ai-chat__settings-privacy-actions">
+                                            <button type="button"
+                                                    class="afd-ai-chat__settings-action-btn"
+                                                    :disabled="privacyBusy"
+                                                    @click="exportChatData()">
+                                                <span class="material-symbols-outlined" aria-hidden="true">download</span>
+                                                <span>Export</span>
+                                            </button>
+                                            <button type="button"
+                                                    class="afd-ai-chat__settings-action-btn afd-ai-chat__settings-action-btn--danger"
+                                                    :class="{ 'afd-ai-chat__settings-action-btn--armed': privacyDeleteArmed }"
+                                                    :disabled="privacyBusy"
+                                                    @click="deleteChatData()">
+                                                <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                                                <span x-text="privacyDeleteArmed ? 'Confirm delete' : 'Delete'"></span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+                    </div>

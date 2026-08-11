@@ -1,0 +1,13 @@
+<!--@subject New reply for support request {{var case.public_id}} @-->
+<!--@vars {
+"var case.public_id":"Case ID",
+"var case.subject":"Subject",
+"var reply":"Support reply"
+} @-->
+{{template config_path="design/email/header_template"}}
+<p><strong>{{trans "A support team member replied to your Store Assistant conversation."}}</strong></p>
+<p>{{trans "Case:"}} {{var case.public_id|escape}}</p>
+<p>{{var case.subject|escape}}</p>
+<p>{{var reply|escape|nl2br}}</p>
+<p>{{trans "Return to the store using the same browser session to continue the conversation."}}</p>
+{{template config_path="design/email/footer_template"}}

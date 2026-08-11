@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+    <head>
+        <css src="Afd_AI::css/fonts.css"/>
+        <css src="Afd_AI::css/support-inbox.css"/>
+    </head>
+    <body>
+        <referenceContainer name="content">
+            <uiComponent name="afd_ai_support_case_listing"/>
+            <block class="Magento\Backend\Block\Template"
+                   name="afd.ai.support.modal"
+                   template="Afd_AI::support/modal.phtml"/>
+        </referenceContainer>
+    </body>
+</page>

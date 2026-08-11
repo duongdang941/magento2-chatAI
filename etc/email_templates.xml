@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Email:etc/email_templates.xsd">
+    <template id="afd_ai_guest_order_otp" label="AI Guest Order Verification" file="guest_order_otp.html" type="html" module="Afd_AI" area="frontend"/>
+    <template id="afd_ai_support_case_created" label="AI Human Handoff Case" file="support_case_created.html" type="html" module="Afd_AI" area="frontend"/>
+    <template id="afd_ai_support_case_status" label="AI Human Handoff Status" file="support_case_status.html" type="html" module="Afd_AI" area="frontend"/>
+    <template id="afd_ai_support_case_reply" label="AI Human Handoff Reply" file="support_case_reply.html" type="html" module="Afd_AI" area="frontend"/>
+</config>

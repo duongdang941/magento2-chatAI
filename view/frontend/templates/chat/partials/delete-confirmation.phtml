@@ -1,0 +1,50 @@
+<div x-show="isConfirmationDialogOpen"
+     x-transition.opacity.duration.150ms
+     x-cloak
+     class="afd-ai-chat__confirm-overlay"
+     @click.self="closeConfirmationDialog()">
+    <section class="afd-ai-chat__confirm-dialog"
+             role="alertdialog"
+             aria-modal="true"
+             aria-labelledby="afd-ai-chat-confirm-title"
+             aria-describedby="afd-ai-chat-confirm-description"
+             @keydown.tab.prevent="trapConfirmationDialogFocus($event)">
+        <div class="afd-ai-chat__confirm-heading">
+            <span class="afd-ai-chat__confirm-icon" aria-hidden="true">
+                <span class="material-symbols-outlined" x-text="confirmationDialog.icon"></span>
+            </span>
+            <div class="afd-ai-chat__confirm-copy">
+                <p class="afd-ai-chat__confirm-kicker" x-text="confirmationDialog.kicker"></p>
+                <h3 id="afd-ai-chat-confirm-title"
+                    class="afd-ai-chat__confirm-title"
+                    x-text="confirmationDialog.title"></h3>
+                <p id="afd-ai-chat-confirm-description"
+                   class="afd-ai-chat__confirm-description"
+                   x-text="confirmationDialog.description"></p>
+            </div>
+        </div>
+
+        <p class="afd-ai-chat__confirm-preview"
+           x-show="confirmationDialog.preview"
+           x-text="confirmationDialog.preview"></p>
+
+        <div class="afd-ai-chat__confirm-actions">
+            <button type="button"
+                    class="afd-ai-chat__confirm-btn afd-ai-chat__confirm-btn--cancel"
+                    x-ref="confirmationDialogCancel"
+                    @click="closeConfirmationDialog()">
+                Cancel
+            </button>
+            <button type="button"
+                    class="afd-ai-chat__confirm-btn"
+                    :class="confirmationDialog.variant === 'danger' ? 'afd-ai-chat__confirm-btn--danger' : 'afd-ai-chat__confirm-btn--accent'"
+                    x-ref="confirmationDialogConfirm"
+                    @click="confirmDialogAction()">
+                <span class="material-symbols-outlined"
+                      aria-hidden="true"
+                      x-text="confirmationDialog.confirmIcon"></span>
+                <span x-text="confirmationDialog.confirmLabel"></span>
+            </button>
+        </div>
+    </section>
+</div>

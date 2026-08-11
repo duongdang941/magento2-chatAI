@@ -1,0 +1,295 @@
+<?php
+declare(strict_types=1);
+
+namespace Afd\AI\Model\Support;
+
+use Afd\AI\Model\Conversation\ConversationIdentity;
+use Afd\AI\Model\Gateway\SupportMessagePublisher;
+use Afd\AI\Model\Order\GuestOrderVerification;
+use Afd\AI\Model\Security\ActionRateLimiter;
+use Magento\Framework\App\Config\ScopeConfigInterface;
+use Magento\Framework\App\ResourceConnection;
+use Magento\Framework\Encryption\EncryptorInterface;
+use Magento\Framework\Math\Random;
+
+class SupportCaseService
+{
+    private const CATEGORIES = ['general', 'sales', 'order', 'shipping', 'billing', 'return', 'refund', 'technical'];
+    private const PRIORITIES = ['low', 'normal', 'high', 'urgent'];
+
+    public function __construct(
+        private readonly ResourceConnection $resource,
+        private readonly ScopeConfigInterface $scopeConfig,
+        private readonly ConversationIdentity $conversationIdentity,
+        private readonly GuestOrderVerification $emailVerification,
+        private readonly ActionRateLimiter $rateLimiter,
+        private readonly EncryptorInterface $encryptor,
+        private readonly Random $random,
+        private readonly SupportCaseNotifier $notifier,
+        private readonly SupportMessagePublisher $publisher
+    ) {
+    }
+
+    /** @return array<string, mixed> */
+    public function create(
+        int $conversationId,
+        ?int $customerId,
+        ?string $guestId,
+        string $category,
+        string $subject,
+        string $summary,
+        string $priority = 'normal',
+        array $context = [],
+        ?int $messageId = null,
+        string $guestEmail = '',
+        string $verificationToken = '',
+        string $verificationSessionId = ''
+    ): array {
+        if (!$this->scopeConfig->isSetFlag('afd_ai/support/enabled')) {
+            return ['status' => 'unavailable', 'reason' => 'handoff_disabled', 'message' => __('Human support handoff is currently unavailable.')->render()];
+        }
+        $guestId = strtolower(trim((string)$guestId));
+        if (!$this->conversationIdentity->ownsConversation($conversationId, $customerId, $guestId)) {
+            return ['status' => 'error', 'reason' => 'conversation_not_owned', 'message' => __('The conversation could not be verified.')->render()];
+        }
+
+        $contactEmail = $this->resolveVerifiedContactEmail($guestEmail);
+        if ($contactEmail === '' || !$this->emailVerification->hasAccess(
+            trim($verificationToken),
+            trim($verificationSessionId),
+            $contactEmail
+        )) {
+            return [
+                'status' => 'requires_customer_action',
+                'reason' => 'guest_access_required',
+                'purpose' => 'support',
+                'message' => __('Verify your email before starting human support.')->render(),
+            ];
+        }
+
+        $identity = ($customerId ?? 0) > 0 ? 'customer:' . $customerId : 'guest:' . $guestId;
+        $throttle = $this->rateLimiter->consume('support_case', $identity, 3, 3600);
+        if (!$throttle['allowed']) {
+            return [
+                'status' => 'rate_limited',
+                'reason' => 'too_many_cases',
+                'retry_after' => $throttle['retry_after'],
+                'message' => __('A support request was recently created. Please wait before creating another one.')->render(),
+            ];
+        }
+
+        $category = strtolower(trim($category));
+        $category = in_array($category, self::CATEGORIES, true) ? $category : 'general';
+        $priority = strtolower(trim($priority));
+        $priority = in_array($priority, self::PRIORITIES, true) ? $priority : 'normal';
+        $subject = mb_substr(trim(preg_replace('/\s+/u', ' ', $subject) ?: ''), 0, 255);
+        $summary = mb_substr(trim($summary), 0, 4000);
+        if ($subject === '' || $summary === '') {
+            return ['status' => 'error', 'reason' => 'missing_summary', 'message' => __('Describe what you need help with.')->render()];
+        }
+
+        $publicId = $this->createPublicId();
+        $now = gmdate('Y-m-d H:i:s');
+        $connection = $this->resource->getConnection();
+        $conversationTable = $this->resource->getTableName('afd_ai_conversation');
+        $messageTable = $this->resource->getTableName('afd_ai_message');
+        $caseTable = $this->resource->getTableName('afd_ai_support_case');
+        $connection->beginTransaction();
+        try {
+            $connection->insert($conversationTable, [
+                'customer_id' => ($customerId ?? 0) > 0 ? $customerId : null,
+                'guest_id' => ($customerId ?? 0) > 0 ? null : $guestId,
+                'title' => mb_substr($subject, 0, 255),
+                'conversation_type' => 'support',
+                'is_archived' => 0,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+            $ticketConversationId = (int)$connection->lastInsertId($conversationTable);
+            $connection->insert($messageTable, [
+                'session_id' => ($customerId ?? 0) > 0 ? 'support-customer:' . $customerId : 'support-guest:' . $guestId,
+                'customer_id' => ($customerId ?? 0) > 0 ? $customerId : null,
+                'conversation_id' => $ticketConversationId,
+                'role' => 'user',
+                'content' => $summary,
+                'attachment' => null,
+                'created_at' => $now,
+            ]);
+            $initialMessageId = (int)$connection->lastInsertId($messageTable);
+
+            $row = [
+                'public_id' => $publicId,
+                'conversation_id' => $ticketConversationId,
+                'source_conversation_id' => $conversationId,
+                'message_id' => $initialMessageId,
+                'customer_id' => ($customerId ?? 0) > 0 ? $customerId : null,
+                'guest_id' => ($customerId ?? 0) > 0 ? null : $guestId,
+                'category' => $category,
+                'priority' => $priority,
+                'status' => 'open',
+                'subject' => $subject,
+                'summary' => $summary,
+                'context_json' => $this->encodeContext($context),
+                'contact_email' => $contactEmail !== '' ? $this->encryptor->encrypt($contactEmail) : null,
+                'contact_email_hash' => hash('sha256', $contactEmail),
+                'admin_unread_count' => 1,
+                'customer_unread_count' => 0,
+                'last_customer_message_at' => $now,
+                // Only the new ticket thread is private customer/admin chat.
+                // The source AI conversation remains available to the user.
+                'takeover_state' => 'active',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+            $connection->insert($caseTable, $row);
+            $connection->commit();
+        } catch (\Throwable $exception) {
+            $connection->rollBack();
+            throw $exception;
+        }
+
+        $safeCase = [
+            'public_id' => $publicId,
+            'category' => $category,
+            'priority' => $priority,
+            'subject' => $subject,
+            'summary' => $summary,
+            'conversation_id' => $ticketConversationId,
+            'created_at' => $now,
+        ];
+        $this->notifier->notify($safeCase);
+        $this->publisher->publishMode($row, true, (string)__('Support team'));
+
+        return [
+            'status' => 'success',
+            'case' => $safeCase + ['status' => 'open'],
+            'message' => __('Support request %1 was created in a separate private conversation.', $publicId)->render(),
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    public function listVerified(
+        ?int $customerId,
+        ?string $guestId,
+        string $email,
+        string $verificationToken,
+        string $verificationSessionId
+    ): array {
+        $contactEmail = $this->resolveVerifiedContactEmail($email);
+        if ($contactEmail === '' || !$this->emailVerification->hasAccess(
+            trim($verificationToken),
+            trim($verificationSessionId),
+            $contactEmail
+        )) {
+            return ['status' => 'requires_customer_action', 'reason' => 'guest_access_required', 'purpose' => 'support'];
+        }
+
+        $guestId = strtolower(trim((string)$guestId));
+        if (($customerId ?? 0) < 1 && !preg_match('/^[a-f0-9]{64}$/', $guestId)) {
+            return ['status' => 'error', 'reason' => 'invalid_identity', 'cases' => []];
+        }
+        $connection = $this->resource->getConnection();
+        $select = $connection->select()
+            ->from($this->resource->getTableName('afd_ai_support_case'))
+            ->where('contact_email_hash = ?', hash('sha256', $contactEmail))
+            ->order('updated_at DESC')
+            ->limit(20);
+        $cases = $connection->fetchAll($select);
+
+        // A fresh browser session receives a new guest ID. Successful OTP is
+        // the authority for reconnecting that email's private ticket threads
+        // to the current verified identity.
+        foreach ($cases as &$case) {
+            $ticketConversationId = (int)($case['conversation_id'] ?? 0);
+            if ($ticketConversationId < 1) {
+                if (!in_array((string)($case['status'] ?? ''), ['resolved', 'closed'], true)) {
+                    $now = gmdate('Y-m-d H:i:s');
+                    $connection->update(
+                        $this->resource->getTableName('afd_ai_support_case'),
+                        [
+                            'status' => 'closed',
+                            'takeover_state' => 'inactive',
+                            'takeover_expires_at' => null,
+                            'takeover_ended_at' => $now,
+                            'resolved_at' => $now,
+                            'updated_at' => $now,
+                        ],
+                        ['entity_id = ?' => (int)$case['entity_id']]
+                    );
+                    $case['status'] = 'closed';
+                    $case['resolved_at'] = $now;
+                    $case['updated_at'] = $now;
+                }
+                continue;
+            }
+            $ownerData = ($customerId ?? 0) > 0
+                ? ['customer_id' => (int)$customerId, 'guest_id' => null]
+                : ['customer_id' => null, 'guest_id' => $guestId];
+            $connection->update(
+                $this->resource->getTableName('afd_ai_conversation'),
+                $ownerData,
+                ['conversation_id = ?' => $ticketConversationId, 'conversation_type = ?' => 'support']
+            );
+            $connection->update(
+                $this->resource->getTableName('afd_ai_support_case'),
+                $ownerData,
+                ['entity_id = ?' => (int)$case['entity_id']]
+            );
+            $case = array_merge($case, $ownerData);
+        }
+        unset($case);
+
+        return [
+            'status' => 'success',
+            'cases' => array_map(fn (array $case): array => $this->safeCase($case), $cases),
+        ];
+    }
+
+    /** @param array<string, mixed> $case */
+    private function safeCase(array $case): array
+    {
+        return [
+            'public_id' => (string)($case['public_id'] ?? ''),
+            'category' => (string)($case['category'] ?? 'general'),
+            'priority' => (string)($case['priority'] ?? 'normal'),
+            'status' => (string)($case['status'] ?? 'open'),
+            'subject' => (string)($case['subject'] ?? ''),
+            'summary' => (string)($case['summary'] ?? ''),
+            'created_at' => (string)($case['created_at'] ?? ''),
+            'updated_at' => (string)($case['updated_at'] ?? ''),
+            'conversation_id' => (int)($case['conversation_id'] ?? 0),
+            'customer_unread_count' => (int)($case['customer_unread_count'] ?? 0),
+        ];
+    }
+
+    private function resolveVerifiedContactEmail(string $email): string
+    {
+        $email = strtolower(trim($email));
+        return filter_var($email, FILTER_VALIDATE_EMAIL) ? mb_substr($email, 0, 254) : '';
+    }
+
+    private function createPublicId(): string
+    {
+        return 'AI-' . strtoupper(substr($this->random->getRandomString(16), 0, 12));
+    }
+
+    private function encodeContext(array $context): ?string
+    {
+        $allowed = ['order_number', 'product_skus', 'page_url', 'tool_error', 'locale'];
+        $safe = [];
+        foreach ($allowed as $key) {
+            if (!array_key_exists($key, $context)) {
+                continue;
+            }
+            if ($key === 'product_skus' && is_array($context[$key])) {
+                $safe[$key] = array_values(array_slice(array_filter(array_map(
+                    static fn ($sku) => mb_substr(trim((string)$sku), 0, 64),
+                    $context[$key]
+                )), 0, 20));
+                continue;
+            }
+            $safe[$key] = mb_substr(trim((string)$context[$key]), 0, 500);
+        }
+        return $safe ? json_encode($safe, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : null;
+    }
+}

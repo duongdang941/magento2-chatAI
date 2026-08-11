@@ -1,0 +1,52 @@
+<?xml version="1.0"?>
+<listing xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Ui:etc/ui_configuration.xsd">
+    <argument name="data" xsi:type="array">
+        <item name="js_config" xsi:type="array">
+            <item name="provider" xsi:type="string">afd_ai_support_case_listing.afd_ai_support_case_listing_data_source</item>
+            <item name="deps" xsi:type="string">afd_ai_support_case_listing.afd_ai_support_case_listing_data_source</item>
+        </item>
+        <item name="spinner" xsi:type="string">support_case_columns</item>
+    </argument>
+    <dataSource name="afd_ai_support_case_listing_data_source">
+        <argument name="dataProvider" xsi:type="configurableObject">
+            <argument name="class" xsi:type="string">Afd\AI\Ui\DataProvider\SupportCaseDataProvider</argument>
+            <argument name="name" xsi:type="string">afd_ai_support_case_listing_data_source</argument>
+            <argument name="primaryFieldName" xsi:type="string">entity_id</argument>
+            <argument name="requestFieldName" xsi:type="string">entity_id</argument>
+            <argument name="data" xsi:type="array">
+                <item name="config" xsi:type="array">
+                    <item name="component" xsi:type="string">Magento_Ui/js/grid/provider</item>
+                    <item name="update_url" xsi:type="url" path="mui/index/render"/>
+                    <item name="storageConfig" xsi:type="array">
+                        <item name="indexField" xsi:type="string">entity_id</item>
+                    </item>
+                </item>
+            </argument>
+        </argument>
+        <argument name="data" xsi:type="array">
+            <item name="js_config" xsi:type="array"><item name="component" xsi:type="string">Magento_Ui/js/grid/provider</item></item>
+        </argument>
+    </dataSource>
+    <listingToolbar name="listing_top">
+        <columnsControls name="columns_controls"/>
+        <filters name="listing_filters"/>
+        <paging name="listing_paging"/>
+    </listingToolbar>
+    <columns name="support_case_columns">
+        <column name="contact_email" sortOrder="10"><settings><label translate="true">Verified email</label></settings></column>
+        <column name="ticket_count" sortOrder="20"><settings><dataType>number</dataType><label translate="true">Tickets</label></settings></column>
+        <column name="open_ticket_count" sortOrder="30"><settings><dataType>number</dataType><label translate="true">Open tickets</label></settings></column>
+        <column name="unread_count" sortOrder="40"><settings><dataType>number</dataType><label translate="true">Unread</label></settings></column>
+        <column name="updated_at" class="Magento\Ui\Component\Listing\Columns\Date" sortOrder="50"><settings><dataType>date</dataType><label translate="true">Latest activity</label></settings></column>
+        <actionsColumn name="actions"
+                       class="Afd\AI\Ui\Component\Listing\Column\SupportCaseActions"
+                       component="Magento_Ui/js/grid/columns/actions"
+                       sortOrder="60">
+            <settings>
+                <indexField>entity_id</indexField>
+                <bodyTmpl>Afd_AI/grid/cells/support-actions</bodyTmpl>
+                <resizeDefaultWidth>72</resizeDefaultWidth>
+            </settings>
+        </actionsColumn>
+    </columns>
+</listing>

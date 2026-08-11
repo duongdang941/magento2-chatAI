@@ -1,0 +1,204 @@
+<?xml version="1.0"?>
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Webapi:etc/webapi.xsd">
+    <!-- Products Search -->
+    <route url="/V1/afd-ai/products/search" method="GET">
+        <service class="Afd\AI\Api\AgentToolInterface" method="searchProducts"/>
+        <resources>
+            <resource ref="Afd_AI::chat_gateway"/>
+        </resources>
+    </route>
+
+    <route url="/V1/afd-ai/products/availability" method="GET">
+        <service class="Afd\AI\Api\AgentToolInterface" method="getProductAvailability"/>
+        <resources>
+            <resource ref="Afd_AI::chat_gateway"/>
+        </resources>
+    </route>
+
+    <!-- List Categories -->
+    <route url="/V1/afd-ai/categories" method="GET">
+        <service class="Afd\AI\Api\AgentToolInterface" method="listCategories"/>
+        <resources>
+            <resource ref="Afd_AI::chat_gateway"/>
+        </resources>
+    </route>
+
+    <!-- Cart Operations -->
+    <route url="/V1/afd-ai/cart/add" method="POST">
+        <service class="Afd\AI\Api\AgentToolInterface" method="addToCart"/>
+        <resources>
+            <resource ref="self"/>
+        </resources>
+    </route>
+
+    <route url="/V1/afd-ai/cart/update" method="POST">
+        <service class="Afd\AI\Api\AgentToolInterface" method="updateCartItem"/>
+        <resources>
+            <resource ref="self"/>
+        </resources>
+    </route>
+
+    <route url="/V1/afd-ai/cart/remove/:sku" method="DELETE">
+        <service class="Afd\AI\Api\AgentToolInterface" method="removeFromCart"/>
+        <resources>
+            <resource ref="self"/>
+        </resources>
+    </route>
+
+    <!-- Customer Info (Requires Authentication) -->
+    <route url="/V1/afd-ai/customer/info" method="GET">
+        <service class="Afd\AI\Api\AgentToolInterface" method="getCustomerInfo"/>
+        <resources>
+            <resource ref="self"/>
+        </resources>
+    </route>
+
+    <route url="/V1/afd-ai/customer/addresses" method="GET">
+        <service class="Afd\AI\Api\AgentToolInterface" method="getCustomerAddresses"/>
+        <resources>
+            <resource ref="self"/>
+        </resources>
+    </route>
+
+    <route url="/V1/afd-ai/customer/orders" method="GET">
+        <service class="Afd\AI\Api\AgentToolInterface" method="getRecentOrders"/>
+        <resources>
+            <resource ref="self"/>
+        </resources>
+    </route>
+
+    <!-- Comparison & Coupons -->
+    <route url="/V1/afd-ai/products/compare" method="GET">
+        <service class="Afd\AI\Api\AgentToolInterface" method="compareProducts"/>
+        <resources>
+            <resource ref="Afd_AI::chat_gateway"/>
+        </resources>
+    </route>
+
+    <route url="/V1/afd-ai/coupons" method="GET">
+        <service class="Afd\AI\Api\AgentToolInterface" method="getActiveCoupons"/>
+        <resources>
+            <resource ref="Afd_AI::chat_gateway"/>
+        </resources>
+    </route>
+
+    <!-- AI Config (Admin/service-token restricted). Never expose AI provider secrets publicly. -->
+    <route url="/V1/afd-ai/config" method="GET">
+        <service class="Afd\AI\Api\ConfigInterface" method="getActiveConfig"/>
+        <resources>
+            <resource ref="Afd_AI::config"/>
+        </resources>
+    </route>
+
+    <!-- Conversation Management (Node.js server calls) -->
+    <route url="/V1/afd-ai/health" method="GET">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="healthCheck"/>
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
+
+    <route url="/V1/afd-ai/conversations/create" method="POST">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="createConversation"/>
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
+
+    <route url="/V1/afd-ai/conversations/list/:customerId" method="GET">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="listConversations"/>
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
+
+    <route url="/V1/afd-ai/conversations/get" method="POST">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="getConversation"/>
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
+
+    <route url="/V1/afd-ai/conversations/messages" method="POST">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="loadMessages"/>
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
+
+    <route url="/V1/afd-ai/conversations/save-message" method="POST">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="saveMessage"/>
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
+
+    <route url="/V1/afd-ai/conversations/truncate-from-message" method="POST">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="truncateConversationFromMessage"/>
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
+
+    <route url="/V1/afd-ai/conversations/delete" method="POST">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="deleteConversation"/>
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
+
+    <route url="/V1/afd-ai/conversations/touch" method="POST">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="touchConversation"/>
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
+
+    <route url="/V1/afd-ai/conversations/update-title" method="POST">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="updateConversationTitle"/>
+        <resources>
+            <resource ref="anonymous"/>
+        </resources>
+    </route>
+
+    <route url="/V1/afd-ai/guest-conversations/create" method="POST">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="createGuestConversation"/>
+        <resources><resource ref="anonymous"/></resources>
+    </route>
+    <route url="/V1/afd-ai/guest-conversations/list" method="POST">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="listGuestConversations"/>
+        <resources><resource ref="anonymous"/></resources>
+    </route>
+    <route url="/V1/afd-ai/guest-conversations/get" method="POST">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="getGuestConversation"/>
+        <resources><resource ref="anonymous"/></resources>
+    </route>
+    <route url="/V1/afd-ai/guest-conversations/messages" method="POST">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="loadGuestMessages"/>
+        <resources><resource ref="anonymous"/></resources>
+    </route>
+    <route url="/V1/afd-ai/guest-conversations/save-message" method="POST">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="saveGuestMessage"/>
+        <resources><resource ref="anonymous"/></resources>
+    </route>
+    <route url="/V1/afd-ai/guest-conversations/truncate-from-message" method="POST">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="truncateGuestConversationFromMessage"/>
+        <resources><resource ref="anonymous"/></resources>
+    </route>
+    <route url="/V1/afd-ai/guest-conversations/delete" method="POST">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="deleteGuestConversation"/>
+        <resources><resource ref="anonymous"/></resources>
+    </route>
+    <route url="/V1/afd-ai/guest-conversations/delete-all" method="POST">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="deleteGuestConversations"/>
+        <resources><resource ref="anonymous"/></resources>
+    </route>
+    <route url="/V1/afd-ai/guest-conversations/touch" method="POST">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="touchGuestConversation"/>
+        <resources><resource ref="anonymous"/></resources>
+    </route>
+    <route url="/V1/afd-ai/guest-conversations/update-title" method="POST">
+        <service class="Afd\AI\Api\ConversationManagementInterface" method="updateGuestConversationTitle"/>
+        <resources><resource ref="anonymous"/></resources>
+    </route>
+</routes>

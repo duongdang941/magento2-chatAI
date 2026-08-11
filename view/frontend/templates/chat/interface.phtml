@@ -1,0 +1,138 @@
+<?php
+declare(strict_types=1);
+
+/** @var \Afd\AI\Block\ChatWidget $block */
+if (!$block->isEnabled()) {
+    return;
+}
+
+$frontendConfig = [
+    'chatServerUrl' => $block->getChatServerUrl(),
+    'customerId' => (int) $block->getCustomerId(),
+    'isLoggedIn' => $block->isLoggedIn(),
+    'petSpritesheetUrl' => $block->getViewFileUrl('Afd_AI::images/shadow-wolf-pet-spritesheet.webp'),
+    'richTextAssets' => [
+        'purify' => $block->getViewFileUrl('Afd_AI::js/purify.min.js'),
+        'marked' => $block->getViewFileUrl('Afd_AI::js/marked.min.js'),
+        'highlight' => $block->getViewFileUrl('Afd_AI::js/highlight.common.min.js'),
+        'streamingMarkdown' => $block->getViewFileUrl('Afd_AI::js/streaming-markdown.iife.min.js'),
+    ],
+    'urls' => [
+        'session' => $block->getUrl('afd_ai/chat/session'),
+        'addToCart' => $block->getUrl('afd_ai/chat/addToCart'),
+        'loadConversation' => $block->getUrl('afd_ai/chat/loadConversation'),
+        'deleteConversation' => $block->getUrl('afd_ai/chat/deleteConversation'),
+        'updateConversationTitle' => $block->getUrl('afd_ai/chat/updateConversationTitle'),
+        'conversations' => $block->getUrl('afd_ai/chat/conversations'),
+        'history' => $block->getUrl('afd_ai/chat/history'),
+        'feedback' => $block->getUrl('afd_ai/chat/feedback'),
+        'privacy' => $block->getUrl('afd_ai/chat/privacy'),
+    ],
+];
+?>
+<div id="afd-ai-chat-scope">
+    <div x-data="aiAgentChat()"
+         x-init="initChat()"
+         class="afd-ai-chat"
+         :data-ui-theme="resolvedUiTheme()"
+         :data-ui-density="uiSettings.density"
+         :data-ui-font-size="uiSettings.fontSize"
+         :data-ui-glass="uiSettings.glassOpacity < 100 ? 'true' : 'false'"
+         :class="{ 'afd-ai-chat--dragging': isDragging, 'afd-ai-chat--open': isOpen, 'afd-ai-chat--left': isLauncherOnLeft(), 'afd-ai-chat--top': isLauncherOnTop(), 'afd-ai-chat--window-dragging': isWindowDragging, 'afd-ai-chat--window-resizing': isWindowResizing, 'afd-ai-chat--compact-sidebar': isCompactViewport(), 'afd-ai-chat--narrow': isNarrowViewport(), 'afd-ai-chat--tiny': isTinyViewport(), 'afd-ai-chat--mobile-layout': isMobileLayout(), 'afd-ai-chat--mobile-sidebar-open': isMobileSidebarOpen }"
+         :style="rootStyle()"
+         @pointermove.window="moveLauncher($event); moveChatWindow($event)"
+         @pointerup.window="endLauncherDrag($event); endChatWindowInteraction($event)"
+         @pointercancel.window="endLauncherDrag($event); endChatWindowInteraction($event)"
+         @keydown.escape.window="isConfirmationDialogOpen ? closeConfirmationDialog() : (isImageViewerOpen ? closeImageViewer() : (isHistorySearchOpen ? closeHistorySearch() : (isSettingsOpen ? closeSettings() : (isMobileSidebarOpen ? closeMobileSidebar() : null))))">
+        <div x-show="isOpen"
+             x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100"
+             x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-start="opacity-100"
+             x-transition:leave-end="opacity-0"
+             x-cloak
+             class="afd-ai-chat__backdrop"></div>
+
+        <div x-show="isImageViewerOpen"
+             x-transition:enter="transition ease-out duration-150"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100"
+             x-transition:leave="transition ease-in duration-100"
+             x-transition:leave-start="opacity-100"
+             x-transition:leave-end="opacity-0"
+             x-cloak
+             class="afd-ai-chat__image-viewer"
+             @click.self="closeImageViewer()">
+            <section class="afd-ai-chat__image-viewer-dialog"
+                     role="dialog"
+                     aria-modal="true"
+                     :aria-label="'Image preview: ' + currentImageViewerAttachment().name">
+                <header class="afd-ai-chat__image-viewer-header">
+                    <p class="afd-ai-chat__image-viewer-title"
+                       x-text="currentImageViewerAttachment().name"></p>
+                    <button type="button"
+                            class="afd-ai-chat__image-viewer-close"
+                            @click.stop="closeImageViewer()"
+                            aria-label="Close image preview"
+                            x-ref="imageViewerClose">
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                </header>
+                <div class="afd-ai-chat__image-viewer-stage">
+                    <img :src="currentImageViewerAttachment().previewUrl"
+                         :alt="currentImageViewerAttachment().name"
+                         class="afd-ai-chat__image-viewer-image"
+                         decoding="async">
+                </div>
+            </section>
+        </div>
+
+        <div x-ref="chatWindowShell"
+             class="afd-ai-chat__window-shell"
+             :style="chatWindowStyle()">
+            <div x-show="isOpen"
+                 x-transition:enter="transition ease-out duration-300"
+                 x-transition:enter-start="opacity-0 scale-95"
+                 x-transition:enter-end="opacity-100 scale-100"
+                 x-transition:leave="transition ease-in duration-200"
+                 x-transition:leave-start="opacity-100 scale-100"
+                 x-transition:leave-end="opacity-0 scale-95"
+                 x-cloak
+                 class="afd-ai-chat__window">
+                <?= $block->getChildHtml('sidebar') ?>
+                <?= $block->getChildHtml('history_search') ?>
+                <?= $block->getChildHtml('main') ?>
+                <?= $block->getChildHtml('delete_confirmation') ?>
+            </div>
+            <template x-for="direction in ['n', 'e', 's', 'w', 'ne', 'nw', 'se', 'sw']" :key="direction">
+                <div x-show="isOpen && canManipulateChatWindow()"
+                     x-cloak
+                     class="afd-ai-chat__resize-handle"
+                     :class="'afd-ai-chat__resize-handle--' + direction"
+                     @pointerdown.prevent.stop="startChatWindowResize($event, direction)"
+                     aria-hidden="true"></div>
+            </template>
+        </div>
+
+        <?= $block->getChildHtml('launcher') ?>
+    </div>
+</div>
+
+<script>
+    window.afdAiChatConfig = Object.freeze(<?= /* @noEscape */ json_encode($frontendConfig, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>);
+</script>
+<script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/asset-loader.js')) ?>"></script>
+<script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/state.js')) ?>"></script>
+<script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/helpers.js')) ?>"></script>
+<script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/visual.js')) ?>"></script>
+<script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/connection.js')) ?>"></script>
+<script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/history.js')) ?>"></script>
+<script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/preferences.js')) ?>"></script>
+<script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/attachments.js')) ?>"></script>
+<script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/requests.js')) ?>"></script>
+<script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/stream-renderer.js')) ?>"></script>
+<script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/stream.js')) ?>"></script>
+<script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/window.js')) ?>"></script>
+<script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/shell.js')) ?>"></script>
+<script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat-interface.js')) ?>"></script>

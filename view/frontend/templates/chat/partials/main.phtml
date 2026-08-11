@@ -1,0 +1,17 @@
+<div class="afd-ai-chat__main" :aria-busy="isHistoryLoading ? 'true' : 'false'">
+    <?= $block->getChildHtml('header') ?>
+    <?= $block->getChildHtml('settings') ?>
+    <?= $block->getChildHtml('conversation') ?>
+    <?= $block->getChildHtml('composer') ?>
+    <div x-show="isHistoryLoading"
+         x-transition.opacity.duration.150ms
+         x-cloak
+         class="afd-ai-chat__history-loading"
+         role="status"
+         aria-label="Loading chat history">
+        <span class="afd-ai-chat__history-loading-pet"
+              :style="petSpriteStyle()"
+              aria-hidden="true"></span>
+        <span class="afd-ai-chat__history-loading-label">Loading chat history</span>
+    </div>
+</div>

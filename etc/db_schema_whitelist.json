@@ -1,0 +1,115 @@
+{
+    "afd_ai_conversation": {
+        "column": {
+            "conversation_id": true,
+            "customer_id": true,
+            "guest_id": true,
+            "title": true,
+            "conversation_type": true,
+            "is_archived": true,
+            "created_at": true,
+            "updated_at": true
+        },
+        "index": {
+            "AFD_AI_CONV_CUSTOMER_UPDATED_AT": true,
+            "AFD_AI_CONV_GUEST_UPDATED_AT": true
+        },
+        "constraint": {
+            "PRIMARY": true
+        }
+    },
+    "afd_ai_message": {
+        "column": {
+            "entity_id": true,
+            "session_id": true,
+            "customer_id": true,
+            "conversation_id": true,
+            "role": true,
+            "content": true,
+            "original_content": true,
+            "attachment": true,
+            "edited_at": true,
+            "deleted_at": true,
+            "created_at": true
+        },
+        "index": {
+            "AFD_AI_MESSAGE_SESSION_CREATED_AT": true,
+            "AFD_AI_MESSAGE_CUSTOMER_ID": true,
+            "AFD_AI_MESSAGE_CONVERSATION_ENTITY_ID": true,
+            "AFD_AI_MESSAGE_CONVERSATION_CREATED_AT": true
+        },
+        "constraint": {
+            "PRIMARY": true,
+            "AFD_AI_MSG_CONV_ID_AFD_AI_CONV_CONV_ID": true
+        }
+    },
+    "afd_ai_support_case": {
+        "column": {
+            "entity_id": true,
+            "public_id": true,
+            "conversation_id": true,
+            "source_conversation_id": true,
+            "message_id": true,
+            "customer_id": true,
+            "guest_id": true,
+            "category": true,
+            "priority": true,
+            "status": true,
+            "subject": true,
+            "summary": true,
+            "context_json": true,
+            "contact_email": true,
+            "contact_email_hash": true,
+            "admin_unread_count": true,
+            "customer_unread_count": true,
+            "last_customer_message_at": true,
+            "last_admin_message_at": true,
+            "assigned_admin_id": true,
+            "takeover_state": true,
+            "takeover_started_at": true,
+            "takeover_expires_at": true,
+            "takeover_ended_at": true,
+            "created_at": true,
+            "updated_at": true,
+            "resolved_at": true
+        },
+        "index": {
+            "AFD_AI_CASE_CUSTOMER_CREATED_AT": true,
+            "AFD_AI_CASE_GUEST_CREATED_AT": true,
+            "AFD_AI_CASE_STATUS_UPDATED_AT": true,
+            "AFD_AI_CASE_EMAIL_UPDATED_AT": true,
+            "AFD_AI_CASE_ADMIN_UNREAD": true,
+            "AFD_AI_CASE_TAKEOVER_CONVERSATION": true
+        },
+        "constraint": {
+            "PRIMARY": true,
+            "AFD_AI_SUPPORT_CASE_PUBLIC_ID": true,
+            "AFD_AI_CASE_CONV_ID_AFD_AI_CONV_CONV_ID": true,
+            "AFD_AI_CASE_SOURCE_CONV_ID_AFD_AI_CONV_CONV_ID": true,
+            "AFD_AI_CASE_MSG_ID_AFD_AI_MSG_ENTITY_ID": true
+        }
+    },
+    "afd_ai_feedback": {
+        "column": {
+            "feedback_id": true,
+            "conversation_id": true,
+            "message_id": true,
+            "customer_id": true,
+            "guest_id": true,
+            "rating": true,
+            "reason": true,
+            "comment": true,
+            "created_at": true,
+            "updated_at": true
+        },
+        "index": {
+            "AFD_AI_FEEDBACK_RATING_CREATED_AT": true
+        },
+        "constraint": {
+            "PRIMARY": true,
+            "AFD_AI_FEEDBACK_MESSAGE_ID": true,
+            "AFD_AI_FEEDBACK_CONV_ID_AFD_AI_CONV_CONV_ID": true,
+            "AFD_AI_FEEDBACK_MSG_ID_AFD_AI_MSG_ENTITY_ID": true
+        }
+    }
+}

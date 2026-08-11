@@ -1,0 +1,936 @@
+            <!-- ===== WELCOME SCREEN (first time / no messages) ===== -->
+            <template x-if="!hasStartedChat && !isLoading">
+                <div class="afd-ai-chat__welcome custom-scrollbar">
+                    <div class="afd-ai-chat__welcome-inner">
+                        <template x-if="transportNotice">
+                            <div class="afd-ai-chat__system-notice" :class="'afd-ai-chat__system-notice--' + transportNotice.variant">
+                                <span class="material-symbols-outlined">info</span>
+                                <div class="afd-ai-chat__system-notice-copy">
+                                    <p class="afd-ai-chat__system-notice-title" x-text="transportNotice.title"></p>
+                                    <p class="afd-ai-chat__system-notice-text" x-text="transportNotice.text"></p>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- Hero -->
+                        <div class="afd-ai-chat__welcome-hero">
+                            <h1 class="afd-ai-chat__welcome-title">How can I help?</h1>
+                            <p class="afd-ai-chat__welcome-desc">Ask about products, orders, returns, sizes, or upload an image to find the right item.</p>
+                        </div>
+
+                        <!-- Suggestion Cards -->
+                        <div class="afd-ai-chat__suggestions">
+                            <button type="button" class="afd-ai-chat__suggestion-card" @click="handleSuggestionClick('How can I track my order?')">
+                                <div class="afd-ai-chat__suggestion-icon">
+                                    <span class="material-symbols-outlined">local_shipping</span>
+                                </div>
+                                <div class="afd-ai-chat__suggestion-copy">
+                                    <p class="afd-ai-chat__suggestion-title">How can I track my order?</p>
+                                    <p class="afd-ai-chat__suggestion-desc">Get real-time updates on your delivery status.</p>
+                                </div>
+                            </button>
+                            <button type="button" class="afd-ai-chat__suggestion-card" @click="handleSuggestionClick('Show me available product categories')">
+                                <div class="afd-ai-chat__suggestion-icon">
+                                    <span class="material-symbols-outlined">category</span>
+                                </div>
+                                <div class="afd-ai-chat__suggestion-copy">
+                                    <p class="afd-ai-chat__suggestion-title">Browse product categories</p>
+                                    <p class="afd-ai-chat__suggestion-desc">See real categories in this store.</p>
+                                </div>
+                            </button>
+                            <button type="button" class="afd-ai-chat__suggestion-card" @click="handleSuggestionClick('What is your return policy?')">
+                                <div class="afd-ai-chat__suggestion-icon">
+                                    <span class="material-symbols-outlined">assignment_return</span>
+                                </div>
+                                <div class="afd-ai-chat__suggestion-copy">
+                                    <p class="afd-ai-chat__suggestion-title">What is your return policy?</p>
+                                    <p class="afd-ai-chat__suggestion-desc">Learn about our hassle-free returns process.</p>
+                                </div>
+                            </button>
+                            <button type="button" class="afd-ai-chat__suggestion-card" @click="handleSuggestionClick('Show me products on sale')">
+                                <div class="afd-ai-chat__suggestion-icon">
+                                    <span class="material-symbols-outlined">sell</span>
+                                </div>
+                                <div class="afd-ai-chat__suggestion-copy">
+                                    <p class="afd-ai-chat__suggestion-title">Products on sale</p>
+                                    <p class="afd-ai-chat__suggestion-desc">Find real products with active discounts.</p>
+                                </div>
+                            </button>
+                        </div>
+
+                        <!-- AI Capabilities -->
+                        <div class="afd-ai-chat__capabilities">
+                            <p class="afd-ai-chat__capabilities-title">AI Capabilities</p>
+                            <div class="afd-ai-chat__capabilities-list">
+                                <div class="afd-ai-chat__capability">
+                                    <span class="material-symbols-outlined">check_circle</span>
+                                    Personalized Shopping
+                                </div>
+                                <div class="afd-ai-chat__capability">
+                                    <span class="material-symbols-outlined">check_circle</span>
+                                    Catalog Search
+                                </div>
+                                <div class="afd-ai-chat__capability">
+                                    <span class="material-symbols-outlined">check_circle</span>
+                                    Order Lookup
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </template>
+
+            <!-- ===== CONVERSATION VIEW (after first message) ===== -->
+            <template x-if="hasStartedChat || isLoading">
+                <div class="afd-ai-chat__messages-wrapper">
+                    <div class="afd-ai-chat__messages custom-scrollbar chat-messages"
+                         id="chatWindow"
+                         @scroll.passive="handleMessageScroll($event)">
+                        <template x-if="hasOlderMessages">
+                            <div class="afd-ai-chat__history-load">
+                                <button type="button"
+                                        class="afd-ai-chat__history-load-btn"
+                                        :disabled="isLoadingOlderMessages || isLoading"
+                                        @click="loadOlderMessages()">
+                                    <span class="material-symbols-outlined" aria-hidden="true">history</span>
+                                    <span x-text="isLoadingOlderMessages ? 'Loading…' : 'Load older messages'"></span>
+                                </button>
+                            </div>
+                        </template>
+                        <template x-if="transportNotice">
+                            <div class="afd-ai-chat__system-notice" :class="'afd-ai-chat__system-notice--' + transportNotice.variant">
+                                <span class="material-symbols-outlined">info</span>
+                                <div class="afd-ai-chat__system-notice-copy">
+                                    <p class="afd-ai-chat__system-notice-title" x-text="transportNotice.title"></p>
+                                    <p class="afd-ai-chat__system-notice-text" x-text="transportNotice.text"></p>
+                                </div>
+                            </div>
+                        </template>
+
+                        <template x-for="(msg, index) in messages" :key="msg.entity_id || ('live-' + index + '-' + (msg.created_at || ''))">
+                            <div x-show="shouldShowMessage(msg, index)">
+                                <!-- AI Message -->
+                                <div x-show="msg.role === 'assistant'" class="afd-ai-chat__msg-ai">
+                                    <div class="afd-ai-chat__msg-content">
+                                        <div class="afd-ai-chat__msg-assistant-stack">
+                                            <div class="afd-ai-chat__msg-bubble-ai"
+                                                 @click="handleAssistantBubbleClick($event)">
+                                                <p x-show="msg.source === 'support_agent'"
+                                                   class="afd-ai-chat__support-agent-label">
+                                                    <span class="material-symbols-outlined" aria-hidden="true">support_agent</span>
+                                                    <span x-text="msg.senderLabel || 'Support team'"></span>
+                                                </p>
+                                                <p x-show="msg.deleted"
+                                                   x-cloak
+                                                   class="afd-ai-chat__msg-deleted">
+                                                    <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                                                    <span>This message was deleted.</span>
+                                                </p>
+                                                <!-- Render all text content first -->
+                                                <template x-for="part in msg.parts" :key="'text-' + part.id">
+                                                    <template x-if="part.type === 'text' && (part.streaming === true || (part.html || '').trim().length > 0)">
+                                                        <div class="afd-ai-chat__msg-part">
+                                                            <template x-if="part.streaming === true">
+                                                                <div class="afd-ai-chat__streaming-markdown"
+                                                                     x-init="mountStreamingMarkdown($el, part)"></div>
+                                                            </template>
+                                                            <template x-if="part.streaming !== true">
+                                                                <div x-html="part.html"></div>
+                                                            </template>
+                                                        </div>
+                                                    </template>
+                                                </template>
+
+                                                <!-- Guest-order verification stays inside the assistant
+                                                     message, so the shopper never has to leave the chat. -->
+                                                <template x-for="part in msg.parts" :key="'guest-order-' + part.id">
+                                                    <template x-if="part.type === 'guest_order_access'">
+                                                        <section class="afd-ai-chat__guest-order-access"
+                                                                 :class="'afd-ai-chat__guest-order-access--' + (part.state || 'email')"
+                                                                 x-init="scheduleGuestOrderAccessFormExpiry(part)"
+                                                                 aria-label="Guest order email verification">
+                                                            <div class="afd-ai-chat__guest-order-access-head">
+                                                                <span class="afd-ai-chat__guest-order-access-icon material-symbols-outlined"
+                                                                      aria-hidden="true"
+                                                                      x-text="part.state === 'verified' ? 'verified_user' : (part.state === 'expired' ? 'timer_off' : 'lock')"></span>
+                                                                <div class="afd-ai-chat__order-address-form-heading">
+                                                                    <p class="afd-ai-chat__guest-order-access-kicker"
+                                                                       x-text="part.purpose === 'support' ? 'Human support' : 'Guest checkout'"></p>
+                                                                    <p class="afd-ai-chat__guest-order-access-title"
+                                                                       x-text="part.state === 'verified' ? 'Email verified' : (part.state === 'expired' ? 'Verification expired' : 'Verify your email')"></p>
+                                                                </div>
+                                                                <div class="afd-ai-chat__guest-order-access-countdown"
+                                                                     x-show="part.state === 'email' || part.state === 'code'"
+                                                                     aria-label="Time remaining before this form expires">
+                                                                    <span class="material-symbols-outlined" aria-hidden="true">schedule</span>
+                                                                    <span x-text="guestOrderAccessCountdownLabel(part)"></span>
+                                                                </div>
+                                                            </div>
+
+                                                            <template x-if="part.state === 'expired'">
+                                                                <p class="afd-ai-chat__guest-order-access-copy afd-ai-chat__guest-order-access-copy--expired">
+                                                                    This verification form expired after 15 minutes. Ask the assistant to open a new secure form.
+                                                                </p>
+                                                            </template>
+
+                                                            <template x-if="part.state === 'email'">
+                                                                <form class="afd-ai-chat__guest-order-access-form"
+                                                                      @submit.prevent="requestGuestOrderOtp(part)">
+                                                                    <p class="afd-ai-chat__guest-order-access-copy"
+                                                                       x-text="part.purpose === 'support' ? 'Verify your contact email so a team member can reply safely in this conversation.' : 'Enter the email used at checkout. We’ll send a code before showing order information.'"></p>
+                                                                    <label class="afd-ai-chat__guest-order-access-label"
+                                                                           :for="'afd-ai-chat-guest-email-' + part.id"
+                                                                           x-text="part.purpose === 'support' ? 'Contact email' : 'Checkout email'"></label>
+                                                                    <input :id="'afd-ai-chat-guest-email-' + part.id"
+                                                                           class="afd-ai-chat__guest-order-access-input"
+                                                                           type="email"
+                                                                           autocomplete="email"
+                                                                           inputmode="email"
+                                                                           x-model.trim="part.email"
+                                                                           :disabled="part.busy"
+                                                                           placeholder="name@example.com"
+                                                                           required>
+                                                                    <p x-show="part.notice"
+                                                                       class="afd-ai-chat__guest-order-access-notice"
+                                                                       :class="'afd-ai-chat__guest-order-access-notice--' + (part.noticeVariant || 'neutral')"
+                                                                       x-text="part.notice"></p>
+                                                                    <div class="afd-ai-chat__guest-order-access-actions">
+                                                                        <button type="submit"
+                                                                                class="afd-ai-chat__guest-order-access-primary"
+                                                                                :disabled="part.busy || !part.email">
+                                                                            <span x-show="!part.busy">Send code</span>
+                                                                            <span x-show="part.busy">Sending…</span>
+                                                                        </button>
+                                                                    </div>
+                                                                </form>
+                                                            </template>
+
+                                                            <template x-if="part.state === 'code'">
+                                                                <form class="afd-ai-chat__guest-order-access-form"
+                                                                      @submit.prevent="verifyGuestOrderOtp(part)">
+                                                                    <p class="afd-ai-chat__guest-order-access-copy">Enter the six-digit code sent to <strong x-text="part.email"></strong>. The code expires after 10 minutes.</p>
+                                                                    <label class="afd-ai-chat__guest-order-access-label"
+                                                                           :for="'afd-ai-chat-guest-code-' + part.id">Verification code</label>
+                                                                    <input :id="'afd-ai-chat-guest-code-' + part.id"
+                                                                           class="afd-ai-chat__guest-order-access-input afd-ai-chat__guest-order-access-input--code"
+                                                                           type="text"
+                                                                           autocomplete="one-time-code"
+                                                                           inputmode="numeric"
+                                                                           pattern="[0-9]{6}"
+                                                                           maxlength="6"
+                                                                           x-model.trim="part.code"
+                                                                           @input="part.code = part.code.replace(/\D/g, '').slice(0, 6)"
+                                                                           :disabled="part.busy"
+                                                                           placeholder="000000"
+                                                                           required>
+                                                                    <p x-show="part.notice"
+                                                                       class="afd-ai-chat__guest-order-access-notice"
+                                                                       :class="'afd-ai-chat__guest-order-access-notice--' + (part.noticeVariant || 'neutral')"
+                                                                       x-text="part.notice"></p>
+                                                                    <div class="afd-ai-chat__guest-order-access-actions">
+                                                                        <button type="button"
+                                                                                class="afd-ai-chat__guest-order-access-secondary"
+                                                                                @click="resetGuestOrderAccessForm(part)"
+                                                                                :disabled="part.busy">Use another email</button>
+                                                                        <button type="submit"
+                                                                                class="afd-ai-chat__guest-order-access-primary"
+                                                                                :disabled="part.busy || part.code.length !== 6">
+                                                                            <span x-show="!part.busy">Verify</span>
+                                                                            <span x-show="part.busy">Verifying…</span>
+                                                                        </button>
+                                                                    </div>
+                                                                </form>
+                                                            </template>
+
+                                                            <template x-if="part.state === 'verified'">
+                                                                <div>
+                                                                    <p class="afd-ai-chat__guest-order-access-copy afd-ai-chat__guest-order-access-copy--verified"
+                                                                       x-text="part.purpose === 'support' ? 'Your email is verified. Select an existing ticket or start a new private conversation with support.' : 'Your email is verified. Your pending order request will continue automatically.'"></p>
+
+                                                                    <template x-if="part.purpose === 'support'">
+                                                                        <div class="afd-ai-chat__support-portal">
+                                                                            <p x-show="part.portalLoading" class="afd-ai-chat__guest-order-access-copy">Loading your tickets…</p>
+                                                                            <div x-show="!part.portalLoading" class="afd-ai-chat__support-ticket-list">
+                                                                                <template x-for="ticket in (part.tickets || [])" :key="ticket.public_id">
+                                                                                    <button type="button"
+                                                                                            class="afd-ai-chat__support-ticket"
+                                                                                            :class="{ 'afd-ai-chat__support-ticket--closed': ['closed', 'resolved'].includes(ticket.status) }"
+                                                                                            @click="openSupportTicket(ticket, part)">
+                                                                                        <span class="afd-ai-chat__support-ticket-main">
+                                                                                            <strong x-text="ticket.subject || ticket.public_id"></strong>
+                                                                                            <small x-text="ticket.public_id + ' · ' + (ticket.status || 'open')"></small>
+                                                                                        </span>
+                                                                                        <span x-show="Number(ticket.customer_unread_count || 0) > 0"
+                                                                                              class="afd-ai-chat__support-ticket-unread"
+                                                                                              x-text="ticket.customer_unread_count"></span>
+                                                                                        <span class="material-symbols-outlined"
+                                                                                              aria-hidden="true"
+                                                                                              x-text="['closed', 'resolved'].includes(ticket.status) ? 'lock' : 'chevron_right'"></span>
+                                                                                    </button>
+                                                                                </template>
+                                                                                <p x-show="!(part.tickets || []).length"
+                                                                                   class="afd-ai-chat__guest-order-access-copy">You do not have any support tickets yet.</p>
+                                                                            </div>
+
+                                                                            <p x-show="part.notice && !part.ticketFormOpen"
+                                                                               class="afd-ai-chat__guest-order-access-notice"
+                                                                               :class="'afd-ai-chat__guest-order-access-notice--' + (part.noticeVariant || 'neutral')"
+                                                                               x-text="part.notice"></p>
+
+                                                                            <button x-show="!part.ticketFormOpen"
+                                                                                    type="button"
+                                                                                    class="afd-ai-chat__guest-order-access-primary afd-ai-chat__support-ticket-new"
+                                                                                    @click="openSupportTicketForm(part)">
+                                                                                <span class="material-symbols-outlined" aria-hidden="true">add</span>
+                                                                                New ticket
+                                                                            </button>
+
+                                                                            <form x-show="part.ticketFormOpen"
+                                                                                  class="afd-ai-chat__guest-order-access-form afd-ai-chat__support-ticket-form"
+                                                                                  @submit.prevent="submitSupportTicket(part)">
+                                                                                <label class="afd-ai-chat__guest-order-access-label" :for="'afd-ai-chat-ticket-subject-' + part.id">Subject</label>
+                                                                                <input :id="'afd-ai-chat-ticket-subject-' + part.id"
+                                                                                       class="afd-ai-chat__guest-order-access-input"
+                                                                                       maxlength="255"
+                                                                                       x-model.trim="part.ticketSubject"
+                                                                                       :disabled="part.busy"
+                                                                                       required>
+                                                                                <label class="afd-ai-chat__guest-order-access-label" :for="'afd-ai-chat-ticket-category-' + part.id">Category</label>
+                                                                                <select :id="'afd-ai-chat-ticket-category-' + part.id"
+                                                                                        class="afd-ai-chat__guest-order-access-input"
+                                                                                        x-model="part.ticketCategory"
+                                                                                        :disabled="part.busy">
+                                                                                    <option value="general">General</option>
+                                                                                    <option value="sales">Sales</option>
+                                                                                    <option value="order">Order</option>
+                                                                                    <option value="shipping">Shipping</option>
+                                                                                    <option value="billing">Billing</option>
+                                                                                    <option value="return">Return</option>
+                                                                                    <option value="technical">Technical</option>
+                                                                                </select>
+                                                                                <label class="afd-ai-chat__guest-order-access-label" :for="'afd-ai-chat-ticket-message-' + part.id">Message</label>
+                                                                                <textarea :id="'afd-ai-chat-ticket-message-' + part.id"
+                                                                                          class="afd-ai-chat__guest-order-access-input afd-ai-chat__support-ticket-message"
+                                                                                          maxlength="4000"
+                                                                                          rows="4"
+                                                                                          x-model.trim="part.ticketMessage"
+                                                                                          :disabled="part.busy"
+                                                                                          required></textarea>
+                                                                                <p x-show="part.notice"
+                                                                                   class="afd-ai-chat__guest-order-access-notice"
+                                                                                   :class="'afd-ai-chat__guest-order-access-notice--' + (part.noticeVariant || 'neutral')"
+                                                                                   x-text="part.notice"></p>
+                                                                                <div class="afd-ai-chat__guest-order-access-actions">
+                                                                                    <button type="button" class="afd-ai-chat__guest-order-access-secondary" @click="closeSupportTicketForm(part)" :disabled="part.busy">Cancel</button>
+                                                                                    <button type="submit" class="afd-ai-chat__guest-order-access-primary" :disabled="part.busy || !part.ticketSubject || !part.ticketMessage">
+                                                                                        <span x-text="part.busy ? 'Creating…' : 'Create ticket'"></span>
+                                                                                    </button>
+                                                                                </div>
+                                                                            </form>
+                                                                        </div>
+                                                                    </template>
+                                                                </div>
+                                                            </template>
+                                                        </section>
+                                                    </template>
+                                                </template>
+
+                                                <!-- Address data is supplied only after Magento has verified
+                                                     ownership and eligibility for this specific order. -->
+                                                <template x-for="part in msg.parts" :key="'order-address-' + part.id">
+                                                    <template x-if="part.type === 'order_address_form'">
+                                                        <section class="afd-ai-chat__order-address-form"
+                                                                 :class="'afd-ai-chat__order-address-form--' + (part.status || 'editing') + (part.isWide ? ' afd-ai-chat__order-address-form--wide' : '')"
+                                                                 x-init="if (part.status !== 'expired') { observeOrderAddressFormWidth($el, part); $nextTick(() => ensureOrderAddressCountrySelection(part)); }"
+                                                                 :aria-label="part.resourceType === 'customer_account' ? 'Update account address' : 'Update order address'">
+                                                            <div class="afd-ai-chat__order-address-form-head">
+                                                                <span class="afd-ai-chat__order-address-form-icon material-symbols-outlined"
+                                                                      aria-hidden="true"
+                                                                      x-text="part.status === 'success' ? 'task_alt' : (part.status === 'expired' ? 'timer_off' : 'edit_location_alt')"></span>
+                                                                <div>
+                                                                    <p class="afd-ai-chat__order-address-form-kicker"
+                                                                       x-text="part.resourceType === 'customer_account' ? 'Your account' : 'Order #' + part.orderNumber"></p>
+                                                                    <p class="afd-ai-chat__order-address-form-title"
+                                                                       x-text="part.status === 'success' ? 'Address updated' : (part.status === 'expired' ? 'Address form expired' : (part.resourceType === 'customer_account' ? 'Default billing & shipping' : 'Update order address'))"></p>
+                                                                </div>
+                                                                <div class="afd-ai-chat__order-address-form-countdown"
+                                                                     x-show="part.status !== 'success' && part.status !== 'expired'"
+                                                                     aria-label="Time remaining before this form expires">
+                                                                    <span class="material-symbols-outlined" aria-hidden="true">schedule</span>
+                                                                    <span x-text="orderAddressCountdownLabel(part)"></span>
+                                                                </div>
+                                                            </div>
+
+                                                            <template x-if="part.status === 'success'">
+                                                                <p class="afd-ai-chat__order-address-form-copy afd-ai-chat__order-address-form-copy--success"
+                                                                   x-text="part.notice"></p>
+                                                            </template>
+
+                                                            <template x-if="part.status !== 'success' && part.status !== 'expired'">
+                                                                <form class="afd-ai-chat__order-address-form-body"
+                                                                      @submit.prevent="submitOrderAddressForm(part)">
+                                                                    <p class="afd-ai-chat__order-address-form-copy"
+                                                                       x-text="part.resourceType === 'customer_account' ? 'Review your default account addresses and change only the fields you need. Magento will validate the address when you submit.' : 'Review the current information and change only the fields you need. Magento will validate the order again when you submit.'"></p>
+
+                                                                    <fieldset class="afd-ai-chat__order-address-form-controls"
+                                                                              :disabled="part.busy || part.status === 'expired'">
+                                                                        <div class="afd-ai-chat__order-address-form-types" role="group" aria-label="Address type">
+                                                                            <template x-for="type in part.addressTypes" :key="type">
+                                                                                <button type="button"
+                                                                                        class="afd-ai-chat__order-address-form-type"
+                                                                                        :class="{ 'afd-ai-chat__order-address-form-type--active': part.addressType === type }"
+                                                                                        :disabled="part.busy || part.status === 'expired'"
+                                                                                        @click="selectOrderAddressFormType(part, type)"
+                                                                                        x-text="type === 'shipping' ? 'Shipping' : 'Billing'"></button>
+                                                                            </template>
+                                                                        </div>
+
+                                                                    <div class="afd-ai-chat__order-address-form-grid">
+                                                                        <label class="afd-ai-chat__order-address-form-field" x-show="orderAddressFieldVisible(part, 'prefix')">
+                                                                            <span x-text="orderAddressFieldLabel(part, 'prefix', 'Title')"></span>
+                                                                            <input type="text" x-model.trim="part.address.prefix" :disabled="part.busy" :required="orderAddressFieldRequired(part, 'prefix')" autocomplete="honorific-prefix">
+                                                                        </label>
+                                                                        <label class="afd-ai-chat__order-address-form-field" x-show="orderAddressFieldVisible(part, 'firstname')">
+                                                                            <span x-text="orderAddressFieldLabel(part, 'firstname', 'First name')"></span>
+                                                                            <input type="text" x-model.trim="part.address.firstname" :disabled="part.busy" :required="orderAddressFieldRequired(part, 'firstname')" autocomplete="given-name">
+                                                                        </label>
+                                                                        <label class="afd-ai-chat__order-address-form-field" x-show="orderAddressFieldVisible(part, 'middlename')">
+                                                                            <span x-text="orderAddressFieldLabel(part, 'middlename', 'Middle name')"></span>
+                                                                            <input type="text" x-model.trim="part.address.middlename" :disabled="part.busy" :required="orderAddressFieldRequired(part, 'middlename')" autocomplete="additional-name">
+                                                                        </label>
+                                                                        <label class="afd-ai-chat__order-address-form-field" x-show="orderAddressFieldVisible(part, 'lastname')">
+                                                                            <span x-text="orderAddressFieldLabel(part, 'lastname', 'Last name')"></span>
+                                                                            <input type="text" x-model.trim="part.address.lastname" :disabled="part.busy" :required="orderAddressFieldRequired(part, 'lastname')" autocomplete="family-name">
+                                                                        </label>
+                                                                        <label class="afd-ai-chat__order-address-form-field" x-show="orderAddressFieldVisible(part, 'suffix')">
+                                                                            <span x-text="orderAddressFieldLabel(part, 'suffix', 'Suffix')"></span>
+                                                                            <input type="text" x-model.trim="part.address.suffix" :disabled="part.busy" :required="orderAddressFieldRequired(part, 'suffix')" autocomplete="honorific-suffix">
+                                                                        </label>
+                                                                        <label class="afd-ai-chat__order-address-form-field afd-ai-chat__order-address-form-field--wide" x-show="orderAddressFieldVisible(part, 'company')">
+                                                                            <span x-text="orderAddressFieldLabel(part, 'company', 'Company')"></span>
+                                                                            <input type="text" x-model.trim="part.address.company" :disabled="part.busy" :required="orderAddressFieldRequired(part, 'company')" autocomplete="organization">
+                                                                        </label>
+                                                                        <label class="afd-ai-chat__order-address-form-field" x-show="orderAddressStreetLineVisible(part, 1)">
+                                                                            <span x-text="orderAddressFieldLabel(part, 'street', 'Street address')"></span>
+                                                                            <input type="text" x-model.trim="part.address.street[0]" :disabled="part.busy" :required="orderAddressFieldRequired(part, 'street')" autocomplete="address-line1">
+                                                                        </label>
+                                                                        <label class="afd-ai-chat__order-address-form-field" x-show="orderAddressStreetLineVisible(part, 2)">
+                                                                            <span>Address line 2</span>
+                                                                            <input type="text" x-model.trim="part.address.street[1]" :disabled="part.busy" autocomplete="address-line2">
+                                                                        </label>
+                                                                        <label class="afd-ai-chat__order-address-form-field afd-ai-chat__order-address-form-field--wide" x-show="orderAddressStreetLineVisible(part, 3)">
+                                                                            <span>Address line 3</span>
+                                                                            <input type="text" x-model.trim="part.address.street[2]" :disabled="part.busy">
+                                                                        </label>
+                                                                        <label class="afd-ai-chat__order-address-form-field afd-ai-chat__order-address-form-field--wide" x-show="orderAddressStreetLineVisible(part, 4)">
+                                                                            <span>Address line 4</span>
+                                                                            <input type="text" x-model.trim="part.address.street[3]" :disabled="part.busy">
+                                                                        </label>
+                                                                        <label class="afd-ai-chat__order-address-form-field" x-show="orderAddressFieldVisible(part, 'city')">
+                                                                            <span x-text="orderAddressFieldLabel(part, 'city', 'City')"></span>
+                                                                            <input type="text" x-model.trim="part.address.city" :disabled="part.busy" :required="orderAddressFieldRequired(part, 'city')" autocomplete="address-level2">
+                                                                        </label>
+                                                                        <label class="afd-ai-chat__order-address-form-field" x-show="orderAddressFieldVisible(part, 'region')">
+                                                                            <span x-text="orderAddressFieldLabel(part, 'region', 'Region / state')"></span>
+                                                                            <template x-if="orderAddressCountryRegions(part).length">
+                                                                                <select x-model.number="part.address.region_id" :disabled="part.busy" :required="orderAddressFieldRequired(part, 'region')" @change="changeOrderAddressRegion(part)" autocomplete="address-level1">
+                                                                                    <option value="0" x-text="orderAddressFieldRequired(part, 'region') ? 'Choose a state/province' : 'No state/province'"></option>
+                                                                                    <template x-for="region in orderAddressCountryRegions(part)" :key="region.id">
+                                                                                        <option :value="region.id" x-text="region.name"></option>
+                                                                                    </template>
+                                                                                </select>
+                                                                            </template>
+                                                                            <template x-if="!orderAddressCountryRegions(part).length">
+                                                                                <input type="text" x-model.trim="part.address.region" :disabled="part.busy" :required="orderAddressFieldRequired(part, 'region')" @input="resetOrderAddressFormRegion(part)" autocomplete="address-level1">
+                                                                            </template>
+                                                                        </label>
+                                                                        <label class="afd-ai-chat__order-address-form-field" x-show="orderAddressFieldVisible(part, 'postcode')">
+                                                                            <span x-text="orderAddressFieldLabel(part, 'postcode', 'Postcode')"></span>
+                                                                            <input type="text" x-model.trim="part.address.postcode" :disabled="part.busy" :required="orderAddressFieldRequired(part, 'postcode')" autocomplete="postal-code">
+                                                                        </label>
+                                                                        <label class="afd-ai-chat__order-address-form-field" x-show="orderAddressFieldVisible(part, 'country_id')">
+                                                                            <span x-text="orderAddressFieldLabel(part, 'country_id', 'Country')"></span>
+                                                                            <template x-if="part.countries.length">
+                                                                                <select x-model="part.address.country_id"
+                                                                                        x-init="$nextTick(() => { ensureOrderAddressCountrySelection(part); $el.value = part.address.country_id; })"
+                                                                                        x-effect="$el.value = part.address.country_id"
+                                                                                        :disabled="part.busy"
+                                                                                        :required="orderAddressFieldRequired(part, 'country_id')"
+                                                                                        @change="changeOrderAddressCountry(part)"
+                                                                                        autocomplete="country">
+                                                                                    <option value="" :selected="!part.address.country_id">Choose a country</option>
+                                                                                    <template x-for="country in part.countries" :key="country.value">
+                                                                                        <option :value="country.value"
+                                                                                                :selected="part.address.country_id === country.value"
+                                                                                                x-text="country.label"></option>
+                                                                                    </template>
+                                                                                </select>
+                                                                            </template>
+                                                                            <template x-if="!part.countries.length">
+                                                                                <input type="text" x-model.trim="part.address.country_id" :disabled="part.busy" :required="orderAddressFieldRequired(part, 'country_id')" @input="changeOrderAddressCountry(part)" maxlength="2" placeholder="DE" autocomplete="country">
+                                                                            </template>
+                                                                        </label>
+                                                                        <label class="afd-ai-chat__order-address-form-field" x-show="orderAddressFieldVisible(part, 'telephone')">
+                                                                            <span x-text="orderAddressFieldLabel(part, 'telephone', 'Telephone')"></span>
+                                                                            <input type="tel" x-model.trim="part.address.telephone" :disabled="part.busy" :required="orderAddressFieldRequired(part, 'telephone')" autocomplete="tel">
+                                                                        </label>
+                                                                        <label class="afd-ai-chat__order-address-form-field" x-show="orderAddressFieldVisible(part, 'fax')">
+                                                                            <span x-text="orderAddressFieldLabel(part, 'fax', 'Fax')"></span>
+                                                                            <input type="tel" x-model.trim="part.address.fax" :disabled="part.busy" :required="orderAddressFieldRequired(part, 'fax')">
+                                                                        </label>
+                                                                        <label class="afd-ai-chat__order-address-form-field" x-show="orderAddressFieldVisible(part, 'vat_id')">
+                                                                            <span x-text="orderAddressFieldLabel(part, 'vat_id', 'VAT ID')"></span>
+                                                                            <input type="text" x-model.trim="part.address.vat_id" :disabled="part.busy" :required="orderAddressFieldRequired(part, 'vat_id')">
+                                                                        </label>
+                                                                    </div>
+
+                                                                        <p x-show="part.notice"
+                                                                           class="afd-ai-chat__order-address-form-notice"
+                                                                           :class="'afd-ai-chat__order-address-form-notice--' + (part.noticeVariant || 'neutral')"
+                                                                           x-text="part.notice"></p>
+
+                                                                        <div class="afd-ai-chat__order-address-form-actions">
+                                                                            <button type="submit"
+                                                                                    class="afd-ai-chat__order-address-form-submit"
+                                                                                    :disabled="part.busy || part.status === 'expired'">
+                                                                                <span x-show="!part.busy">Save address</span>
+                                                                                <span x-show="part.busy">Saving…</span>
+                                                                            </button>
+                                                                        </div>
+                                                                    </fieldset>
+                                                                </form>
+                                                            </template>
+
+                                                            <template x-if="part.status === 'expired'">
+                                                                <p class="afd-ai-chat__order-address-form-copy afd-ai-chat__order-address-form-copy--expired"
+                                                                   role="status"
+                                                                   x-text="part.resourceType === 'customer_account' ? 'Request your account addresses again to continue.' : 'Request a new address update form to continue.'"></p>
+                                                            </template>
+                                                        </section>
+                                                    </template>
+                                                </template>
+
+                                                <!-- Then render all product grids -->
+                                                <template x-for="part in msg.parts" :key="'prod-' + part.id">
+                                                    <template x-if="part.type === 'products' && part.html.trim().length > 0">
+                                                        <div class="afd-ai-chat__msg-part afd-ai-chat__product-result-set">
+                                                            <div class="afd-ai-chat__product-coverage"
+                                                                 x-show="productResultsSummary(part)">
+                                                                <span class="material-symbols-outlined" aria-hidden="true">inventory_2</span>
+                                                                <p class="afd-ai-chat__product-pagination-summary"
+                                                                   x-text="productResultsSummary(part)"></p>
+                                                            </div>
+                                                            <div x-html="part.html"></div>
+                                                            <div class="afd-ai-chat__product-pagination"
+                                                                 x-show="(part.payload?.pagination?.can_load_more && part.payload?.continuation) || part.payload?.scope?.category_url">
+                                                                <div class="afd-ai-chat__product-pagination-actions">
+                                                                    <button type="button"
+                                                                            class="afd-ai-chat__product-pagination-btn"
+                                                                            x-show="part.payload?.pagination?.can_load_more && part.payload?.continuation"
+                                                                            :disabled="isProductPageLoading(part)"
+                                                                            @click.stop="loadMoreProducts(part)">
+                                                                        <span class="material-symbols-outlined"
+                                                                              :class="{ 'afd-ai-chat__product-pagination-icon--spinning': isProductPageLoading(part) }"
+                                                                              aria-hidden="true"
+                                                                              x-text="isProductPageLoading(part) ? 'progress_activity' : 'expand_more'"></span>
+                                                                        <span x-text="productLoadMoreLabel(part)"></span>
+                                                                    </button>
+                                                                    <a class="afd-ai-chat__product-pagination-link"
+                                                                       x-show="part.payload?.scope?.category_url"
+                                                                       :href="part.payload?.scope?.category_url || '#'"
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer">
+                                                                        <span>View category</span>
+                                                                        <span class="afd-ai-chat__product-pagination-link-icon material-symbols-outlined" aria-hidden="true">open_in_new</span>
+                                                                    </a>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </template>
+                                                </template>
+
+                                                <!-- Generated images keep a stable Codex-style placeholder while
+                                                     the provider is working, then become a normal image card. -->
+                                                <template x-for="part in msg.parts" :key="'image-' + part.id">
+                                                    <template x-if="part.type === 'image'">
+                                                        <section class="afd-ai-chat__generated-image"
+                                                                 :class="'afd-ai-chat__generated-image--' + (part.status || 'complete')">
+                                                            <div x-show="part.status === 'generating'"
+                                                                 class="afd-ai-chat__generated-image-progress"
+                                                                 role="status"
+                                                                 aria-live="polite">
+                                                                <div class="afd-ai-chat__generated-image-progress-copy">
+                                                                    <span class="material-symbols-outlined">auto_awesome</span>
+                                                                    <span x-text="imageGenerationLabel(part)"></span>
+                                                                </div>
+                                                                <div class="afd-ai-chat__generated-image-placeholder" aria-hidden="true">
+                                                                    <canvas class="afd-ai-chat__generated-image-dots"
+                                                                            x-init="initGeneratedImageDots($el)"></canvas>
+                                                                </div>
+                                                            </div>
+                                                            <div x-show="part.status === 'error'"
+                                                                 class="afd-ai-chat__generated-image-error"
+                                                                 role="alert">
+                                                                <span class="material-symbols-outlined">image_not_supported</span>
+                                                                <span x-text="part.error || 'The image could not be generated.'"></span>
+                                                            </div>
+                                                            <figure x-show="part.status !== 'generating' && part.status !== 'error' && part.url"
+                                                                    class="afd-ai-chat__generated-image-result">
+                                                                <img :src="part.url"
+                                                                     :alt="part.alt || 'Generated image'"
+                                                                     class="afd-ai-chat__generated-image-img"
+                                                                     loading="lazy"
+                                                                     decoding="async">
+                                                                <figcaption class="afd-ai-chat__generated-image-actions">
+                                                                    <button type="button"
+                                                                            class="afd-ai-chat__generated-image-action"
+                                                                            aria-label="Open image"
+                                                                            title="Open image"
+                                                                            @click.stop="openImageViewer([{ name: part.alt || 'Generated image', previewUrl: part.url }])">
+                                                                        <span class="material-symbols-outlined" aria-hidden="true">zoom_in</span>
+                                                                    </button>
+                                                                    <a class="afd-ai-chat__generated-image-action"
+                                                                       :href="part.url"
+                                                                       download
+                                                                       target="_blank"
+                                                                       rel="noopener noreferrer"
+                                                                       aria-label="Download image"
+                                                                       title="Download image">
+                                                                        <span class="material-symbols-outlined" aria-hidden="true">download</span>
+                                                                    </a>
+                                                                </figcaption>
+                                                            </figure>
+                                                        </section>
+                                                    </template>
+                                                </template>
+                                            </div>
+                                            <div x-show="!msg.deleted && msg.interrupted === true"
+                                                 class="afd-ai-chat__run-interruption"
+                                                 role="status">
+                                                <span class="afd-ai-chat__run-interruption-icon material-symbols-outlined"
+                                                      aria-hidden="true">stop_circle</span>
+                                                <span class="afd-ai-chat__run-interruption-text"
+                                                      x-text="stoppedResponseLabel(msg)"></span>
+                                                <button type="button"
+                                                        class="afd-ai-chat__run-interruption-continue"
+                                                        :disabled="isLoading || isReadingAttachments"
+                                                        @click.stop.prevent="continueStoppedResponse()">
+                                                    Continue response
+                                                </button>
+                                            </div>
+                                            <div x-show="!msg.deleted"
+                                                 class="afd-ai-chat__msg-meta afd-ai-chat__msg-meta--assistant">
+                                                <span x-show="msg.edited" class="afd-ai-chat__msg-edited">Edited</span>
+                                                <div class="afd-ai-chat__msg-actions afd-ai-chat__msg-actions--assistant">
+                                                    <button type="button"
+                                                            x-show="msg.feedbackEnabled"
+                                                            class="afd-ai-chat__msg-action afd-ai-chat__msg-action--icon afd-ai-chat__msg-action--feedback"
+                                                            :class="{ 'afd-ai-chat__msg-action--active': msg.feedback === 'positive' }"
+                                                            :disabled="msg.feedbackBusy"
+                                                            @click.stop.prevent="setMessageFeedback(index, 'positive')"
+                                                            :aria-pressed="msg.feedback === 'positive'"
+                                                            :aria-label="msg.feedback === 'positive' ? 'Remove helpful rating' : 'Helpful response'"
+                                                            :title="msg.feedback === 'positive' ? 'Remove helpful rating' : 'Helpful response'">
+                                                        <span class="material-symbols-outlined" aria-hidden="true">thumb_up</span>
+                                                    </button>
+                                                    <button type="button"
+                                                            x-show="msg.feedbackEnabled"
+                                                            class="afd-ai-chat__msg-action afd-ai-chat__msg-action--icon afd-ai-chat__msg-action--feedback"
+                                                            :class="{ 'afd-ai-chat__msg-action--active': msg.feedback === 'negative' }"
+                                                            :disabled="msg.feedbackBusy"
+                                                            @click.stop.prevent="setMessageFeedback(index, 'negative')"
+                                                            :aria-pressed="msg.feedback === 'negative'"
+                                                            :aria-label="msg.feedback === 'negative' ? 'Remove unhelpful rating' : 'Unhelpful response'"
+                                                            :title="msg.feedback === 'negative' ? 'Remove unhelpful rating' : 'Unhelpful response'">
+                                                        <span class="material-symbols-outlined" aria-hidden="true">thumb_down</span>
+                                                    </button>
+                                                    <button type="button"
+                                                            class="afd-ai-chat__msg-action afd-ai-chat__msg-action--icon"
+                                                            :class="{ 'afd-ai-chat__msg-action--active': copiedMessageIndex === index }"
+                                                            @click="copyMessage(msg, index)"
+                                                            :aria-label="copiedMessageIndex === index ? 'Copied' : 'Copy response'"
+                                                            :title="copiedMessageIndex === index ? 'Copied' : 'Copy response'">
+                                                        <span class="material-symbols-outlined" x-text="copiedMessageIndex === index ? 'check' : 'content_copy'"></span>
+                                                    </button>
+                                                    <button type="button"
+                                                            x-show="msg.source !== 'support_agent'"
+                                                            class="afd-ai-chat__msg-action afd-ai-chat__msg-action--icon"
+                                                            :disabled="isLoading"
+                                                            @click="retryFromMessage(index)"
+                                                            aria-label="Regenerate response"
+                                                            title="Regenerate response">
+                                                        <span class="material-symbols-outlined">refresh</span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <form x-show="!msg.deleted && msg.feedback === 'negative' && !msg.feedbackDetailsSaved"
+                                                  x-cloak
+                                                  x-transition.opacity.duration.150ms
+                                                  class="afd-ai-chat__feedback-details"
+                                                  @click.outside="dismissMessageFeedback(index)"
+                                                  @submit.prevent="submitMessageFeedbackDetails(index)">
+                                                <div class="afd-ai-chat__feedback-details-heading">
+                                                    <span class="afd-ai-chat__feedback-details-heading-icon material-symbols-outlined"
+                                                          aria-hidden="true">rate_review</span>
+                                                    <span>What went wrong?</span>
+                                                </div>
+                                                <label class="afd-ai-chat__feedback-details-reason">
+                                                    <span class="sr-only">Feedback reason</span>
+                                                    <select x-model="msg.feedbackReason"
+                                                            :disabled="msg.feedbackBusy"
+                                                            aria-label="Feedback reason">
+                                                        <option value="incorrect">Incorrect</option>
+                                                        <option value="irrelevant">Not relevant</option>
+                                                        <option value="outdated">Outdated</option>
+                                                        <option value="tool_failed">Action failed</option>
+                                                        <option value="unsafe">Unsafe</option>
+                                                        <option value="other">Other</option>
+                                                    </select>
+                                                </label>
+                                                <label class="afd-ai-chat__feedback-details-comment">
+                                                    <span class="sr-only">Optional feedback details</span>
+                                                    <input type="text"
+                                                           maxlength="1000"
+                                                           x-model="msg.feedbackComment"
+                                                           :disabled="msg.feedbackBusy"
+                                                           placeholder="Optional details">
+                                                </label>
+                                                <button type="submit"
+                                                        class="afd-ai-chat__feedback-details-submit"
+                                                        :disabled="msg.feedbackBusy"
+                                                        :aria-label="msg.feedbackBusy ? 'Saving feedback' : 'Send feedback'"
+                                                        :title="msg.feedbackBusy ? 'Saving feedback' : 'Send feedback'">
+                                                    <span class="material-symbols-outlined"
+                                                          :class="{ 'afd-ai-chat__feedback-details-spinner': msg.feedbackBusy }"
+                                                          x-text="msg.feedbackBusy ? 'progress_activity' : 'send'"
+                                                          aria-hidden="true"></span>
+                                                    <span class="sr-only" x-text="msg.feedbackBusy ? 'Saving feedback' : 'Send feedback'"></span>
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- User Message -->
+                                <div x-show="msg.role === 'user'" class="afd-ai-chat__msg-user">
+                                    <div class="afd-ai-chat__msg-user-content">
+                                        <template x-if="editingMessageIndex === index">
+                                            <form class="afd-ai-chat__msg-edit-shell"
+                                                  @submit.prevent="submitEditedMessage(index)">
+                                                <template x-if="editingMessageAttachments.length">
+                                                    <div class="afd-ai-chat__msg-edit-attachments"
+                                                         :aria-label="editingMessageAttachments.length + ' image(s) will be sent again'">
+                                                        <div class="afd-ai-chat__msg-edit-attachments-copy">
+                                                            <span class="material-symbols-outlined" aria-hidden="true">image</span>
+                                                            <span x-text="editingMessageAttachments.length === 1 ? 'Image will be sent again' : editingMessageAttachments.length + ' images will be sent again'"></span>
+                                                        </div>
+                                                        <div class="afd-ai-chat__msg-edit-attachment-list">
+                                                            <template x-for="(attachment, attachmentIndex) in editingMessageAttachments" :key="attachment.previewUrl + attachmentIndex">
+                                                                <button type="button"
+                                                                        class="afd-ai-chat__msg-edit-attachment-preview"
+                                                                        @click="openImageViewer(editingMessageAttachments, attachmentIndex)"
+                                                                        :aria-label="'Open image ' + (attachmentIndex + 1) + ': ' + attachment.name">
+                                                                    <img :src="attachment.previewUrl"
+                                                                         :alt="attachment.name"
+                                                                         loading="lazy"
+                                                                         decoding="async">
+                                                                </button>
+                                                            </template>
+                                                        </div>
+                                                    </div>
+                                                </template>
+                                                <textarea x-ref="editComposerInput"
+                                                          class="afd-ai-chat__msg-edit-input"
+                                                          x-model="editingMessageDraft"
+                                                          @input="resizeEditMessageInput()"
+                                                          @keydown.escape.prevent="cancelEditMessage()"
+                                                          :disabled="isLoading || isReadingAttachments || msg.mutationBusy"
+                                                          placeholder="Edit message"
+                                                          rows="1"></textarea>
+                                                <div class="afd-ai-chat__msg-edit-actions">
+                                                    <button type="button"
+                                                            class="afd-ai-chat__msg-edit-btn afd-ai-chat__msg-edit-btn--ghost"
+                                                            @click="cancelEditMessage()"
+                                                            :disabled="isLoading || isReadingAttachments || msg.mutationBusy">
+                                                        Cancel
+                                                    </button>
+                                                    <button type="submit"
+                                                            class="afd-ai-chat__msg-edit-btn afd-ai-chat__msg-edit-btn--primary"
+                                                            :disabled="isLoading || isReadingAttachments || msg.mutationBusy || (!editingMessageDraft.trim() && editingMessageAttachments.length === 0)">
+                                                        <span x-text="msg.mutationBusy ? 'Saving…' : (humanSupportActive ? 'Save' : 'Send')"></span>
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </template>
+                                        <template x-if="editingMessageIndex !== index">
+                                            <div class="afd-ai-chat__msg-user-stack">
+                                                <div x-show="msg.deleted"
+                                                     x-cloak
+                                                     class="afd-ai-chat__msg-bubble-user afd-ai-chat__msg-deleted">
+                                                    <span class="material-symbols-outlined" aria-hidden="true">delete</span>
+                                                    <span>This message was deleted.</span>
+                                                </div>
+                                                <template x-if="!msg.deleted && msg.attachments && msg.attachments.length === 1">
+                                                    <figure class="afd-ai-chat__msg-attachment afd-ai-chat__msg-attachment--single">
+                                                        <button type="button"
+                                                                class="afd-ai-chat__msg-attachment-trigger"
+                                                                @click.stop="openImageViewer(msg.attachments, 0)"
+                                                                :aria-label="'Open image: ' + msg.attachments[0].name">
+                                                            <div class="afd-ai-chat__msg-attachment-media">
+                                                                <img :src="msg.attachments[0].previewUrl"
+                                                                     :alt="msg.attachments[0].name"
+                                                                     class="afd-ai-chat__msg-attachment-img"
+                                                                     loading="lazy"
+                                                                     decoding="async">
+                                                                <span class="afd-ai-chat__msg-attachment-zoom material-symbols-outlined" aria-hidden="true">zoom_in</span>
+                                                            </div>
+                                                        </button>
+                                                        <figcaption class="afd-ai-chat__msg-attachment-caption"
+                                                                    x-show="msg.content"
+                                                                    x-text="msg.content"></figcaption>
+                                                    </figure>
+                                                </template>
+                                                <template x-if="!msg.deleted && msg.attachments && msg.attachments.length > 1">
+                                                    <div class="afd-ai-chat__msg-attachments-multiple"
+                                                         :aria-label="msg.attachments.length + ' attached images'">
+                                                        <template x-for="(attachment, attachmentIndex) in msg.attachments" :key="attachment.previewUrl + attachmentIndex">
+                                                            <figure class="afd-ai-chat__msg-attachment-thumb-card">
+                                                                <button type="button"
+                                                                        class="afd-ai-chat__msg-attachment-thumb-trigger"
+                                                                        @click.stop="openImageViewer(msg.attachments, attachmentIndex)"
+                                                                        :aria-label="'Open image ' + (attachmentIndex + 1) + ': ' + attachment.name">
+                                                                    <img :src="attachment.previewUrl"
+                                                                         :alt="attachment.name"
+                                                                         class="afd-ai-chat__msg-attachment-thumb"
+                                                                         loading="lazy"
+                                                                         decoding="async">
+                                                                    <span class="afd-ai-chat__msg-attachment-zoom material-symbols-outlined" aria-hidden="true">zoom_in</span>
+                                                                </button>
+                                                            </figure>
+                                                        </template>
+                                                    </div>
+                                                </template>
+                                                <template x-if="!msg.deleted && (!msg.attachments || msg.attachments.length !== 1)">
+                                                    <div class="afd-ai-chat__msg-bubble-user">
+                                                        <div class="afd-ai-chat__msg-user-text" x-text="msg.content"></div>
+                                                    </div>
+                                                </template>
+                                                <div x-show="!msg.deleted"
+                                                     class="afd-ai-chat__msg-meta afd-ai-chat__msg-meta--user">
+                                                    <span x-show="msg.edited" class="afd-ai-chat__msg-edited">Edited</span>
+                                                    <div class="afd-ai-chat__msg-actions afd-ai-chat__msg-actions--user">
+                                                        <button type="button"
+                                                                class="afd-ai-chat__msg-action afd-ai-chat__msg-action--icon"
+                                                                @click="copyMessage(msg, index)"
+                                                                :class="{ 'afd-ai-chat__msg-action--active': copiedMessageIndex === index }"
+                                                                :aria-label="copiedMessageIndex === index ? 'Copied' : 'Copy message'"
+                                                                :title="copiedMessageIndex === index ? 'Copied' : 'Copy message'">
+                                                            <span class="material-symbols-outlined"
+                                                                  x-text="copiedMessageIndex === index ? 'check' : 'content_copy'"></span>
+                                                        </button>
+                                                        <button type="button"
+                                                                x-show="!supportConversationClosed"
+                                                                class="afd-ai-chat__msg-action afd-ai-chat__msg-action--icon"
+                                                                :disabled="isReadingAttachments || msg.mutationBusy === true"
+                                                                @click="editMessage(index)"
+                                                                aria-label="Edit message"
+                                                                title="Edit message">
+                                                            <span class="material-symbols-outlined">edit</span>
+                                                        </button>
+                                                        <button type="button"
+                                                                x-show="humanSupportActive"
+                                                                class="afd-ai-chat__msg-action afd-ai-chat__msg-action--icon afd-ai-chat__msg-action--danger"
+                                                                :disabled="msg.mutationBusy"
+                                                                @click="requestDeleteSupportMessage(index, $event)"
+                                                                aria-label="Delete message"
+                                                                title="Delete message">
+                                                            <span class="material-symbols-outlined">delete</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
+                        <div x-show="humanSupportActive && supportRemoteTyping"
+                             x-cloak
+                             class="afd-ai-chat__msg-ai afd-ai-support-typing"
+                             aria-live="polite">
+                            <div class="afd-ai-chat__msg-content">
+                                <div class="afd-ai-chat__msg-assistant-stack">
+                                    <div class="afd-ai-chat__typing-bubble"
+                                         :aria-label="(supportRemoteTypingLabel || 'Support team') + ' is typing'">
+                                        <span></span><span></span><span></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- A stable, customer-safe tool timeline. It shows action
+                             progress only; raw tool payloads and model reasoning are
+                             never rendered here. -->
+                        <div x-show="isLoading && !isHistoryLoading && currentAiMessageIndex === -1"
+                             class="afd-ai-chat__msg-ai afd-ai-chat__msg-ai--thinking"
+                             x-transition.opacity.duration.150ms>
+                            <div class="afd-ai-chat__msg-content">
+                                <div class="afd-ai-chat__thinking-row">
+                                    <span class="afd-ai-chat__thinking-shimmer">
+                                        Thinking
+                                        <span class="afd-ai-chat__thinking-shimmer-sweep" aria-hidden="true">
+                                            <span class="afd-ai-chat__thinking-shimmer-highlight">Thinking</span>
+                                        </span>
+                                    </span>
+                                    <div x-show="toolActivities.length > 0"
+                                         class="afd-ai-chat__tool-activity-list"
+                                         aria-live="polite"
+                                         aria-atomic="false">
+                                        <template x-for="activity in toolActivities" :key="activity.id">
+                                            <div class="afd-ai-chat__tool-activity"
+                                                 :class="'afd-ai-chat__tool-activity--' + activity.state">
+                                                <span class="material-symbols-outlined afd-ai-chat__tool-activity-icon"
+                                                      aria-hidden="true"
+                                                      x-text="toolActivityIcon(activity)"></span>
+                                                <span class="afd-ai-chat__tool-activity-label" x-text="toolActivityLabel(activity)"></span>
+                                                <span class="material-symbols-outlined afd-ai-chat__tool-activity-state"
+                                                      x-show="activity.state !== 'running'"
+                                                      aria-hidden="true"
+                                                      x-text="activity.state === 'completed' ? 'check' : 'error'"></span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                    <div x-show="toolActivities.length === 0 && statusMessage && statusMessage.trim().length > 0"
+                                         x-transition.opacity.duration.150ms
+                                         class="afd-ai-chat__tool-activity"
+                                         aria-live="polite"
+                                         aria-atomic="true">
+                                        <span class="material-symbols-outlined afd-ai-chat__tool-activity-icon"
+                                              aria-hidden="true"
+                                              x-text="activityIcon()"></span>
+                                        <span class="afd-ai-chat__tool-activity-label" x-text="statusMessage"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                    <button type="button"
+                            class="afd-ai-chat__scroll-to-latest"
+                            x-show="showScrollToLatest()"
+                            x-transition:enter="afd-ai-chat__scroll-to-latest--enter"
+                            x-transition:enter-start="afd-ai-chat__scroll-to-latest--enter-start"
+                            x-transition:enter-end="afd-ai-chat__scroll-to-latest--enter-end"
+                            x-transition:leave="afd-ai-chat__scroll-to-latest--leave"
+                            x-transition:leave-start="afd-ai-chat__scroll-to-latest--leave-start"
+                            x-transition:leave-end="afd-ai-chat__scroll-to-latest--leave-end"
+                            @click="scrollToLatest()"
+                            :aria-label="hasUnreadMessages ? 'Jump to new response' : 'Jump to latest message'"
+                            :title="hasUnreadMessages ? 'Jump to new response' : 'Jump to latest message'">
+                        <span class="material-symbols-outlined" aria-hidden="true">arrow_downward</span>
+                        <span x-show="hasUnreadMessages">New response</span>
+                        <span x-show="!hasUnreadMessages">Latest</span>
+                    </button>
+                </div>
+            </template>

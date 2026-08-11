@@ -1,0 +1,187 @@
+<?php
+declare(strict_types=1);
+
+namespace Afd\AI\Observer;
+
+use Afd\AI\Model\Config\Config as AiConfig;
+use Magento\Framework\Event\Observer;
+use Magento\Framework\Event\ObserverInterface;
+use Magento\Framework\App\Config\ScopeConfigInterface;
+use Magento\Framework\App\Config\Storage\WriterInterface;
+use Magento\Framework\HTTP\Client\Curl;
+use Magento\Framework\Serialize\Serializer\Json;
+use Psr\Log\LoggerInterface;
+
+class SyncNodeConfig implements ObserverInterface
+{
+    private Curl $curl;
+    private AiConfig $aiConfig;
+    private WriterInterface $configWriter;
+    private Json $json;
+    private LoggerInterface $logger;
+
+    public function __construct(
+        Curl $curl,
+        AiConfig $aiConfig,
+        WriterInterface $configWriter,
+        Json $json,
+        LoggerInterface $logger
+    ) {
+        $this->curl = $curl;
+        $this->aiConfig = $aiConfig;
+        $this->configWriter = $configWriter;
+        $this->json = $json;
+        $this->logger = $logger;
+    }
+
+    public function execute(Observer $observer): void
+    {
+        $serverUrl = trim((string)$this->aiConfig->getChatServerUrl());
+        if ($serverUrl === '') {
+            $this->saveStatus('failed', 'Node server URL is not configured.');
+            return;
+        }
+
+        $reloadUrl = $this->toHttpUrl($serverUrl);
+        if ($reloadUrl === '') {
+            $this->saveStatus('failed', 'Node server URL is invalid.');
+            return;
+        }
+
+        $secret = $this->aiConfig->getNodeSyncSecret();
+        if (strlen($secret) < 32) {
+            $this->saveStatus('failed', 'Node sync secret is not configured.');
+            $this->logger->warning('Afd AI configuration was not pushed because the Node sync secret is too short.');
+            return;
+        }
+
+        $syncId = bin2hex(random_bytes(16));
+        $reloadUrl = rtrim($reloadUrl, '/') . '/internal/config';
+        $payload = [
+            'version' => 1,
+            'sync_id' => $syncId,
+            'config' => [
+                'enabled' => $this->aiConfig->isEnabled(),
+                'persist_guest_history' => $this->aiConfig->isGuestHistoryPersistenceEnabled(),
+                'provider' => (string)$this->aiConfig->getProvider(),
+                'model' => (string)$this->aiConfig->getModel(),
+                'api_key' => $this->aiConfig->getApiKey(),
+                'base_url' => (string)$this->aiConfig->getBaseUrl(),
+                'agent' => $this->aiConfig->getAgentConfig(),
+                'image_generation' => $this->aiConfig->getImageGenerationConfig(),
+                'rate_limits' => $this->aiConfig->getRateLimitConfig(),
+                'capacity' => $this->aiConfig->getCapacityConfig(),
+                'attachments' => $this->aiConfig->getAttachmentConfig(),
+                'magento_oauth' => $this->aiConfig->getMagentoOauthConfig(),
+            ],
+        ];
+        $body = $this->json->serialize($payload);
+        $timestamp = (string)time();
+        $signature = hash_hmac('sha256', $timestamp . '.' . $body, $secret);
+
+        try {
+            $this->curl->setTimeout(5);
+            $this->curl->addHeader('Accept', 'application/json');
+            $this->curl->addHeader('Content-Type', 'application/json');
+            $this->curl->addHeader('X-Afd-AI-Timestamp', $timestamp);
+            $this->curl->addHeader('X-Afd-AI-Signature', $signature);
+            $this->curl->addHeader('X-Afd-AI-Sync-Id', $syncId);
+            $this->curl->post($reloadUrl, $body);
+
+            $status = $this->curl->getStatus();
+            if ($status < 200 || $status >= 300) {
+                $this->saveStatus('failed', sprintf('Node returned HTTP %d.', $status), $syncId, $status);
+                $this->logger->warning(sprintf(
+                    'Afd AI config push returned HTTP %d for %s',
+                    $status,
+                    $reloadUrl
+                ));
+                return;
+            }
+
+            $response = $this->decodeResponse($this->curl->getBody());
+            if (($response['sync_id'] ?? null) !== $syncId) {
+                $this->saveStatus('failed', 'Node returned an invalid synchronization response.', $syncId, $status);
+                $this->logger->warning('Afd AI config push returned a response with an unexpected sync ID.');
+                return;
+            }
+
+            $this->saveStatus(
+                'success',
+                (string)($response['message'] ?? 'Node accepted the configuration.'),
+                $syncId,
+                $status,
+                (string)($response['provider'] ?? $payload['config']['provider']),
+                (string)($response['model'] ?? $payload['config']['model'])
+            );
+        } catch (\Throwable $error) {
+            $this->saveStatus('failed', 'Could not reach the Node service.', $syncId);
+            $this->logger->warning(sprintf(
+                'Afd AI config push failed for %s: %s',
+                $reloadUrl,
+                $error->getMessage()
+            ));
+        }
+    }
+
+    private function decodeResponse(string $responseBody): array
+    {
+        if ($responseBody === '') {
+            return [];
+        }
+
+        try {
+            $response = $this->json->unserialize($responseBody);
+            return is_array($response) ? $response : [];
+        } catch (\InvalidArgumentException $exception) {
+            return [];
+        }
+    }
+
+    private function saveStatus(
+        string $state,
+        string $message,
+        ?string $syncId = null,
+        ?int $httpStatus = null,
+        string $provider = '',
+        string $model = ''
+    ): void {
+        $status = [
+            'state' => $state,
+            'message' => substr($message, 0, 255),
+            'synced_at' => gmdate('c'),
+            'sync_id' => $syncId,
+            'http_status' => $httpStatus,
+            'provider' => $provider,
+            'model' => $model,
+        ];
+
+        try {
+            $this->configWriter->save(
+                AiConfig::XML_PATH_NODE_SYNC_STATUS,
+                $this->json->serialize($status),
+                ScopeConfigInterface::SCOPE_TYPE_DEFAULT,
+                0
+            );
+        } catch (\Throwable $error) {
+            $this->logger->warning('Could not save Afd AI Node sync status: ' . $error->getMessage());
+        }
+    }
+
+    private function toHttpUrl(string $url): string
+    {
+        if (str_starts_with($url, 'wss://')) {
+            return 'https://' . substr($url, 6);
+        }
+
+        if (str_starts_with($url, 'ws://')) {
+            return 'http://' . substr($url, 5);
+        }
+
+        if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
+            return $url;
+        }
+
+        return '';
+    }
+}
