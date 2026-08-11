@@ -68,17 +68,22 @@ class ConversationDataEraser
     }
 
     /** @return array{conversations:int,messages:int} */
-    public function eraseExpired(string $updatedBefore): array
+    public function eraseExpired(string $updatedBefore, ?int $storeId = null, ?int $websiteId = null): array
     {
         $connection = $this->resource->getConnection();
         $conversationTable = $this->resource->getTableName('afd_ai_conversation');
-        $rows = $connection->fetchAll(
-            $connection->select()
-                ->from($conversationTable, ['conversation_id', 'customer_id', 'guest_id'])
-                ->where('updated_at < ?', $updatedBefore)
-                ->order('conversation_id ASC')
-                ->limit(self::RETENTION_BATCH_SIZE)
-        );
+        $select = $connection->select()
+            ->from($conversationTable, ['conversation_id', 'customer_id', 'guest_id'])
+            ->where('updated_at < ?', $updatedBefore)
+            ->order('conversation_id ASC')
+            ->limit(self::RETENTION_BATCH_SIZE);
+        if ($storeId !== null) {
+            $select->where('store_id = ?', $storeId);
+        }
+        if ($websiteId !== null) {
+            $select->where('website_id = ?', $websiteId);
+        }
+        $rows = $connection->fetchAll($select);
         if (!is_array($rows) || $rows === []) {
             return ['conversations' => 0, 'messages' => 0];
         }

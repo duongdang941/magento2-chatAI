@@ -56,6 +56,9 @@ const {
                     else if (this.isOpen) this.syncSupportTyping();
                 });
                 this.$watch('isLoading', () => this.syncPetAnimation());
+                this.$watch('isHistoryLoading', isLoading => {
+                    if (!isLoading) this.clearHistoryLoadingTimeout();
+                });
                 this.$watch('statusMessage', () => this.syncPetAnimation());
                 this.$watch('showBubble', () => this.syncPetAnimation());
                 this.$watch('hasStartedChat', () => this.syncPetAnimation());
@@ -83,6 +86,32 @@ const {
                 return payload.websocketTicket;
             },
 
+            armHistoryLoadingTimeout() {
+                this.clearHistoryLoadingTimeout();
+                if (!this.isHistoryLoading) return;
+
+                this.historyLoadingTimeout = window.setTimeout(() => {
+                    this.historyLoadingTimeout = null;
+                    if (!this.isHistoryLoading) return;
+
+                    this.isHistoryLoading = false;
+                    if (!this.wsConnected) {
+                        this.setTransportNotice(
+                            'history-load-timeout',
+                            'Chat history is taking longer than expected',
+                            'The previous conversation could not be loaded yet. You can still start a new chat.'
+                        );
+                        this.loadConversationsHTTP();
+                    }
+                }, 8000);
+            },
+
+            clearHistoryLoadingTimeout() {
+                if (!this.historyLoadingTimeout) return;
+                window.clearTimeout(this.historyLoadingTimeout);
+                this.historyLoadingTimeout = null;
+            },
+
             async connectWebSocket() {
                 if (this.socketConnectPromise) return this.socketConnectPromise;
                 this.wsConnected = false; // Reset before attempt
@@ -95,10 +124,12 @@ const {
                         this.socket.onopen = () => {
                             this.wsConnected = true;
                             this.wsHasEverConnected = true;
+                            this.scheduleTicketRefresh();
                         };
                         this.socket.onmessage = (event) => { try { this.handleWsMessage(JSON.parse(event.data)); } catch(e) {} };
                         this.socket.onclose = () => {
                             this.wsConnected = false;
+                            this.clearTicketRefresh();
                             this.handleActiveRequestDisconnect();
                             if (this.isOpen && this.wsHasEverConnected) {
                                 this.wsReconnectTimer = setTimeout(() => this.connectWebSocket(), 3000);
@@ -133,6 +164,40 @@ const {
 
                 this.connectionAttempted = true;
                 this.connectWebSocket();
+            },
+
+            scheduleTicketRefresh() {
+                this.clearTicketRefresh();
+                // Magento tickets are valid for one minute. Reconnect before
+                // expiry when idle. Closing an active socket cancels the
+                // model run, so defer rotation until that response settles.
+                this.ticketRefreshTimer = window.setTimeout(() => {
+                    this.ticketRefreshTimer = null;
+                    if (this.isLoading) {
+                        this.ticketRefreshDeferred = true;
+                        return;
+                    }
+                    this.refreshWebSocketTicket();
+                }, 45000);
+            },
+
+            refreshWebSocketTicket() {
+                this.ticketRefreshDeferred = false;
+                if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                    this.socket.close(4000, 'Refreshing chat authentication');
+                }
+            },
+
+            refreshDeferredWebSocketTicket() {
+                if (!this.ticketRefreshDeferred) return;
+                this.refreshWebSocketTicket();
+            },
+
+            clearTicketRefresh() {
+                if (this.ticketRefreshTimer) {
+                    window.clearTimeout(this.ticketRefreshTimer);
+                    this.ticketRefreshTimer = null;
+                }
             },
 
             handleComposerInput() {
@@ -300,10 +365,19 @@ const {
                 if (data.type === 'guest_history_sync') {
                     this.loadConversations();
                     if (this.applyCrossTabMessageSnapshot(data.messages, data.conversation_id)) return;
-                    this.switchConversation(data.conversation_id, true);
+                    this.switchConversation(data.conversation_id, true, {
+                        preserveVisibleMessages: true
+                    });
                     return;
                 }
                 if (data.type === 'conversation_messages') {
+                    if (!this.isCurrentConversationResponse(data)) {
+                        if (data.append === true) {
+                            this.isLoadingOlderMessages = false;
+                            this.historyScrollHeightBeforeLoad = 0;
+                        }
+                        return;
+                    }
                     this.isLoading = false;
                     this.isCreatingNewChat = false;
                     this.applyConversationMessagePage(data, data.append === true);
@@ -710,7 +784,9 @@ const {
 
                 this.loadConversations();
                 if (this.applyCrossTabMessageSnapshot(event.messages, event.conversationId)) return;
-                this.switchConversation(event.conversationId, true);
+                this.switchConversation(event.conversationId, true, {
+                    preserveVisibleMessages: true
+                });
             },
 
         };

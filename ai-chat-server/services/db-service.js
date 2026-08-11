@@ -1,18 +1,26 @@
 import axios from 'axios';
 import { summarizeError } from './error-summary.js';
 import { createInternalMagentoRequestConfig } from './magento-auth.js';
+import { catalogRestUrl } from './catalog-scope.js';
 
 const MAGENTO_URL = process.env.MAGENTO_API_URL || 'http://afd.test';
 
-function postInternal(path, payload) {
-    const url = `${MAGENTO_URL}${path}`;
+function postInternal(path, payload, catalogScope = null) {
+    const url = internalUrl(path, catalogScope);
     const body = JSON.stringify(payload);
     return axios.post(url, body, createInternalMagentoRequestConfig('POST', url, body));
 }
 
-function getInternal(path) {
-    const url = `${MAGENTO_URL}${path}`;
+function getInternal(path, catalogScope = null) {
+    const url = internalUrl(path, catalogScope);
     return axios.get(url, createInternalMagentoRequestConfig('GET', url, '', { contentType: false }));
+}
+
+function internalUrl(path, catalogScope = null) {
+    const normalized = String(path || '');
+    const restMatch = normalized.match(/^\/rest\/(?:[^/]+\/)?V1\/(.+)$/);
+    if (!restMatch) return `${MAGENTO_URL}${normalized}`;
+    return catalogRestUrl(MAGENTO_URL, restMatch[1], catalogScope);
 }
 
 function normalizeMessagePage(payload) {
@@ -103,12 +111,12 @@ function normalizeConversation(payload) {
 /**
  * Create a new conversation via Magento REST API
  */
-export async function createConversation(customerId, title = 'New Chat') {
+export async function createConversation(customerId, title = 'New Chat', catalogScope = null) {
     try {
         const response = await postInternal('/rest/V1/afd-ai/conversations/create', {
             customerId,
             title: title.substring(0, 255)
-        });
+        }, catalogScope);
         return response.data;
     } catch (error) {
         console.error('createConversation error:', summarizeError(error));
@@ -119,11 +127,12 @@ export async function createConversation(customerId, title = 'New Chat') {
 /**
  * Return a bounded page of conversations for a customer, newest first.
  */
-export async function listConversations(customerId, page = 1) {
+export async function listConversations(customerId, page = 1, catalogScope = null) {
     try {
         const requestedPage = Math.max(1, Number(page) || 1);
         const response = await getInternal(
-            `/rest/V1/afd-ai/conversations/list/${customerId}?pageSize=20&currentPage=${requestedPage}`
+            `/rest/V1/afd-ai/conversations/list/${customerId}?pageSize=20&currentPage=${requestedPage}`,
+            catalogScope
         );
         return normalizeConversationPage(response.data, requestedPage);
     } catch (error) {
@@ -135,7 +144,7 @@ export async function listConversations(customerId, page = 1) {
 /**
  * Load messages for a conversation (with ownership check in Magento)
  */
-export async function loadMessages(conversationId, customerId, beforeMessageId = null) {
+export async function loadMessages(conversationId, customerId, beforeMessageId = null, catalogScope = null) {
     try {
         const response = await postInternal('/rest/V1/afd-ai/conversations/messages', {
             conversationId,
@@ -144,7 +153,7 @@ export async function loadMessages(conversationId, customerId, beforeMessageId =
                 ? Number(beforeMessageId)
                 : null,
             pageSize: 50
-        });
+        }, catalogScope);
         return normalizeMessagePage(response.data);
     } catch (error) {
         console.error('loadMessages error:', summarizeError(error));
@@ -155,7 +164,7 @@ export async function loadMessages(conversationId, customerId, beforeMessageId =
 /**
  * Save a message to a conversation via Magento REST API
  */
-export async function saveMessage(conversationId, customerId, role, content, attachment = null) {
+export async function saveMessage(conversationId, customerId, role, content, attachment = null, catalogScope = null) {
     try {
         const response = await postInternal('/rest/V1/afd-ai/conversations/save-message', {
             conversationId,
@@ -163,7 +172,7 @@ export async function saveMessage(conversationId, customerId, role, content, att
             role,
             content,
             attachment
-        });
+        }, catalogScope);
         return response.data;
     } catch (error) {
         console.error('saveMessage error:', summarizeError(error));
@@ -175,13 +184,13 @@ export async function saveMessage(conversationId, customerId, role, content, att
  * Replace a historical customer turn by removing that user message and the
  * obsolete response branch before the gateway persists its replacement.
  */
-export async function truncateConversationFromMessage(conversationId, customerId, fromMessageId) {
+export async function truncateConversationFromMessage(conversationId, customerId, fromMessageId, catalogScope = null) {
     try {
         const response = await postInternal('/rest/V1/afd-ai/conversations/truncate-from-message', {
             conversationId: Number(conversationId),
             customerId: Number(customerId),
             fromMessageId: Number(fromMessageId)
-        });
+        }, catalogScope);
         return response.data === true;
     } catch (error) {
         console.error('truncateConversationFromMessage error:', summarizeError(error));
@@ -192,12 +201,12 @@ export async function truncateConversationFromMessage(conversationId, customerId
 /**
  * Delete a conversation and its messages (ownership checked in Magento)
  */
-export async function deleteConversation(conversationId, customerId) {
+export async function deleteConversation(conversationId, customerId, catalogScope = null) {
     try {
         const response = await postInternal('/rest/V1/afd-ai/conversations/delete', {
             conversationId,
             customerId
-        });
+        }, catalogScope);
         return response.data;
     } catch (error) {
         console.error('deleteConversation error:', summarizeError(error));
@@ -208,9 +217,9 @@ export async function deleteConversation(conversationId, customerId) {
 /**
  * Touch conversation (update updated_at timestamp)
  */
-export async function touchConversation(conversationId) {
+export async function touchConversation(conversationId, catalogScope = null) {
     try {
-        await postInternal('/rest/V1/afd-ai/conversations/touch', { conversationId });
+        await postInternal('/rest/V1/afd-ai/conversations/touch', { conversationId }, catalogScope);
         return true;
     } catch (error) {
         console.error('touchConversation error:', summarizeError(error));
@@ -221,12 +230,12 @@ export async function touchConversation(conversationId) {
 /**
  * Verify conversation ownership (load to check)
  */
-export async function getConversation(conversationId, customerId) {
+export async function getConversation(conversationId, customerId, catalogScope = null) {
     try {
         const response = await postInternal('/rest/V1/afd-ai/conversations/get', {
             conversationId: Number(conversationId),
             customerId: Number(customerId)
-        });
+        }, catalogScope);
         return normalizeConversation(response.data);
     } catch (error) {
         console.error('getConversation error:', summarizeError(error));
@@ -237,13 +246,13 @@ export async function getConversation(conversationId, customerId) {
 /**
  * Update conversation title via Magento REST API
  */
-export async function updateConversationTitle(conversationId, customerId, title) {
+export async function updateConversationTitle(conversationId, customerId, title, catalogScope = null) {
     try {
         const response = await postInternal('/rest/V1/afd-ai/conversations/update-title', {
             conversationId,
             customerId,
             title: title.substring(0, 255)
-        });
+        }, catalogScope);
         return !!response.data;
     } catch (error) {
         console.error('updateConversationTitle error:', summarizeError(error));
@@ -254,22 +263,22 @@ export async function updateConversationTitle(conversationId, customerId, title)
 // ==================== PERSISTED GUEST CONVERSATIONS ====================
 // The caller receives `guestId` exclusively from a signed WebSocket ticket.
 // It is a one-way Magento-session digest, never a raw session ID or a browser value.
-export async function createGuestConversation(guestId, title = 'New Chat') {
+export async function createGuestConversation(guestId, title = 'New Chat', catalogScope = null) {
     const response = await postInternal('/rest/V1/afd-ai/guest-conversations/create', {
         guestId,
         title: String(title).substring(0, 255)
-    });
+    }, catalogScope);
     return response.data;
 }
 
-export async function listGuestConversations(guestId, page = 1) {
+export async function listGuestConversations(guestId, page = 1, catalogScope = null) {
     try {
         const requestedPage = Math.max(1, Number(page) || 1);
         const response = await postInternal('/rest/V1/afd-ai/guest-conversations/list', {
             guestId,
             pageSize: 20,
             currentPage: requestedPage
-        });
+        }, catalogScope);
         return normalizeConversationPage(response.data, requestedPage);
     } catch (error) {
         console.error('listGuestConversations error:', summarizeError(error));
@@ -277,9 +286,9 @@ export async function listGuestConversations(guestId, page = 1) {
     }
 }
 
-export async function getGuestConversation(conversationId, guestId) {
+export async function getGuestConversation(conversationId, guestId, catalogScope = null) {
     try {
-        const response = await postInternal('/rest/V1/afd-ai/guest-conversations/get', { conversationId, guestId });
+        const response = await postInternal('/rest/V1/afd-ai/guest-conversations/get', { conversationId, guestId }, catalogScope);
         return normalizeConversation(response.data);
     } catch (error) {
         console.error('getGuestConversation error:', summarizeError(error));
@@ -287,14 +296,14 @@ export async function getGuestConversation(conversationId, guestId) {
     }
 }
 
-export async function loadGuestMessages(conversationId, guestId, beforeMessageId = null) {
+export async function loadGuestMessages(conversationId, guestId, beforeMessageId = null, catalogScope = null) {
     try {
         const response = await postInternal('/rest/V1/afd-ai/guest-conversations/messages', {
             conversationId,
             guestId,
             beforeMessageId: Number(beforeMessageId) > 0 ? Number(beforeMessageId) : null,
             pageSize: 50
-        });
+        }, catalogScope);
         return normalizeMessagePage(response.data);
     } catch (error) {
         console.error('loadGuestMessages error:', summarizeError(error));
@@ -302,21 +311,21 @@ export async function loadGuestMessages(conversationId, guestId, beforeMessageId
     }
 }
 
-export async function saveGuestMessage(conversationId, guestId, role, content, attachment = null) {
+export async function saveGuestMessage(conversationId, guestId, role, content, attachment = null, catalogScope = null) {
     const response = await postInternal('/rest/V1/afd-ai/guest-conversations/save-message', {
         conversationId, guestId, role, content, attachment
-    });
+    }, catalogScope);
     return response.data;
 }
 
 /** Preserve edit/regenerate semantics for durable guest conversations. */
-export async function truncateGuestConversationFromMessage(conversationId, guestId, fromMessageId) {
+export async function truncateGuestConversationFromMessage(conversationId, guestId, fromMessageId, catalogScope = null) {
     try {
         const response = await postInternal('/rest/V1/afd-ai/guest-conversations/truncate-from-message', {
             conversationId: Number(conversationId),
             guestId,
             fromMessageId: Number(fromMessageId)
-        });
+        }, catalogScope);
         return response.data === true;
     } catch (error) {
         console.error('truncateGuestConversationFromMessage error:', summarizeError(error));
@@ -324,9 +333,9 @@ export async function truncateGuestConversationFromMessage(conversationId, guest
     }
 }
 
-export async function deleteGuestConversation(conversationId, guestId) {
+export async function deleteGuestConversation(conversationId, guestId, catalogScope = null) {
     try {
-        const response = await postInternal('/rest/V1/afd-ai/guest-conversations/delete', { conversationId, guestId });
+        const response = await postInternal('/rest/V1/afd-ai/guest-conversations/delete', { conversationId, guestId }, catalogScope);
         return response.data === true;
     } catch (error) {
         console.error('deleteGuestConversation error:', summarizeError(error));
@@ -334,9 +343,9 @@ export async function deleteGuestConversation(conversationId, guestId) {
     }
 }
 
-export async function touchGuestConversation(conversationId, guestId) {
+export async function touchGuestConversation(conversationId, guestId, catalogScope = null) {
     try {
-        await postInternal('/rest/V1/afd-ai/guest-conversations/touch', { conversationId, guestId });
+        await postInternal('/rest/V1/afd-ai/guest-conversations/touch', { conversationId, guestId }, catalogScope);
         return true;
     } catch (error) {
         console.error('touchGuestConversation error:', summarizeError(error));
@@ -344,11 +353,11 @@ export async function touchGuestConversation(conversationId, guestId) {
     }
 }
 
-export async function updateGuestConversationTitle(conversationId, guestId, title) {
+export async function updateGuestConversationTitle(conversationId, guestId, title, catalogScope = null) {
     try {
         const response = await postInternal('/rest/V1/afd-ai/guest-conversations/update-title', {
             conversationId, guestId, title: String(title).substring(0, 255)
-        });
+        }, catalogScope);
         return response.data === true;
     } catch (error) {
         console.error('updateGuestConversationTitle error:', summarizeError(error));
@@ -356,9 +365,9 @@ export async function updateGuestConversationTitle(conversationId, guestId, titl
     }
 }
 
-export async function deleteGuestConversations(guestId) {
+export async function deleteGuestConversations(guestId, catalogScope = null) {
     try {
-        const response = await postInternal('/rest/V1/afd-ai/guest-conversations/delete-all', { guestId });
+        const response = await postInternal('/rest/V1/afd-ai/guest-conversations/delete-all', { guestId }, catalogScope);
         return response.data === true;
     } catch (error) {
         console.error('deleteGuestConversations error:', summarizeError(error));

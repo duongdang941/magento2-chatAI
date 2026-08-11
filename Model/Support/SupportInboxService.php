@@ -43,12 +43,21 @@ class SupportInboxService
             return [$case];
         }
 
-        return $this->resource->getConnection()->fetchAll(
-            $this->resource->getConnection()->select()
-                ->from($this->resource->getTableName('afd_ai_support_case'))
-                ->where('contact_email_hash = ?', $hash)
-                ->order('admin_unread_count DESC')
-                ->order('updated_at DESC')
+        $storeId = (int)($case['store_id'] ?? 0);
+        $websiteId = (int)($case['website_id'] ?? 0);
+        if ($storeId < 1 || $websiteId < 1) {
+            return [$case];
+        }
+
+        $connection = $this->resource->getConnection();
+        return $connection->fetchAll(
+            $connection->select()
+                ->from(['support_case' => $this->resource->getTableName('afd_ai_support_case')])
+                ->where('support_case.contact_email_hash = ?', $hash)
+                ->where('support_case.store_id = ?', $storeId)
+                ->where('support_case.website_id = ?', $websiteId)
+                ->order('support_case.admin_unread_count DESC')
+                ->order('support_case.updated_at DESC')
         );
     }
 

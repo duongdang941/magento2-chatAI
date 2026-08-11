@@ -10,6 +10,7 @@ use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\App\Config\Storage\WriterInterface;
 use Magento\Framework\HTTP\Client\Curl;
 use Magento\Framework\Serialize\Serializer\Json;
+use Magento\Store\Model\StoreManagerInterface;
 use Psr\Log\LoggerInterface;
 
 class SyncNodeConfig implements ObserverInterface
@@ -19,19 +20,22 @@ class SyncNodeConfig implements ObserverInterface
     private WriterInterface $configWriter;
     private Json $json;
     private LoggerInterface $logger;
+    private StoreManagerInterface $storeManager;
 
     public function __construct(
         Curl $curl,
         AiConfig $aiConfig,
         WriterInterface $configWriter,
         Json $json,
-        LoggerInterface $logger
+        LoggerInterface $logger,
+        StoreManagerInterface $storeManager
     ) {
         $this->curl = $curl;
         $this->aiConfig = $aiConfig;
         $this->configWriter = $configWriter;
         $this->json = $json;
         $this->logger = $logger;
+        $this->storeManager = $storeManager;
     }
 
     public function execute(Observer $observer): void
@@ -58,22 +62,9 @@ class SyncNodeConfig implements ObserverInterface
         $syncId = bin2hex(random_bytes(16));
         $reloadUrl = rtrim($reloadUrl, '/') . '/internal/config';
         $payload = [
-            'version' => 1,
+            'version' => 2,
             'sync_id' => $syncId,
-            'config' => [
-                'enabled' => $this->aiConfig->isEnabled(),
-                'persist_guest_history' => $this->aiConfig->isGuestHistoryPersistenceEnabled(),
-                'provider' => (string)$this->aiConfig->getProvider(),
-                'model' => (string)$this->aiConfig->getModel(),
-                'api_key' => $this->aiConfig->getApiKey(),
-                'base_url' => (string)$this->aiConfig->getBaseUrl(),
-                'agent' => $this->aiConfig->getAgentConfig(),
-                'image_generation' => $this->aiConfig->getImageGenerationConfig(),
-                'rate_limits' => $this->aiConfig->getRateLimitConfig(),
-                'capacity' => $this->aiConfig->getCapacityConfig(),
-                'attachments' => $this->aiConfig->getAttachmentConfig(),
-                'magento_oauth' => $this->aiConfig->getMagentoOauthConfig(),
-            ],
+            'config' => $this->buildConfigSnapshot(),
         ];
         $body = $this->json->serialize($payload);
         $timestamp = (string)time();
@@ -111,8 +102,8 @@ class SyncNodeConfig implements ObserverInterface
                 (string)($response['message'] ?? 'Node accepted the configuration.'),
                 $syncId,
                 $status,
-                (string)($response['provider'] ?? $payload['config']['provider']),
-                (string)($response['model'] ?? $payload['config']['model'])
+                (string)($response['provider'] ?? $payload['config']['default']['provider']),
+                (string)($response['model'] ?? $payload['config']['default']['model'])
             );
         } catch (\Throwable $error) {
             $this->saveStatus('failed', 'Could not reach the Node service.', $syncId);
@@ -122,6 +113,42 @@ class SyncNodeConfig implements ObserverInterface
                 $error->getMessage()
             ));
         }
+    }
+
+    /** @return array{default:array<string,mixed>,stores:array<string,array<string,mixed>>} */
+    private function buildConfigSnapshot(): array
+    {
+        $stores = [];
+        foreach ($this->storeManager->getStores(true) as $store) {
+            if (!(bool)$store->isActive()) {
+                continue;
+            }
+            $stores[(string)$store->getCode()] = $this->buildStoreConfig((int)$store->getId());
+        }
+
+        return [
+            'default' => $this->buildStoreConfig(null),
+            'stores' => $stores,
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function buildStoreConfig(?int $storeId): array
+    {
+        return [
+            'enabled' => $this->aiConfig->isEnabled($storeId),
+            'persist_guest_history' => $this->aiConfig->isGuestHistoryPersistenceEnabled($storeId),
+            'provider' => (string)$this->aiConfig->getProvider($storeId),
+            'model' => (string)$this->aiConfig->getModel($storeId),
+            'api_key' => $this->aiConfig->getApiKey($storeId),
+            'base_url' => (string)$this->aiConfig->getBaseUrl($storeId),
+            'agent' => $this->aiConfig->getAgentConfig($storeId),
+            'image_generation' => $this->aiConfig->getImageGenerationConfig($storeId),
+            'rate_limits' => $this->aiConfig->getRateLimitConfig($storeId),
+            'capacity' => $this->aiConfig->getCapacityConfig($storeId),
+            'attachments' => $this->aiConfig->getAttachmentConfig($storeId),
+            'magento_oauth' => $this->aiConfig->getMagentoOauthConfig($storeId),
+        ];
     }
 
     private function decodeResponse(string $responseBody): array

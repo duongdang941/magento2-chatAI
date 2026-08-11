@@ -50,6 +50,8 @@
             wsHasEverConnected: false,
             wsConnected: false,
             wsReconnectTimer: null,
+            ticketRefreshTimer: null,
+            ticketRefreshDeferred: false,
             transportNotice: null,
             activeRequestId: null,
             responseStartedAt: 0,
@@ -62,7 +64,10 @@
             chatSyncTabId: 'afd-ai-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10),
             chatSyncTimer: null,
             guestSessionSnapshotTimer: null,
-            guestSessionSnapshotRestored: false
+            guestSessionSnapshotRestored: false,
+            historyLoadSequence: 0,
+            activeHistoryLoadToken: '',
+            historyLoadingTimeout: null
         };
     }
 
@@ -109,11 +114,11 @@
                 : false,
             uiSettingsStorageKey: 'afd_ai_chat_ui_settings',
             uiSettings: {
-                theme: 'dark',
-                accent: '#c32654',
-                glassOpacity: 100,
+                theme: 'light',
+                accent: '#004272',
+                glassOpacity: 55,
                 fontSize: 'medium',
-                density: 'comfortable',
+                density: 'compact',
                 petMotion: true
             }
         };

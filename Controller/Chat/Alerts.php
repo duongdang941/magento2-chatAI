@@ -5,6 +5,7 @@ namespace Afd\AI\Controller\Chat;
 
 use Afd\AI\Model\Product\BackInStockSubscription;
 use Afd\AI\Model\Security\NodeRequestAuthorizer;
+use Afd\AI\Model\Store\InternalStoreContext;
 use Magento\Framework\App\Action\HttpPostActionInterface;
 use Magento\Framework\App\CsrfAwareActionInterface;
 use Magento\Framework\App\Request\Http as HttpRequest;
@@ -20,7 +21,8 @@ class Alerts implements HttpPostActionInterface, CsrfAwareActionInterface
         private readonly HttpRequest $request,
         private readonly ResultFactory $resultFactory,
         private readonly NodeRequestAuthorizer $authorizer,
-        private readonly BackInStockSubscription $subscription
+        private readonly BackInStockSubscription $subscription,
+        private readonly InternalStoreContext $storeContext
     ) {
     }
 
@@ -34,9 +36,12 @@ class Alerts implements HttpPostActionInterface, CsrfAwareActionInterface
         try {
             $this->authorizer->assertAuthorized();
             $payload = json_decode($this->request->getContent(), true, 8, JSON_THROW_ON_ERROR);
-            return $result->setData($this->subscription->subscribe(
-                max(0, (int)($payload['customerId'] ?? 0)),
-                (string)($payload['sku'] ?? '')
+            return $result->setData($this->storeContext->execute(
+                (string)($payload['storeCode'] ?? ''),
+                fn (): array => $this->subscription->subscribe(
+                    max(0, (int)($payload['customerId'] ?? 0)),
+                    (string)($payload['sku'] ?? '')
+                )
             ));
         } catch (AuthorizationException) {
             return $result->setHttpResponseCode(403)->setData(['status' => 'error', 'message' => 'The alert request could not be verified.']);

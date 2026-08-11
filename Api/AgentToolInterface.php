@@ -17,6 +17,8 @@ interface AgentToolInterface
      * @param bool|null $directAddOnly
      * @param bool|null $exactIdentity
      * @param string|null $excludedTerms JSON list of product-name terms explicitly rejected by the shopper
+     * @param int|null $customerGroupId Magento-signed shopper customer group used for indexed prices
+     * @param int|null $customerId Magento-signed customer identity, revalidated by Magento when present
      * @return \Afd\AI\Api\Data\ToolResponseInterface
      */
     public function searchProducts(
@@ -28,7 +30,9 @@ interface AgentToolInterface
         float $maxPrice = 0.0,
         bool $directAddOnly = false,
         bool $exactIdentity = false,
-        string $excludedTerms = ''
+        string $excludedTerms = '',
+        int $customerGroupId = 0,
+        int $customerId = 0
     );
 
     /**
@@ -36,16 +40,23 @@ interface AgentToolInterface
      *
      * @param string $sku
      * @param string|null $selectedOptions JSON object of Magento variant attribute code to selected label
+     * @param int|null $customerGroupId Magento-signed shopper group used for catalogue permissions
+     * @param int|null $customerId Magento-signed customer identity, revalidated by Magento when present
      * @return \Afd\AI\Api\Data\ToolResponseInterface
      */
-    public function getProductAvailability(string $sku, string $selectedOptions = '');
+    public function getProductAvailability(
+        string $sku,
+        string $selectedOptions = '',
+        int $customerGroupId = 0,
+        int $customerId = 0
+    );
 
     /**
      * List product categories available in the store
      *
      * @return \Afd\AI\Api\Data\ToolResponseInterface
      */
-    public function listCategories();
+    public function listCategories(int $customerGroupId = 0, int $customerId = 0);
 
     /**
      * Add product to cart
@@ -103,12 +114,17 @@ interface AgentToolInterface
      * @param string $sku2
      * @return \Afd\AI\Api\Data\ToolResponseInterface
      */
-    public function compareProducts(string $sku1, string $sku2);
+    public function compareProducts(
+        string $sku1,
+        string $sku2,
+        int $customerGroupId = 0,
+        int $customerId = 0
+    );
 
     /**
      * Get active coupon codes for store
      *
      * @return \Afd\AI\Api\Data\ToolResponseInterface
      */
-    public function getActiveCoupons();
+    public function getActiveCoupons(int $customerGroupId = 0, int $customerId = 0);
 }

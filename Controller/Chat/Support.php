@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Afd\AI\Controller\Chat;
 
 use Afd\AI\Model\Security\NodeRequestAuthorizer;
+use Afd\AI\Model\Store\InternalStoreContext;
 use Afd\AI\Model\Support\SupportCaseService;
 use Magento\Framework\App\Action\HttpPostActionInterface;
 use Magento\Framework\App\CsrfAwareActionInterface;
@@ -22,6 +23,7 @@ class Support implements HttpPostActionInterface, CsrfAwareActionInterface
         private readonly ResultFactory $resultFactory,
         private readonly NodeRequestAuthorizer $authorizer,
         private readonly SupportCaseService $supportCaseService,
+        private readonly InternalStoreContext $storeContext,
         private readonly LoggerInterface $logger
     ) {
     }
@@ -37,28 +39,34 @@ class Support implements HttpPostActionInterface, CsrfAwareActionInterface
             $this->authorizer->assertAuthorized();
             $payload = json_decode($this->request->getContent(), true, 16, JSON_THROW_ON_ERROR);
             $customerId = max(0, (int)($payload['customerId'] ?? 0));
-            if (($payload['operation'] ?? '') === 'list') {
-                return $result->setData($this->supportCaseService->listVerified(
-                    $customerId > 0 ? $customerId : null,
-                    $customerId > 0 ? null : (string)($payload['guestId'] ?? ''),
-                    (string)($payload['email'] ?? ''),
-                    (string)($payload['verificationToken'] ?? ''),
-                    (string)($payload['verificationSessionId'] ?? '')
-                ));
-            }
-            return $result->setData($this->supportCaseService->create(
-                (int)($payload['conversationId'] ?? 0),
-                $customerId > 0 ? $customerId : null,
-                $customerId > 0 ? null : (string)($payload['guestId'] ?? ''),
-                (string)($payload['category'] ?? 'general'),
-                (string)($payload['subject'] ?? ''),
-                (string)($payload['summary'] ?? ''),
-                (string)($payload['priority'] ?? 'normal'),
-                is_array($payload['context'] ?? null) ? $payload['context'] : [],
-                (int)($payload['messageId'] ?? 0) ?: null,
-                (string)($payload['email'] ?? ''),
-                (string)($payload['verificationToken'] ?? ''),
-                (string)($payload['verificationSessionId'] ?? '')
+            return $result->setData($this->storeContext->execute(
+                (string)($payload['storeCode'] ?? ''),
+                function () use ($payload, $customerId): array {
+                    if (($payload['operation'] ?? '') === 'list') {
+                        return $this->supportCaseService->listVerified(
+                            $customerId > 0 ? $customerId : null,
+                            $customerId > 0 ? null : (string)($payload['guestId'] ?? ''),
+                            (string)($payload['email'] ?? ''),
+                            (string)($payload['verificationToken'] ?? ''),
+                            (string)($payload['verificationSessionId'] ?? '')
+                        );
+                    }
+
+                    return $this->supportCaseService->create(
+                        (int)($payload['conversationId'] ?? 0),
+                        $customerId > 0 ? $customerId : null,
+                        $customerId > 0 ? null : (string)($payload['guestId'] ?? ''),
+                        (string)($payload['category'] ?? 'general'),
+                        (string)($payload['subject'] ?? ''),
+                        (string)($payload['summary'] ?? ''),
+                        (string)($payload['priority'] ?? 'normal'),
+                        is_array($payload['context'] ?? null) ? $payload['context'] : [],
+                        (int)($payload['messageId'] ?? 0) ?: null,
+                        (string)($payload['email'] ?? ''),
+                        (string)($payload['verificationToken'] ?? ''),
+                        (string)($payload['verificationSessionId'] ?? '')
+                    );
+                }
             ));
         } catch (AuthorizationException) {
             return $result->setHttpResponseCode(403)->setData(['status' => 'error', 'message' => 'The support request could not be verified.']);

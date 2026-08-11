@@ -7,6 +7,7 @@ use Afd\AI\Model\ChatMessagePayload;
 use Afd\AI\Model\Gateway\SupportMessagePublisher;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\Exception\LocalizedException;
+use Magento\Store\Model\StoreManagerInterface;
 
 class SupportMessageMutationService
 {
@@ -16,7 +17,8 @@ class SupportMessageMutationService
     public function __construct(
         private readonly ResourceConnection $resource,
         private readonly ChatMessagePayload $messagePayload,
-        private readonly SupportMessagePublisher $publisher
+        private readonly SupportMessagePublisher $publisher,
+        private readonly StoreManagerInterface $storeManager
     ) {
     }
 
@@ -99,6 +101,10 @@ class SupportMessageMutationService
             } else {
                 $caseSelect->where('support_case.conversation_id = ?', $conversationId);
             }
+            $store = $this->storeManager->getStore();
+            $caseSelect
+                ->where('conversation.store_id = ?', (int)$store->getId())
+                ->where('conversation.website_id = ?', (int)$store->getWebsiteId());
             $case = $connection->fetchRow($caseSelect);
             if (!is_array($case) || $case === []) {
                 throw new LocalizedException(__('The support ticket no longer exists.'));

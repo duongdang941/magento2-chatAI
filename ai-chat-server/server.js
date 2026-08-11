@@ -49,6 +49,7 @@ import {
     normalizeOrderAddressFormPart
 } from './services/order-address-form.js';
 import { registerGatewayHttpRoutes } from './services/gateway-http-routes.js';
+import { revokeCustomerSockets } from './services/session-revoker.js';
 import {
     createSupportCase,
     getSupportConversationState,
@@ -67,6 +68,7 @@ import {
     rememberPendingVerificationAction
 } from './services/pending-verification-action.js';
 import { createHistoryMessagePreparer } from './services/history-message-preparer.js';
+import { stopGateway } from './services/graceful-shutdown.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -157,7 +159,15 @@ registerGatewayHttpRoutes({
     websocketConnections: () => wss.clients.size,
     broadcastSupportMessage,
     broadcastSupportMutation,
-    broadcastSupportMode
+    broadcastSupportMode,
+    revokeSession: ({ sessionHash, customerId }) => revokeCustomerSockets({
+        clientData,
+        sessionHash,
+        customerId,
+        isSocketOpen,
+        cancelActiveRun,
+        rejectBrowserCart: (socket) => browserCartBridge.rejectAll(socket)
+    })
 });
 
 
@@ -165,8 +175,9 @@ async function supportConversationState(client, conversationId) {
     try {
         const state = await getSupportConversationState({
             customerId: client?.customerId || 0,
-            guestId: client?.customerId ? '' : String(client?.sessionId || '')
-        }, conversationId);
+            guestId: client?.customerId ? '' : String(client?.sessionId || ''),
+            catalogScope: client?.catalogScope || null
+        }, conversationId, client?.catalogScope || null);
         return {
             active: state?.active === true,
             closed: state?.closed === true,
@@ -225,18 +236,18 @@ async function restoreGuestHistoryFromClient(history, guestId, conversationId) {
  * the first database conversation so generated-image cards are not lost in
  * that transition. Uploaded user image bytes are deliberately not replayed.
  */
-async function restoreGuestHistoryToDatabase(history, guestId, conversationId) {
+async function restoreGuestHistoryToDatabase(history, guestId, conversationId, catalogScope = null) {
     for (const message of guestHistoryMessagesFromClient(history)) {
         if (message.role === 'user') {
             if (String(message.content || '').trim()) {
-                await db.saveGuestMessage(conversationId, guestId, 'user', String(message.content));
+                await db.saveGuestMessage(conversationId, guestId, 'user', String(message.content), null, catalogScope);
             }
             continue;
         }
 
         const payload = buildAssistantStoragePayload(message.parts || []);
         if (payload) {
-            await db.saveGuestMessage(conversationId, guestId, 'assistant', payload);
+            await db.saveGuestMessage(conversationId, guestId, 'assistant', payload, null, catalogScope);
         }
     }
 }
@@ -266,7 +277,7 @@ function broadcastGuestSession(origin, client, payload) {
 async function broadcastGuestConversation(origin, client, mode, conversationId) {
     try {
         const page = mode === 'database'
-            ? await db.loadGuestMessages(conversationId, client.sessionId)
+            ? await db.loadGuestMessages(conversationId, client.sessionId, null, client.catalogScope || null)
             : await guestSessionHistory.loadMessages(client.sessionId, conversationId);
         const messages = await prepareHistoryMessages(page.messages || [], client, conversationId);
         broadcastGuestSession(origin, client, {
@@ -366,7 +377,8 @@ function supportPortalIdentity(client) {
         guestId: client.customerId ? null : client.sessionId,
         verifiedEmail: client.supportEmail,
         verificationToken: client.supportEmailAccessToken,
-        verificationSessionId: client.sessionId
+        verificationSessionId: client.sessionId,
+        catalogScope: client.catalogScope || null
     };
 }
 
@@ -537,6 +549,11 @@ wss.on('connection', async (ws, req) => {
         // For ticket auth this is an encrypted, one-minute Magento checkout
         // session claim, available only after the single-use ticket is verified.
         sessionCookie: auth.sessionCookie,
+        // This is read only from a Magento-signed WebSocket ticket. It is
+        // never accepted as a field in a browser message or model tool call.
+        catalogScope: auth.catalogScope || null,
+        pageContext: auth.pageContext || null,
+        ticketExpiresAt: Number(auth.expiresAt) || 0,
         // Stable across reconnects and ticket rotation so a new one-minute
         // ticket cannot reset chat or mutation throttles.
         rateLimitKey: customerId ? `customer:${customerId}` : `session:${auth.sessionId}`,
@@ -602,6 +619,10 @@ wss.on('connection', async (ws, req) => {
                 return;
             }
             const client = clientData.get(ws);
+            if (client?.ticketExpiresAt > 0 && Date.now() >= client.ticketExpiresAt) {
+                ws.close(4001, 'Chat authentication expired');
+                return;
+            }
             if (client?.role === 'support_admin'
                 && !['support_subscribe', 'support_typing'].includes(String(data.action || ''))) {
                 ws.send(JSON.stringify({
@@ -666,8 +687,9 @@ wss.on('connection', async (ws, req) => {
                     try {
                         result = await mutateSupportMessage({
                             customerId: client?.customerId || 0,
-                            guestId: client?.customerId ? '' : String(client?.sessionId || '')
-                        }, data.conversation_id, data.message_id, operation, data.content);
+                            guestId: client?.customerId ? '' : String(client?.sessionId || ''),
+                            catalogScope: client?.catalogScope || null
+                        }, data.conversation_id, data.message_id, operation, data.content, client?.catalogScope || null);
                     } catch (error) {
                         result = {
                             status: 'error',
@@ -870,7 +892,7 @@ wss.on('connection', async (ws, req) => {
                             subject: data.subject,
                             summary: data.message,
                             context: {}
-                        });
+                        }, client?.catalogScope || null);
                     } catch (error) {
                         console.warn('[Support] Ticket creation failed:', summarizeError(error));
                         ticketResult = { status: 'error', message: 'The support ticket could not be created.' };
@@ -1009,7 +1031,7 @@ wss.on('connection', async (ws, req) => {
                     if (client.customerId) break;
                     const mode = await guestHistoryMode();
                     const cleared = mode === 'database'
-                        ? await db.deleteGuestConversations(client.sessionId)
+                        ? await db.deleteGuestConversations(client.sessionId, client.catalogScope || null)
                         : await guestSessionHistory.clear(client.sessionId).then(() => true);
                     if (cleared) {
                         ws.send(JSON.stringify({ type: 'guest_history_reset' }));
@@ -1023,7 +1045,7 @@ wss.on('connection', async (ws, req) => {
                 case 'list_conversations': {
                     const requestedPage = Math.max(1, Number(data.page) || 1);
                     if (client.customerId) {
-                        const conversationPage = await db.listConversations(client.customerId, requestedPage);
+                        const conversationPage = await db.listConversations(client.customerId, requestedPage, client.catalogScope || null);
                         ws.send(JSON.stringify({
                             type: 'conversations',
                             conversations: conversationPage.conversations,
@@ -1038,7 +1060,7 @@ wss.on('connection', async (ws, req) => {
                     }
                     const mode = await guestHistoryMode();
                     const conversationPage = mode === 'database'
-                        ? await db.listGuestConversations(client.sessionId, requestedPage)
+                        ? await db.listGuestConversations(client.sessionId, requestedPage, client.catalogScope || null)
                         : await guestSessionHistory.list(client.sessionId, requestedPage);
                     ws.send(JSON.stringify({
                         type: 'conversations',
@@ -1055,29 +1077,29 @@ wss.on('connection', async (ws, req) => {
 
                 case 'load_conversation': {
                     if (!data.conversation_id) {
-                        ws.send(JSON.stringify({ type: 'conversation_messages', messages: [], status: 'error' }));
+                        ws.send(JSON.stringify({ type: 'conversation_messages', messages: [], status: 'error', conversationId: 0, client_load_token: String(data.client_load_token || '') }));
                         return;
                     }
                     let mode = client.customerId ? 'customer' : await guestHistoryMode();
                     let conv = mode === 'customer'
-                        ? await db.getConversation(data.conversation_id, client.customerId)
+                        ? await db.getConversation(data.conversation_id, client.customerId, client.catalogScope || null)
                         : (mode === 'database'
-                            ? await db.getGuestConversation(data.conversation_id, client.sessionId)
+                            ? await db.getGuestConversation(data.conversation_id, client.sessionId, client.catalogScope || null)
                             : await guestSessionHistory.get(client.sessionId, data.conversation_id));
                     // Guest AI history may be session-only, while support
                     // tickets are always durable Magento conversations.
                     if (!conv && mode === 'session') {
-                        conv = await db.getGuestConversation(data.conversation_id, client.sessionId);
+                        conv = await db.getGuestConversation(data.conversation_id, client.sessionId, client.catalogScope || null);
                         if (conv?.type === 'support') mode = 'support_database';
                     }
                     if (!conv) {
-                        ws.send(JSON.stringify({ type: 'conversation_messages', messages: [], status: 'error' }));
+                        ws.send(JSON.stringify({ type: 'conversation_messages', messages: [], status: 'error', conversationId: Number(data.conversation_id) || 0, client_load_token: String(data.client_load_token || '') }));
                         return;
                     }
                     const page = mode === 'customer'
-                        ? await db.loadMessages(data.conversation_id, client.customerId, data.before_message_id || null)
+                        ? await db.loadMessages(data.conversation_id, client.customerId, data.before_message_id || null, client.catalogScope || null)
                         : (['database', 'support_database'].includes(mode)
-                            ? await db.loadGuestMessages(data.conversation_id, client.sessionId, data.before_message_id || null)
+                            ? await db.loadGuestMessages(data.conversation_id, client.sessionId, data.before_message_id || null, client.catalogScope || null)
                             : await guestSessionHistory.loadMessages(client.sessionId, data.conversation_id, data.before_message_id || null));
                     const messages = await prepareHistoryMessages(
                         page.messages || [],
@@ -1093,6 +1115,7 @@ wss.on('connection', async (ws, req) => {
                         append: Boolean(data.before_message_id),
                         refresh: data.refresh === true,
                         conversationId: data.conversation_id,
+                        client_load_token: String(data.client_load_token || ''),
                         title: conv.title
                     }));
                     if (!data.before_message_id) {
@@ -1120,9 +1143,9 @@ wss.on('connection', async (ws, req) => {
                     const conversationId = Number(data.conversation_id) || 0;
                     const mode = client.customerId ? 'customer' : await guestHistoryMode();
                     const deleted = mode === 'customer'
-                        ? await db.deleteConversation(conversationId, client.customerId)
+                        ? await db.deleteConversation(conversationId, client.customerId, client.catalogScope || null)
                         : (mode === 'database'
-                            ? await db.deleteGuestConversation(conversationId, client.sessionId)
+                            ? await db.deleteGuestConversation(conversationId, client.sessionId, client.catalogScope || null)
                             : await guestSessionHistory.delete(client.sessionId, conversationId));
                     ws.send(JSON.stringify({
                         type: 'delete_result',
@@ -1147,9 +1170,9 @@ wss.on('connection', async (ws, req) => {
 
                     const mode = client.customerId ? 'customer' : await guestHistoryMode();
                     const updated = mode === 'customer'
-                        ? await db.updateConversationTitle(data.conversation_id, client.customerId, title)
+                        ? await db.updateConversationTitle(data.conversation_id, client.customerId, title, client.catalogScope || null)
                         : (mode === 'database'
-                            ? await db.updateGuestConversationTitle(data.conversation_id, client.sessionId, title)
+                            ? await db.updateGuestConversationTitle(data.conversation_id, client.sessionId, title, client.catalogScope || null)
                             : await guestSessionHistory.rename(client.sessionId, data.conversation_id, title));
                     ws.send(JSON.stringify({
                         type: 'rename_result',
@@ -1217,7 +1240,7 @@ async function handleProductPage(ws, data, client) {
         return;
     }
 
-    const aiConfig = await getAiConfig(runtime);
+    const aiConfig = await getAiConfig(runtime, client.catalogScope?.storeCode || '');
     const rateLimit = await runtime.consumeRateLimit(`${client.rateLimitKey}:catalog-page`, {
         limit: aiConfig.rate_limits?.product_pages_per_minute || MAX_PRODUCT_PAGE_REQUESTS_PER_MINUTE,
         windowMs: 60 * 1000
@@ -1236,7 +1259,12 @@ async function handleProductPage(ws, data, client) {
             throw new Error('The AI service is disabled.');
         }
 
-        const { content, params } = await loadCatalogPage(context, aiConfig, runtime);
+        const { content, params } = await loadCatalogPage({
+            ...context,
+            catalogScope: client.catalogScope || null,
+            pageContext: client.pageContext || null,
+            customerId: client.customerId || 0
+        }, aiConfig, runtime);
         if (content?.error) {
             throw new Error('The next product page could not be retrieved.');
         }
@@ -1261,7 +1289,7 @@ async function handleProductPage(ws, data, client) {
 
 async function handleChat(ws, data, client, requestConfig = null) {
     const { history = [], guest_history = [], conversation_id } = data;
-    const aiConfig = requestConfig || await getAiConfig(runtime);
+    const aiConfig = requestConfig || await getAiConfig(runtime, client.catalogScope?.storeCode || '');
     const isResumedAction = data.resume_pending_action === true;
     const replaceFromMessageId = Math.max(0, Math.floor(Number(data.replace_from_message_id) || 0));
     const currentUser = buildUserMessageDescriptor(data, {
@@ -1286,6 +1314,7 @@ async function handleChat(ws, data, client, requestConfig = null) {
     }
 
     let conversationId = conversation_id ? Number(conversation_id) : null;
+    const catalogScope = client.catalogScope || null;
     const requestedSupportState = conversation_id
         ? await supportConversationState(client, Number(conversation_id))
         : null;
@@ -1314,7 +1343,7 @@ async function handleChat(ws, data, client, requestConfig = null) {
             console.log(`[Chat] Handling message for CustomerID: ${client.customerId}, Current ConvID: ${conversationId || 'New'}`);
             // Verify ownership if conversation_id provided
             if (conversationId) {
-                const conv = await db.getConversation(conversationId, client.customerId);
+                const conv = await db.getConversation(conversationId, client.customerId, catalogScope);
                 if (!conv) {
                     if (isResumedAction) {
                         ws.send(attachRequestId({ type: 'error', content: 'The verified request has expired. Please try again.' }, run.requestId));
@@ -1348,7 +1377,7 @@ async function handleChat(ws, data, client, requestConfig = null) {
                 const title = buildConversationTitle(currentUser.displayText || currentUser.text || '', {
                     hasImage: currentUser.hasImage
                 });
-                conversationId = await db.createConversation(client.customerId, title);
+                conversationId = await db.createConversation(client.customerId, title, catalogScope);
                 console.log(`[Chat] Created new conversation: ${conversationId}`);
                 ws.send(attachRequestId({ type: 'conversation_id', conversation_id: conversationId }, run.requestId));
             }
@@ -1357,7 +1386,8 @@ async function handleChat(ws, data, client, requestConfig = null) {
                 const truncated = await db.truncateConversationFromMessage(
                     conversationId,
                     client.customerId,
-                    replaceFromMessageId
+                    replaceFromMessageId,
+                    catalogScope
                 );
                 if (!truncated) {
                     ws.send(attachRequestId({
@@ -1374,7 +1404,7 @@ async function handleChat(ws, data, client, requestConfig = null) {
                 if (isResumedAction) {
                     // The original user message was persisted before OTP. A
                     // resumed action must execute it, not create a duplicate.
-                    await db.touchConversation(conversationId);
+                    await db.touchConversation(conversationId, catalogScope);
                 } else {
                     const userMessageContent = currentUser.displayText || currentUser.text || '';
                     const uploadedImages = Array.isArray(data.images) ? data.images : [];
@@ -1393,7 +1423,8 @@ async function handleChat(ws, data, client, requestConfig = null) {
                         client.customerId,
                         'user',
                         userMessageContent,
-                        attachment
+                        attachment,
+                        catalogScope
                     );
                     console.log(`[Chat] Saved user message: ${savedUserMessageId}`);
                     ws.send(attachRequestId({
@@ -1401,7 +1432,7 @@ async function handleChat(ws, data, client, requestConfig = null) {
                         role: 'user',
                         entity_id: savedUserMessageId
                     }, run.requestId));
-                    await db.touchConversation(conversationId);
+                    await db.touchConversation(conversationId, catalogScope);
                 }
             } catch (err) {
                 console.error('[Chat] Failed to save user message:', err.message);
@@ -1416,11 +1447,11 @@ async function handleChat(ws, data, client, requestConfig = null) {
         try {
             const requestedConversation = conversationId
                 ? (guestMode === 'database'
-                    ? await db.getGuestConversation(conversationId, client.sessionId)
+                    ? await db.getGuestConversation(conversationId, client.sessionId, catalogScope)
                     : await guestSessionHistory.get(client.sessionId, conversationId))
                 : null;
             const page = requestedConversation ? null : (guestMode === 'database'
-                ? await db.listGuestConversations(client.sessionId, 1)
+                ? await db.listGuestConversations(client.sessionId, 1, catalogScope)
                 : await guestSessionHistory.list(client.sessionId, 1));
             const existing = requestedConversation || page?.conversations?.[0] || null;
             if (existing) {
@@ -1437,13 +1468,13 @@ async function handleChat(ws, data, client, requestConfig = null) {
                     hasImage: currentUser.hasImage
                 });
                 const conversation = guestMode === 'database'
-                    ? { id: await db.createGuestConversation(client.sessionId, title) }
+                    ? { id: await db.createGuestConversation(client.sessionId, title, catalogScope) }
                     : await guestSessionHistory.create(client.sessionId, title);
                 conversationId = Number(conversation.id || conversation);
                 if (guestMode === 'session') {
                     await restoreGuestHistoryFromClient(history, client.sessionId, conversationId);
                 } else {
-                    await restoreGuestHistoryToDatabase(guest_history, client.sessionId, conversationId);
+                    await restoreGuestHistoryToDatabase(guest_history, client.sessionId, conversationId, catalogScope);
                 }
                 ws.send(attachRequestId({ type: 'conversation_id', conversation_id: conversationId }, run.requestId));
             }
@@ -1453,7 +1484,8 @@ async function handleChat(ws, data, client, requestConfig = null) {
                     ? await db.truncateGuestConversationFromMessage(
                         conversationId,
                         client.sessionId,
-                        replaceFromMessageId
+                        replaceFromMessageId,
+                        catalogScope
                     )
                     : await guestSessionHistory.truncateFromMessage(
                         client.sessionId,
@@ -1472,7 +1504,7 @@ async function handleChat(ws, data, client, requestConfig = null) {
 
             if (isResumedAction) {
                 if (guestMode === 'database') {
-                    await db.touchGuestConversation(conversationId, client.sessionId);
+                    await db.touchGuestConversation(conversationId, client.sessionId, catalogScope);
                 }
             } else if (guestMode === 'database') {
                 const uploadedImages = Array.isArray(data.images) ? data.images : [];
@@ -1489,14 +1521,15 @@ async function handleChat(ws, data, client, requestConfig = null) {
                     client.sessionId,
                     'user',
                     currentUser.displayText || currentUser.text || '',
-                    attachment
+                    attachment,
+                    catalogScope
                 );
                 ws.send(attachRequestId({
                     type: 'message_saved',
                     role: 'user',
                     entity_id: savedUserMessageId
                 }, run.requestId));
-                await db.touchGuestConversation(conversationId, client.sessionId);
+                await db.touchGuestConversation(conversationId, client.sessionId, catalogScope);
             } else {
                 savedUserMessageId = await guestSessionHistory.append(
                     client.sessionId,
@@ -1533,15 +1566,15 @@ async function handleChat(ws, data, client, requestConfig = null) {
         let savedMessageId = null;
         let persistent = false;
         if (client.customerId) {
-            savedMessageId = await db.saveMessage(conversationId, client.customerId, 'assistant', assistantPayload);
+            savedMessageId = await db.saveMessage(conversationId, client.customerId, 'assistant', assistantPayload, null, catalogScope);
             persistent = true;
-            await db.touchConversation(conversationId);
+            await db.touchConversation(conversationId, catalogScope);
 
             if (options.refreshTitle === true && !conversation_id) {
                 const newTitle = buildConversationTitle(currentUser.displayText || currentUser.text || '', {
                     hasImage: currentUser.hasImage
                 });
-                await db.updateConversationTitle(conversationId, client.customerId, newTitle);
+                await db.updateConversationTitle(conversationId, client.customerId, newTitle, catalogScope);
                 ws.send(JSON.stringify({ type: 'refresh_conversations' }));
             }
             ws.send(attachRequestId({ type: 'message_saved', role: 'assistant', entity_id: savedMessageId, persistent }, run.requestId));
@@ -1549,9 +1582,9 @@ async function handleChat(ws, data, client, requestConfig = null) {
         }
 
         if (guestMode === 'database') {
-            savedMessageId = await db.saveGuestMessage(conversationId, client.sessionId, 'assistant', assistantPayload);
+            savedMessageId = await db.saveGuestMessage(conversationId, client.sessionId, 'assistant', assistantPayload, null, catalogScope);
             persistent = true;
-            await db.touchGuestConversation(conversationId, client.sessionId);
+            await db.touchGuestConversation(conversationId, client.sessionId, catalogScope);
         } else {
             savedMessageId = await guestSessionHistory.append(
                 client.sessionId,
@@ -1769,6 +1802,7 @@ async function handleChat(ws, data, client, requestConfig = null) {
             requestOrderAddressForm: isOrderAddressChangeRequest(currentUser.text),
             requestCustomerAddressForm: isCustomerAddressChangeRequest(currentUser.text),
             conversationId,
+            catalogScope: client.catalogScope || null,
             sessionCookie: client.sessionCookie || '',
             requestBrowserCart: (cart) => browserCartBridge.request(ws, {
                 requestId: run.requestId,
@@ -1810,7 +1844,10 @@ async function handleChat(ws, data, client, requestConfig = null) {
         }
         metrics.increment('model_failed', { reason: error.code || 'unknown' });
         console.error('Chat handler error:', summarizeError(error));
-        ws.send(attachRequestId({ type: 'error', content: 'AI processing error: ' + error.message }, run.requestId));
+        ws.send(attachRequestId({
+            type: 'error',
+            content: 'The AI service could not complete this request. Please try again.'
+        }, run.requestId));
     } finally {
         if (leaseHeartbeat) clearInterval(leaseHeartbeat);
         if (admission) await admission.release().catch(() => {});
@@ -1841,14 +1878,9 @@ async function startGateway() {
     });
 }
 
-async function stopGateway() {
-    await new Promise((resolve) => server.close(resolve));
-    await runtime.disconnect();
-}
-
 for (const signal of ['SIGTERM', 'SIGINT']) {
     process.once(signal, () => {
-        stopGateway().finally(() => process.exit(0));
+        stopGateway({ server, wss, runtime }).finally(() => process.exit(0));
     });
 }
 

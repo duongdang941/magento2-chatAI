@@ -6,6 +6,7 @@ namespace Afd\AI\Model\Support;
 use Afd\AI\Model\Gateway\SupportMessagePublisher;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\Exception\LocalizedException;
+use Magento\Store\Model\StoreManagerInterface;
 
 class SupportTakeoverService
 {
@@ -14,7 +15,8 @@ class SupportTakeoverService
 
     public function __construct(
         private readonly ResourceConnection $resource,
-        private readonly SupportMessagePublisher $publisher
+        private readonly SupportMessagePublisher $publisher,
+        private readonly StoreManagerInterface $storeManager
     ) {
     }
 
@@ -70,6 +72,8 @@ class SupportTakeoverService
                 ['admin_firstname' => 'firstname', 'admin_lastname' => 'lastname']
             )
             ->where('support_case.conversation_id = ?', $conversationId)
+            ->where('conversation.store_id = ?', (int)$this->storeManager->getStore()->getId())
+            ->where('conversation.website_id = ?', (int)$this->storeManager->getStore()->getWebsiteId())
             ->order('support_case.entity_id DESC')
             ->limit(1);
         if (($customerId ?? 0) > 0) {

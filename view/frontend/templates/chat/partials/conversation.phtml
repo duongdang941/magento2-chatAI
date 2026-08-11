@@ -130,13 +130,8 @@
                                                 <template x-for="part in msg.parts" :key="'text-' + part.id">
                                                     <template x-if="part.type === 'text' && (part.streaming === true || (part.html || '').trim().length > 0)">
                                                         <div class="afd-ai-chat__msg-part">
-                                                            <template x-if="part.streaming === true">
-                                                                <div class="afd-ai-chat__streaming-markdown"
-                                                                     x-init="mountStreamingMarkdown($el, part)"></div>
-                                                            </template>
-                                                            <template x-if="part.streaming !== true">
-                                                                <div x-html="part.html"></div>
-                                                            </template>
+                                                            <div :class="{ 'afd-ai-chat__streaming-markdown': part.streaming === true }"
+                                                                 x-html="part.html"></div>
                                                         </div>
                                                     </template>
                                                 </template>

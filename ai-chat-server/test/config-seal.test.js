@@ -22,7 +22,9 @@ test('encrypts provider and Magento credentials before persistence', () => {
 test('rejects tampered configuration snapshots', () => {
     const secret = 'k'.repeat(32);
     const sealed = sealConfig({ provider: 'cockpit' }, secret);
-    sealed.ciphertext = `${sealed.ciphertext.slice(0, -1)}A`;
+    const index = Math.floor(sealed.ciphertext.length / 2);
+    const replacement = sealed.ciphertext[index] === 'A' ? 'B' : 'A';
+    sealed.ciphertext = `${sealed.ciphertext.slice(0, index)}${replacement}${sealed.ciphertext.slice(index + 1)}`;
 
     assert.throws(() => unsealConfig(sealed, secret), /authenticated or decrypted/);
 });

@@ -71,7 +71,9 @@ const {
                         // one-shot flag, each refresh clears the message list
                         // and reloads it again, creating a visible flicker.
                         this.guestSessionSnapshotRestored = false;
-                        this.switchConversation(restoredConversationId, true);
+                        this.switchConversation(restoredConversationId, true, {
+                            preserveVisibleMessages: true
+                        });
                         return;
                     }
 
@@ -150,36 +152,88 @@ const {
                 });
             },
 
-            switchConversation(conversationId, forceReload = false) {
-                if (!forceReload && this.activeConversationId === conversationId && this.hasStartedChat) return;
-                this.stopSupportTyping?.();
-                this.setSupportRemoteTyping?.(false);
-                this.closeMobileSidebar();
-                this.stopCurrentResponse();
-                this.cancelEditMessage();
-                this.cancelConversationRename();
-                this.activeConversationId = conversationId;
-                this.humanSupportActive = false;
-                this.humanSupportAgentLabel = '';
-                this.supportConversationClosed = false;
-                this.messages = [];
-                this.hasStartedChat = false;
-                this.hasOlderMessages = false;
-                this.nextMessageCursor = null;
-                this.isLoadingOlderMessages = false;
-                this.historyScrollHeightBeforeLoad = 0;
-                this.isLoading = true;
-                this.isHistoryLoading = true;
-                this.isCreatingNewChat = false;
-                this.currentAiMessageIndex = -1;
+            createHistoryLoadToken() {
+                this.historyLoadSequence = (Number(this.historyLoadSequence) || 0) + 1;
+                return `${Date.now()}-${this.historyLoadSequence}`;
+            },
 
+            isCurrentConversationResponse(data = {}) {
+                const responseConversationId = Number(data.conversationId || data.conversation_id) || 0;
+                if (responseConversationId && responseConversationId !== Number(this.activeConversationId)) {
+                    return false;
+                }
+
+                const responseToken = String(data.client_load_token || data.load_token || '');
+                return !responseToken || responseToken === String(this.activeHistoryLoadToken || '');
+            },
+
+            switchConversation(conversationId, forceReload = false, options = {}) {
+                const targetConversationId = Number(conversationId) || 0;
+                if (!targetConversationId) return;
+                if (!forceReload && Number(this.activeConversationId) === targetConversationId && this.hasStartedChat) return;
+
+                const isCurrentConversation = Number(this.activeConversationId) === targetConversationId;
+                const preserveVisibleMessages = options.preserveVisibleMessages === true
+                    && isCurrentConversation
+                    && Array.isArray(this.messages)
+                    && this.messages.length > 0;
+                const loadToken = this.createHistoryLoadToken();
+                this.activeHistoryLoadToken = loadToken;
+
+                if (!preserveVisibleMessages) {
+                    this.stopSupportTyping?.();
+                    this.setSupportRemoteTyping?.(false);
+                    this.closeMobileSidebar();
+                    this.stopCurrentResponse();
+                    this.cancelEditMessage();
+                    this.cancelConversationRename();
+                    this.humanSupportActive = false;
+                    this.humanSupportAgentLabel = '';
+                    this.supportConversationClosed = false;
+                    this.messages = [];
+                    this.hasStartedChat = false;
+                    this.hasOlderMessages = false;
+                    this.nextMessageCursor = null;
+                    this.isLoadingOlderMessages = false;
+                    this.historyScrollHeightBeforeLoad = 0;
+                    this.currentAiMessageIndex = -1;
+                }
+
+                this.activeConversationId = targetConversationId;
+                this.isLoading = !preserveVisibleMessages;
+                // An explicit conversation change needs the loading cover.
+                // A passive refresh preserves the current visual state: it
+                // must neither introduce a cover during tab sync nor dismiss
+                // the initial cover before the durable history is loaded.
+                if (!preserveVisibleMessages) {
+                    this.isHistoryLoading = true;
+                    this.armHistoryLoadingTimeout?.();
+                }
+                this.isCreatingNewChat = false;
+
+                const request = {
+                    action: 'load_conversation',
+                    conversation_id: targetConversationId,
+                    client_load_token: loadToken,
+                    // A passive rehydration merges durable data into the
+                    // visible conversation instead of replacing it.
+                    refresh: preserveVisibleMessages
+                };
                 if (this.socket && this.wsConnected) {
-                    this.socket.send(JSON.stringify({ action: 'load_conversation', conversation_id: conversationId }));
+                    this.socket.send(JSON.stringify(request));
                 } else {
-                    fetch(urls.loadConversation + '?id=' + conversationId).then(r=>r.json()).then(data => {
+                    fetch(urls.loadConversation + '?id=' + targetConversationId).then(r=>r.json()).then(data => {
+                        const response = {
+                            ...data,
+                            conversationId: targetConversationId,
+                            client_load_token: loadToken,
+                            refresh: preserveVisibleMessages || data.refresh === true
+                        };
+                        if (!this.isCurrentConversationResponse(response)) return;
                         this.isLoading = false;
-                        this.applyConversationMessagePage(data, false);
+                        this.applyConversationMessagePage(response, false);
                     }).catch(() => {
+                        if (loadToken !== this.activeHistoryLoadToken) return;
                         this.isLoading = false;
                         this.isHistoryLoading = false;
                     });
@@ -205,6 +259,13 @@ const {
             },
 
             applyConversationMessagePage(data, append) {
+                if (!this.isCurrentConversationResponse(data)) {
+                    if (append) {
+                        this.isLoadingOlderMessages = false;
+                        this.historyScrollHeightBeforeLoad = 0;
+                    }
+                    return false;
+                }
                 this.isLoadingOlderMessages = false;
                 if (data.status !== 'success') {
                     this.isHistoryLoading = false;

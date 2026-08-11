@@ -1984,6 +1984,7 @@ const {
                     this.pendingOrderAddressFormParts = [];
                     this.pendingGuestOrderAccessParts = [];
                     this.clearResponseWatchdog();
+                    this.refreshDeferredWebSocketTicket?.();
                     this.messages.push({
                         role: 'assistant',
                         feedbackEnabled: false,
@@ -2013,6 +2014,7 @@ const {
                     this.activeRequestId = null;
                     this.responseStartedAt = 0;
                     this.clearResponseWatchdog();
+                    this.refreshDeferredWebSocketTicket?.();
                     // Rating transport state is unrelated to response
                     // generation. A completed turn must always be interactive.
                     this.messages.forEach((message) => {
@@ -2043,6 +2045,7 @@ const {
                     this.pendingGuestOrderAccessParts = [];
                     this.responseStartedAt = 0;
                     this.clearResponseWatchdog();
+                    this.refreshDeferredWebSocketTicket?.();
                     if (!data.request_id || data.request_id === this.activeRequestId) {
                         this.activeRequestId = null;
                     }

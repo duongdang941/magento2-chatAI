@@ -3,21 +3,23 @@ declare(strict_types=1);
 
 namespace Afd\AI\Model\Product;
 
+use Afd\AI\Api\CatalogVisibilityPolicyInterface;
+use Afd\AI\Model\Catalog\ShopperScope;
+use Afd\AI\Model\Catalog\ShopperScopeResolver;
 use Afd\AI\Model\Security\ActionRateLimiter;
-use Magento\Catalog\Api\ProductRepositoryInterface;
+use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory as ProductCollectionFactory;
 use Magento\Framework\App\Config\ScopeConfigInterface;
-use Magento\Framework\Exception\NoSuchEntityException;
 use Magento\ProductAlert\Model\ResourceModel\Stock\CollectionFactory as StockAlertCollectionFactory;
 use Magento\ProductAlert\Model\StockFactory;
 use Magento\ProductAlert\Model\ResourceModel\Stock as StockAlertResource;
 use Magento\Store\Model\ScopeInterface;
-use Magento\Store\Model\StoreManagerInterface;
 
 class BackInStockSubscription
 {
     public function __construct(
-        private readonly ProductRepositoryInterface $productRepository,
-        private readonly StoreManagerInterface $storeManager,
+        private readonly ProductCollectionFactory $productCollectionFactory,
+        private readonly ShopperScopeResolver $shopperScopeResolver,
+        private readonly CatalogVisibilityPolicyInterface $catalogVisibilityPolicy,
         private readonly ScopeConfigInterface $scopeConfig,
         private readonly StockFactory $stockFactory,
         private readonly StockAlertResource $stockAlertResource,
@@ -35,12 +37,12 @@ class BackInStockSubscription
         if (!$this->scopeConfig->isSetFlag('catalog/productalert/allow_stock', ScopeInterface::SCOPE_STORE)) {
             return ['status' => 'unavailable', 'reason' => 'stock_alerts_disabled', 'message' => __('Back-in-stock notifications are currently unavailable.')->render()];
         }
-        try {
-            $product = $this->productRepository->get(trim($sku));
-        } catch (NoSuchEntityException) {
+        $scope = $this->shopperScopeResolver->resolve(0, $customerId);
+        $product = $this->getVisibleProduct(trim($sku), $scope);
+        if ($product === null) {
             return ['status' => 'requires_customer_action', 'reason' => 'product_not_found', 'message' => __('That product was not found.')->render()];
         }
-        $websiteId = (int)$this->storeManager->getStore()->getWebsiteId();
+        $websiteId = $scope->getWebsiteId();
         $existing = $this->stockAlertCollectionFactory->create()
             ->addFieldToFilter('customer_id', $customerId)
             ->addFieldToFilter('product_id', (int)$product->getId())
@@ -64,5 +66,21 @@ class BackInStockSubscription
         $this->stockAlertResource->save($alert);
 
         return ['status' => 'success', 'sku' => (string)$product->getSku(), 'product_name' => (string)$product->getName(), 'message' => __('We will email you when this product is back in stock.')->render()];
+    }
+
+    private function getVisibleProduct(string $sku, ShopperScope $scope): ?object
+    {
+        if ($sku === '') {
+            return null;
+        }
+
+        $collection = $this->productCollectionFactory->create();
+        $this->catalogVisibilityPolicy->applyToProductCollection($collection, $scope);
+        $collection->addAttributeToSelect(['sku', 'name'])
+            ->addAttributeToFilter('sku', ['eq' => $sku])
+            ->setPageSize(1);
+        $product = $collection->getFirstItem();
+
+        return (int)$product->getId() > 0 ? $product : null;
     }
 }

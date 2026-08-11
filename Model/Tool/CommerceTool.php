@@ -3,48 +3,57 @@ declare(strict_types=1);
 
 namespace Afd\AI\Model\Tool;
 
+use Afd\AI\Model\Catalog\ShopperScope;
+use Afd\AI\Model\Catalog\ShopperScopeResolver;
+use Afd\AI\Api\CatalogVisibilityPolicyInterface;
+use Afd\AI\Model\Config\Config as AiConfig;
 use Afd\AI\Model\Data\ToolResponseFactory;
-use Magento\Catalog\Api\ProductRepositoryInterface;
+use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory as ProductCollectionFactory;
 use Magento\Framework\Pricing\PriceCurrencyInterface;
 use Magento\SalesRule\Model\ResourceModel\Rule\CollectionFactory as RuleCollectionFactory;
+use Psr\Log\LoggerInterface;
 
 /** Groups read-only comparison and promotion queries. */
 class CommerceTool
 {
-    private PriceCurrencyInterface $priceCurrency;
-    private ProductRepositoryInterface $productRepository;
-    private RuleCollectionFactory $ruleCollectionFactory;
-    private ToolResponseFactory $toolResponseFactory;
-
     public function __construct(
-        PriceCurrencyInterface $priceCurrency,
-        ProductRepositoryInterface $productRepository,
-        RuleCollectionFactory $ruleCollectionFactory,
-        ToolResponseFactory $toolResponseFactory
+        private readonly PriceCurrencyInterface $priceCurrency,
+        private readonly ProductCollectionFactory $productCollectionFactory,
+        private readonly RuleCollectionFactory $ruleCollectionFactory,
+        private readonly ToolResponseFactory $toolResponseFactory,
+        private readonly ShopperScopeResolver $shopperScopeResolver,
+        private readonly CatalogVisibilityPolicyInterface $catalogVisibilityPolicy,
+        private readonly LoggerInterface $logger,
+        private readonly AiConfig $aiConfig
     ) {
-        $this->priceCurrency = $priceCurrency;
-        $this->productRepository = $productRepository;
-        $this->ruleCollectionFactory = $ruleCollectionFactory;
-        $this->toolResponseFactory = $toolResponseFactory;
     }
 
 
     /**
      * @inheritDoc
      */
-    public function compareProducts(string $sku1, string $sku2)
+    public function compareProducts(
+        string $sku1,
+        string $sku2,
+        int $customerGroupId = 0,
+        int $customerId = 0
+    )
     {
         try {
+            $shopperScope = $this->shopperScopeResolver->resolve($customerGroupId, $customerId);
             $skus = [$sku1, $sku2];
             $products = [];
             foreach ($skus as $sku) {
                 try {
-                    /** @var \Magento\Catalog\Model\Product $product */
-                    $product = $this->productRepository->get($sku);
+                    $product = $this->getScopedProduct($sku, $shopperScope);
+                    if (!$product) {
+                        continue;
+                    }
+                    $product->setCustomerGroupId($shopperScope->getCustomerGroupId());
                     $products[] = [
                         'name' => $product->getName(),
                         'sku' => $product->getSku(),
-                        'price' => $this->priceCurrency->format((float)$product->getFinalPrice(), false),
+                        'price' => $this->priceCurrency->format($this->getIndexedFinalPrice($product), false),
                         'description' => strip_tags((string)$product->getShortDescription()),
                         'weight' => $product->getWeight(),
                         'url' => $product->getProductUrl()
@@ -59,8 +68,9 @@ class CommerceTool
             } else {
                 $result = ['status' => 'OK', 'products' => $products];
             }
-        } catch (\Exception $e) {
-            $result = ['status' => 'ERROR', 'message' => $e->getMessage()];
+        } catch (\Throwable $exception) {
+            $this->logger->error('AI product comparison failed.', ['exception' => $exception]);
+            $result = ['status' => 'ERROR', 'message' => __('Comparison is temporarily unavailable.')->render()];
         }
 
         /** @var \Afd\AI\Api\Data\ToolResponseInterface $response */
@@ -69,14 +79,40 @@ class CommerceTool
         return $response;
     }
 
+    private function getScopedProduct(string $sku, ShopperScope $shopperScope)
+    {
+        $collection = $this->productCollectionFactory->create();
+        $this->catalogVisibilityPolicy->applyToProductCollection($collection, $shopperScope);
+        $collection->addAttributeToSelect(['name', 'sku', 'price', 'short_description', 'weight', 'url_key']);
+        $collection->addAttributeToFilter('sku', ['eq' => trim($sku)]);
+        $collection->addUrlRewrite();
+        $collection->setPageSize(1);
+
+        $product = $collection->getFirstItem();
+
+        return (int)$product->getId() > 0 ? $product : null;
+    }
+
+    private function getIndexedFinalPrice($product): float
+    {
+        $indexedPrice = $product->getData('final_price');
+
+        return is_numeric($indexedPrice)
+            ? (float)$indexedPrice
+            : (float)$product->getFinalPrice();
+    }
+
     /**
      * @inheritDoc
      */
-    public function getActiveCoupons()
+    public function getActiveCoupons(int $customerGroupId = 0, int $customerId = 0)
     {
         try {
+            $shopperScope = $this->shopperScopeResolver->resolve($customerGroupId, $customerId);
             $collection = $this->ruleCollectionFactory->create();
             $collection->addAllowedSalesRulesFilter();
+            $collection->addWebsiteFilter($shopperScope->getWebsiteId());
+            $collection->addCustomerGroupFilter($shopperScope->getCustomerGroupId());
             $collection->addFieldToFilter('is_active', ['eq' => 1]);
             $collection->addFieldToFilter('coupon_type', [
                 'in' => [
@@ -90,7 +126,7 @@ class CommerceTool
                 // Focus on rules with actual coupon codes or simple auto-applied rules
                 $coupons[] = [
                     'name' => $rule->getName(),
-                    'code' => $rule->getPrimaryCoupon() ? $rule->getPrimaryCoupon()->getCode() : __('Auto-applied'),
+                    'code' => $this->publicCouponCode($rule, $shopperScope),
                     'description' => $rule->getDescription(),
                     'from_date' => $rule->getFromDate(),
                     'to_date' => $rule->getToDate()
@@ -102,13 +138,27 @@ class CommerceTool
                 'coupons' => $coupons,
                 'message' => __('Found %1 active promotions.', count($coupons))->render()
             ];
-        } catch (\Exception $e) {
-            $result = ['status' => 'ERROR', 'message' => $e->getMessage()];
+        } catch (\Throwable $exception) {
+            $this->logger->error('AI coupon lookup failed.', ['exception' => $exception]);
+            $result = ['status' => 'ERROR', 'message' => __('Promotions are temporarily unavailable.')->render()];
         }
 
         /** @var \Afd\AI\Api\Data\ToolResponseInterface $response */
         $response = $this->toolResponseFactory->create();
         $response->setData([$result]);
         return $response;
+    }
+
+    private function publicCouponCode($rule, ShopperScope $shopperScope): string
+    {
+        if (!$rule->getPrimaryCoupon()) {
+            return __('Auto-applied')->render();
+        }
+
+        if (!$this->aiConfig->canExposeCouponCodes($shopperScope->getStoreId())) {
+            return __('Ask the store team for eligibility')->render();
+        }
+
+        return (string)$rule->getPrimaryCoupon()->getCode();
     }
 }

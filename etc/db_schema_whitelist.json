@@ -4,6 +4,8 @@
             "conversation_id": true,
             "customer_id": true,
             "guest_id": true,
+            "store_id": true,
+            "website_id": true,
             "title": true,
             "conversation_type": true,
             "is_archived": true,
@@ -12,7 +14,9 @@
         },
         "index": {
             "AFD_AI_CONV_CUSTOMER_UPDATED_AT": true,
-            "AFD_AI_CONV_GUEST_UPDATED_AT": true
+            "AFD_AI_CONV_GUEST_UPDATED_AT": true,
+            "AFD_AI_CONV_STORE_CUSTOMER_UPDATED_AT": true,
+            "AFD_AI_CONV_STORE_GUEST_UPDATED_AT": true
         },
         "constraint": {
             "PRIMARY": true
@@ -52,6 +56,8 @@
             "message_id": true,
             "customer_id": true,
             "guest_id": true,
+            "store_id": true,
+            "website_id": true,
             "category": true,
             "priority": true,
             "status": true,
@@ -76,6 +82,7 @@
         "index": {
             "AFD_AI_CASE_CUSTOMER_CREATED_AT": true,
             "AFD_AI_CASE_GUEST_CREATED_AT": true,
+            "AFD_AI_CASE_STORE_UPDATED_AT": true,
             "AFD_AI_CASE_STATUS_UPDATED_AT": true,
             "AFD_AI_CASE_EMAIL_UPDATED_AT": true,
             "AFD_AI_CASE_ADMIN_UNREAD": true,

@@ -3,8 +3,11 @@ declare(strict_types=1);
 
 namespace Afd\AI\Model\Tool;
 
+use Afd\AI\Api\CatalogVisibilityPolicyInterface;
+use Afd\AI\Model\Catalog\ShopperScope;
+use Afd\AI\Model\Catalog\ShopperScopeResolver;
 use Afd\AI\Model\Data\ToolResponseFactory;
-use Magento\Catalog\Api\ProductRepositoryInterface;
+use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory as ProductCollectionFactory;
 use Magento\InventorySalesApi\Api\Data\SalesChannelInterface;
 use Magento\InventorySalesApi\Api\GetProductSalableQtyInterface;
 use Magento\InventorySalesApi\Api\IsProductSalableInterface;
@@ -16,13 +19,15 @@ use Psr\Log\LoggerInterface;
 class ProductAvailabilityTool
 {
     public function __construct(
-        private readonly ProductRepositoryInterface $productRepository,
+        private readonly ProductCollectionFactory $productCollectionFactory,
         private readonly ToolResponseFactory $toolResponseFactory,
         private readonly LoggerInterface $logger,
         private readonly GetProductSalableQtyInterface $getProductSalableQty,
         private readonly IsProductSalableInterface $isProductSalable,
         private readonly StockResolverInterface $stockResolver,
-        private readonly StoreManagerInterface $storeManager
+        private readonly StoreManagerInterface $storeManager,
+        private readonly ShopperScopeResolver $shopperScopeResolver,
+        private readonly CatalogVisibilityPolicyInterface $catalogVisibilityPolicy
     ) {
     }
 
@@ -31,7 +36,12 @@ class ProductAvailabilityTool
      * is scalar-safe. Its shape is {attribute_code: selected_label} and each
      * code must come from variant_options returned by searchProducts.
      */
-    public function getProductAvailability(string $sku, string $selectedOptions = '')
+    public function getProductAvailability(
+        string $sku,
+        string $selectedOptions = '',
+        int $customerGroupId = 0,
+        int $customerId = 0
+    )
     {
         $sku = trim($sku);
         $response = $this->toolResponseFactory->create();
@@ -46,11 +56,15 @@ class ProductAvailabilityTool
         $requestedOptions = $this->decodeSelectedOptions($selectedOptions);
 
         try {
-            $product = $this->productRepository->get($sku);
-            $stockId = $this->getCurrentStockId();
+            $shopperScope = $this->shopperScopeResolver->resolve($customerGroupId, $customerId);
+            $product = $this->getVisibleProduct($sku, $shopperScope);
+            if (!$product) {
+                throw new \Magento\Framework\Exception\NoSuchEntityException(__('Product not found.'));
+            }
+            $stockId = $this->getCurrentStockId($shopperScope);
 
             $result = $product->getTypeId() === 'configurable'
-                ? $this->getConfigurableAvailability($product, $stockId, $requestedOptions)
+                ? $this->getConfigurableAvailability($product, $stockId, $requestedOptions, $shopperScope)
                 : $this->buildSimpleAvailability($product, $stockId);
 
             $result['product_ref'] = 'product:' . (int)$product->getId();
@@ -79,9 +93,12 @@ class ProductAvailabilityTool
         return $response;
     }
 
-    private function getCurrentStockId(): int
+    private function getCurrentStockId(ShopperScope $shopperScope): int
     {
-        $websiteCode = (string)$this->storeManager->getStore()->getWebsite()->getCode();
+        $websiteCode = (string)$this->storeManager
+            ->getStore($shopperScope->getStoreId())
+            ->getWebsite()
+            ->getCode();
 
         return (int)$this->stockResolver
             ->execute(SalesChannelInterface::TYPE_WEBSITE, $websiteCode)
@@ -92,7 +109,12 @@ class ProductAvailabilityTool
      * @param array<string, string> $requestedOptions
      * @return array<string, mixed>
      */
-    private function getConfigurableAvailability($product, int $stockId, array $requestedOptions): array
+    private function getConfigurableAvailability(
+        $product,
+        int $stockId,
+        array $requestedOptions,
+        ShopperScope $shopperScope
+    ): array
     {
         $configurableAttributes = $product->getTypeInstance()->getConfigurableAttributesAsArray($product);
         $optionDefinitions = $this->getConfigurableOptionDefinitions($configurableAttributes);
@@ -100,6 +122,14 @@ class ProductAvailabilityTool
         $children = $product->getTypeInstance()
             ->getUsedProductCollection($product)
             ->addAttributeToSelect(array_values(array_unique(array_merge(['name', 'sku', 'status'], $attributeCodes))));
+        // Variants are normally NOT_VISIBLE individually, but their status,
+        // store, website and customer-group permissions remain authoritative.
+        $this->catalogVisibilityPolicy->applyToProductCollection(
+            $children,
+            $shopperScope,
+            false,
+            true
+        );
 
         $variants = [];
         foreach ($children as $child) {
@@ -146,6 +176,18 @@ class ProductAvailabilityTool
         }
 
         return $result;
+    }
+
+    private function getVisibleProduct(string $sku, ShopperScope $shopperScope)
+    {
+        $collection = $this->productCollectionFactory->create();
+        $this->catalogVisibilityPolicy->applyToProductCollection($collection, $shopperScope);
+        $collection->addAttributeToSelect(['name', 'sku', 'type_id']);
+        $collection->addAttributeToFilter('sku', ['eq' => $sku]);
+        $collection->setPageSize(1);
+        $product = $collection->getFirstItem();
+
+        return (int)$product->getId() > 0 ? $product : null;
     }
 
     /**

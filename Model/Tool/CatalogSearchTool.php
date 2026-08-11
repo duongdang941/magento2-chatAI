@@ -4,6 +4,9 @@ declare(strict_types=1);
 namespace Afd\AI\Model\Tool;
 
 use Afd\AI\Api\ProductRendererInterface;
+use Afd\AI\Api\CatalogVisibilityPolicyInterface;
+use Afd\AI\Model\Catalog\ShopperScope;
+use Afd\AI\Model\Catalog\ShopperScopeResolver;
 use Afd\AI\Model\Data\ToolResponseFactory;
 use Afd\AI\Model\Product\CatalogIdentityMatcher;
 use Afd\AI\Model\Product\DirectAddEligibility;
@@ -34,7 +37,9 @@ class CatalogSearchTool
         private readonly StockHelper $stockHelper,
         private readonly DirectAddEligibility $directAddEligibility,
         private readonly SaleQuantityPolicy $saleQuantityPolicy,
-        private readonly CatalogIdentityMatcher $catalogIdentityMatcher
+        private readonly CatalogIdentityMatcher $catalogIdentityMatcher,
+        private readonly ShopperScopeResolver $shopperScopeResolver,
+        private readonly CatalogVisibilityPolicyInterface $catalogVisibilityPolicy
     ) {
     }
 
@@ -54,17 +59,20 @@ class CatalogSearchTool
         float $maxPrice = 0.0,
         bool $directAddOnly = false,
         bool $exactIdentity = false,
-        string $excludedTerms = ''
+        string $excludedTerms = '',
+        int $customerGroupId = 0,
+        int $customerId = 0
     ) {
         $query = trim($query);
+        $shopperScope = $this->shopperScopeResolver->resolve($customerGroupId, $customerId);
         $excludedNameTerms = $this->normalizeExcludedTerms($excludedTerms);
         // Five is the presentation default at the gateway. Magento accepts up
         // to ten for an explicit “show me 10” request, but never an unbounded
         // category dump.
         $limit = max(1, min(10, $limit));
         $page = max(1, $page);
-        $categoryIds = $categoryId > 0 ? $this->expandCategoryIdsWithDescendants([$categoryId]) : [];
-        $categoryScope = $categoryId > 0 ? $this->getCategoryScope($categoryId) : [];
+        $categoryIds = $categoryId > 0 ? $this->expandCategoryIdsWithDescendants([$categoryId], $shopperScope) : [];
+        $categoryScope = $categoryId > 0 ? $this->getCategoryScope($categoryId, $shopperScope) : [];
 
         // A broad, unconstrained product dump is neither useful to the agent
         // nor safe for catalogue cost. The protocol requires listCategories()
@@ -82,7 +90,7 @@ class CatalogSearchTool
                     'has_more' => false,
                     'next_page' => null,
                 ],
-                'scope' => $categoryScope,
+                'scope' => [...$shopperScope->toArray(), ...$categoryScope],
             ]);
 
             return $response;
@@ -98,13 +106,14 @@ class CatalogSearchTool
             $minPrice,
             $maxPrice,
             $directAddOnly,
-            $excludedNameTerms
+            $excludedNameTerms,
+            $shopperScope
         );
         $totalResults = $this->getFilteredCollectionSize($collection);
         $collection->clear();
         $collection->getSelect()->limitPage($page, $limit);
 
-        [$resultData, $productIds] = $this->collectProductResults($collection);
+        [$resultData, $productIds] = $this->collectProductResults($collection, $shopperScope);
         if ($exactIdentity) {
             [$resultData, $productIds] = $this->filterPresentedIdentityMatches(
                 $query,
@@ -124,7 +133,8 @@ class CatalogSearchTool
         if ($resultData === [] && $activeIdentityDistance === null && $query !== '') {
             [$resultData, $productIds] = $this->findActiveIdentityFallback(
                 $query,
-                $excludedNameTerms
+                $excludedNameTerms,
+                $shopperScope
             );
             if ($resultData !== []) {
                 $totalResults = count($resultData);
@@ -132,7 +142,7 @@ class CatalogSearchTool
             $activeIdentityDistance = $this->bestPresentedProductIdentityDistance($query, $resultData);
         }
         $disabledIdentityDistance = $query !== ''
-            ? $this->bestUnavailableProductIdentityDistance($query)
+            ? $this->bestUnavailableProductIdentityDistance($query, $shopperScope)
             : null;
         $unavailableQueryMatch = $disabledIdentityDistance !== null
             && ($activeIdentityDistance === null || $disabledIdentityDistance < $activeIdentityDistance);
@@ -146,7 +156,7 @@ class CatalogSearchTool
             $totalResults = 0;
         }
         $html = $productIds !== []
-            ? $this->productRenderer->renderProducts(implode(',', $productIds))
+            ? $this->productRenderer->renderProducts(implode(',', $productIds), $shopperScope->getCustomerGroupId())
             : '';
 
         $response = $this->toolResponseFactory->create();
@@ -162,6 +172,7 @@ class CatalogSearchTool
                 'next_page' => ($page * $limit) < $totalResults ? $page + 1 : null,
             ],
             'scope' => [
+                ...$shopperScope->toArray(),
                 ...$categoryScope,
                 'category_id' => $categoryId > 0 ? $categoryId : null,
                 'includes_descendants' => $categoryId > 0,
@@ -189,15 +200,16 @@ class CatalogSearchTool
         float $minPrice,
         float $maxPrice,
         bool $directAddOnly,
-        array $excludedNameTerms
+        array $excludedNameTerms,
+        ShopperScope $shopperScope
     ) {
         // A non-empty query remains a hard product-type constraint even after
         // the agent narrows retrieval to a verified category. Using a plain
         // category collection here used to discard the query and could turn a
         // request for one product type into an unrelated category dump.
         $collection = $query !== ''
-            ? $this->createSearchProductCollection($query)
-            : $this->createCategoryProductCollection();
+            ? $this->createSearchProductCollection($query, $shopperScope)
+            : $this->createCategoryProductCollection($shopperScope);
 
         if ($categoryIds !== []) {
             $collection->addCategoriesFilter(['in' => $categoryIds]);
@@ -228,10 +240,10 @@ class CatalogSearchTool
         );
     }
 
-    private function createSearchProductCollection(string $query)
+    private function createSearchProductCollection(string $query, ShopperScope $shopperScope)
     {
         $collection = $this->fulltextCollectionFactory->create();
-        $this->configureProductCollection($collection);
+        $this->configureProductCollection($collection, $shopperScope);
 
         if ($query !== '') {
             $collection->addSearchFilter($query);
@@ -240,16 +252,17 @@ class CatalogSearchTool
         return $collection;
     }
 
-    private function createCategoryProductCollection()
+    private function createCategoryProductCollection(ShopperScope $shopperScope)
     {
         $collection = $this->productCollectionFactory->create();
-        $this->configureProductCollection($collection);
+        $this->configureProductCollection($collection, $shopperScope);
 
         return $collection;
     }
 
-    private function configureProductCollection($collection): void
+    private function configureProductCollection($collection, ShopperScope $shopperScope): void
     {
+        $this->catalogVisibilityPolicy->applyToProductCollection($collection, $shopperScope);
         $collection->addAttributeToSelect([
             'name',
             'sku',
@@ -264,19 +277,10 @@ class CatalogSearchTool
             'type_id',
             'required_options',
         ]);
-        $collection->addAttributeToFilter('status', [
-            'eq' => (string)\Magento\Catalog\Model\Product\Attribute\Source\Status::STATUS_ENABLED,
-        ]);
         $collection->addAttributeToFilter('type_id', [
             'in' => ['simple', 'configurable'],
         ]);
-        $collection->setVisibility([
-            \Magento\Catalog\Model\Product\Visibility::VISIBILITY_BOTH,
-            \Magento\Catalog\Model\Product\Visibility::VISIBILITY_IN_CATALOG,
-            \Magento\Catalog\Model\Product\Visibility::VISIBILITY_IN_SEARCH,
-        ]);
         $collection->addUrlRewrite();
-        $collection->addFinalPrice();
         $this->applyInternalProductFilters($collection);
     }
 
@@ -351,7 +355,7 @@ class CatalogSearchTool
     /**
      * @return array{0: array<int, array<string, mixed>>, 1: array<int, int>}
      */
-    private function collectProductResults($collection): array
+    private function collectProductResults($collection, ShopperScope $shopperScope): array
     {
         $resultData = [];
         $productIds = [];
@@ -361,13 +365,14 @@ class CatalogSearchTool
                 continue;
             }
 
+            $product->setCustomerGroupId($shopperScope->getCustomerGroupId());
             $quantityPolicy = $this->saleQuantityPolicy->getPolicy($product);
             $resultData[] = [
                 'id' => (int)$product->getId(),
                 'product_ref' => 'product:' . (int)$product->getId(),
                 'sku' => (string)$product->getSku(),
                 'name' => (string)$product->getName(),
-                'price' => $this->priceCurrency->format((float)$product->getFinalPrice(), false),
+                'price' => $this->priceCurrency->format($this->getIndexedFinalPrice($product), false),
                 'url' => (string)$product->getProductUrl(),
                 'product_type' => (string)$product->getTypeId(),
                 'direct_addable' => $this->directAddEligibility->canAddToCartDirectly($product),
@@ -385,6 +390,15 @@ class CatalogSearchTool
         }
 
         return [$resultData, $productIds];
+    }
+
+    private function getIndexedFinalPrice($product): float
+    {
+        $indexedPrice = $product->getData('final_price');
+
+        return is_numeric($indexedPrice)
+            ? (float)$indexedPrice
+            : (float)$product->getFinalPrice();
     }
 
     /**
@@ -435,14 +449,18 @@ class CatalogSearchTool
      * @param string[] $excludedNameTerms
      * @return array{0: array<int, array<string, mixed>>, 1: int[]}
      */
-    private function findActiveIdentityFallback(string $query, array $excludedNameTerms): array
+    private function findActiveIdentityFallback(
+        string $query,
+        array $excludedNameTerms,
+        ShopperScope $shopperScope
+    ): array
     {
         $prefix = $this->catalogIdentityMatcher->searchPrefix($query);
         if ($prefix === '') {
             return [[], []];
         }
 
-        $collection = $this->createCategoryProductCollection();
+        $collection = $this->createCategoryProductCollection($shopperScope);
         $collection->addAttributeToFilter('name', ['like' => '%' . $prefix . '%']);
         $this->applyAvailabilityAndPriceFilters($collection, 0.0, 0.0);
         $this->applyExcludedNameTerms($collection, $excludedNameTerms);
@@ -465,7 +483,10 @@ class CatalogSearchTool
             $bestProducts[] = $product;
         }
 
-        return $this->collectProductResults(new \ArrayIterator(array_slice($bestProducts, 0, 5)));
+        return $this->collectProductResults(
+            new \ArrayIterator(array_slice($bestProducts, 0, 5)),
+            $shopperScope
+        );
     }
 
     /**
@@ -473,7 +494,7 @@ class CatalogSearchTool
      *
      * @param string $query Concise product query supplied by the agent.
      */
-    private function bestUnavailableProductIdentityDistance(string $query): ?int
+    private function bestUnavailableProductIdentityDistance(string $query, ShopperScope $shopperScope): ?int
     {
         $prefix = $this->catalogIdentityMatcher->searchPrefix($query);
         if ($prefix === '') {
@@ -481,6 +502,12 @@ class CatalogSearchTool
         }
 
         $collection = $this->productCollectionFactory->create();
+        $this->catalogVisibilityPolicy->applyToProductCollection(
+            $collection,
+            $shopperScope,
+            true,
+            false
+        );
         $collection->addAttributeToSelect(['name']);
         $collection->addAttributeToFilter('status', [
             'eq' => (string)\Magento\Catalog\Model\Product\Attribute\Source\Status::STATUS_DISABLED,
@@ -553,13 +580,14 @@ class CatalogSearchTool
     }
 
     /** @return array<string, mixed> */
-    private function getCategoryScope(int $categoryId): array
+    private function getCategoryScope(int $categoryId, ShopperScope $shopperScope): array
     {
         if ($categoryId < 1) {
             return [];
         }
 
         $collection = $this->categoryCollectionFactory->create();
+        $this->catalogVisibilityPolicy->applyToCategoryCollection($collection, $shopperScope);
         $collection->addAttributeToSelect(['name', 'url_key']);
         $collection->addIsActiveFilter();
         $collection->addFieldToFilter('entity_id', ['eq' => $categoryId]);
@@ -588,7 +616,7 @@ class CatalogSearchTool
     }
 
     /** @param array<int, int> $categoryIds */
-    private function expandCategoryIdsWithDescendants(array $categoryIds): array
+    private function expandCategoryIdsWithDescendants(array $categoryIds, ShopperScope $shopperScope): array
     {
         $categoryIds = array_values(array_unique(array_filter(array_map('intval', $categoryIds))));
         if ($categoryIds === []) {
@@ -596,6 +624,7 @@ class CatalogSearchTool
         }
 
         $collection = $this->categoryCollectionFactory->create();
+        $this->catalogVisibilityPolicy->applyToCategoryCollection($collection, $shopperScope);
         $collection->addAttributeToSelect(['path']);
         $collection->addIsActiveFilter();
         $collection->addFieldToFilter('level', ['gt' => 1]);
@@ -619,9 +648,11 @@ class CatalogSearchTool
      * Expose the real taxonomy for the agent to inspect and select by ID.
      * No names, translations or category synonyms are embedded in this module.
      */
-    public function listCategories()
+    public function listCategories(int $customerGroupId = 0, int $customerId = 0)
     {
+        $shopperScope = $this->shopperScopeResolver->resolve($customerGroupId, $customerId);
         $collection = $this->categoryCollectionFactory->create();
+        $this->catalogVisibilityPolicy->applyToCategoryCollection($collection, $shopperScope);
         $collection->addAttributeToSelect(['name', 'url_key', 'is_active', 'path']);
         $collection->addIsActiveFilter();
         $collection->addFieldToFilter('level', ['gt' => 1]);
@@ -632,7 +663,7 @@ class CatalogSearchTool
         // same presentable product filters used by chat search so the model
         // does not select an obsolete duplicate category with hundreds of
         // unusable assignments.
-        $activeProducts = $this->createCategoryProductCollection();
+        $activeProducts = $this->createCategoryProductCollection($shopperScope);
         $this->applyAvailabilityAndPriceFilters($activeProducts, 0.0, 0.0);
         $activeProducts->addCountToCategories($collection);
 

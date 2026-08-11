@@ -9,6 +9,7 @@ use Afd\AI\Model\Tool\CatalogSearchTool;
 use Afd\AI\Model\Tool\CommerceTool;
 use Afd\AI\Model\Tool\CustomerProfileTool;
 use Afd\AI\Model\Tool\ProductAvailabilityTool;
+use Afd\AI\Model\Security\NodeRequestAuthorizer;
 
 /**
  * Stable Web API facade for AI tools.
@@ -24,19 +25,22 @@ class AgentTool implements AgentToolInterface
     private CartTool $cartTool;
     private CustomerProfileTool $customerProfileTool;
     private CommerceTool $commerceTool;
+    private NodeRequestAuthorizer $nodeRequestAuthorizer;
 
     public function __construct(
         CatalogSearchTool $catalogSearchTool,
         ProductAvailabilityTool $productAvailabilityTool,
         CartTool $cartTool,
         CustomerProfileTool $customerProfileTool,
-        CommerceTool $commerceTool
+        CommerceTool $commerceTool,
+        NodeRequestAuthorizer $nodeRequestAuthorizer
     ) {
         $this->catalogSearchTool = $catalogSearchTool;
         $this->productAvailabilityTool = $productAvailabilityTool;
         $this->cartTool = $cartTool;
         $this->customerProfileTool = $customerProfileTool;
         $this->commerceTool = $commerceTool;
+        $this->nodeRequestAuthorizer = $nodeRequestAuthorizer;
     }
 
     public function searchProducts(
@@ -48,8 +52,11 @@ class AgentTool implements AgentToolInterface
         float $maxPrice = 0.0,
         bool $directAddOnly = false,
         bool $exactIdentity = false,
-        string $excludedTerms = ''
+        string $excludedTerms = '',
+        int $customerGroupId = 0,
+        int $customerId = 0
     ) {
+        $this->nodeRequestAuthorizer->assertAuthorized();
         return $this->catalogSearchTool->searchProducts(
             $query,
             $limit,
@@ -59,18 +66,32 @@ class AgentTool implements AgentToolInterface
             $maxPrice,
             $directAddOnly,
             $exactIdentity,
-            $excludedTerms
+            $excludedTerms,
+            $customerGroupId,
+            $customerId
         );
     }
 
-    public function getProductAvailability(string $sku, string $selectedOptions = '')
+    public function getProductAvailability(
+        string $sku,
+        string $selectedOptions = '',
+        int $customerGroupId = 0,
+        int $customerId = 0
+    )
     {
-        return $this->productAvailabilityTool->getProductAvailability($sku, $selectedOptions);
+        $this->nodeRequestAuthorizer->assertAuthorized();
+        return $this->productAvailabilityTool->getProductAvailability(
+            $sku,
+            $selectedOptions,
+            $customerGroupId,
+            $customerId
+        );
     }
 
-    public function listCategories()
+    public function listCategories(int $customerGroupId = 0, int $customerId = 0)
     {
-        return $this->catalogSearchTool->listCategories();
+        $this->nodeRequestAuthorizer->assertAuthorized();
+        return $this->catalogSearchTool->listCategories($customerGroupId, $customerId);
     }
 
     public function addToCart(string $sku, int $qty = 1)
@@ -103,13 +124,20 @@ class AgentTool implements AgentToolInterface
         return $this->customerProfileTool->getCustomerAddresses();
     }
 
-    public function compareProducts(string $sku1, string $sku2)
+    public function compareProducts(
+        string $sku1,
+        string $sku2,
+        int $customerGroupId = 0,
+        int $customerId = 0
+    )
     {
-        return $this->commerceTool->compareProducts($sku1, $sku2);
+        $this->nodeRequestAuthorizer->assertAuthorized();
+        return $this->commerceTool->compareProducts($sku1, $sku2, $customerGroupId, $customerId);
     }
 
-    public function getActiveCoupons()
+    public function getActiveCoupons(int $customerGroupId = 0, int $customerId = 0)
     {
-        return $this->commerceTool->getActiveCoupons();
+        $this->nodeRequestAuthorizer->assertAuthorized();
+        return $this->commerceTool->getActiveCoupons($customerGroupId, $customerId);
     }
 }

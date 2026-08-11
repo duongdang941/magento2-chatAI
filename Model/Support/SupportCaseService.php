@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Afd\AI\Model\Support;
 
-use Afd\AI\Model\Conversation\ConversationIdentity;
 use Afd\AI\Model\Gateway\SupportMessagePublisher;
 use Afd\AI\Model\Order\GuestOrderVerification;
 use Afd\AI\Model\Security\ActionRateLimiter;
@@ -11,6 +10,8 @@ use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\Encryption\EncryptorInterface;
 use Magento\Framework\Math\Random;
+use Magento\Store\Model\ScopeInterface;
+use Magento\Store\Model\StoreManagerInterface;
 
 class SupportCaseService
 {
@@ -20,7 +21,7 @@ class SupportCaseService
     public function __construct(
         private readonly ResourceConnection $resource,
         private readonly ScopeConfigInterface $scopeConfig,
-        private readonly ConversationIdentity $conversationIdentity,
+        private readonly StoreManagerInterface $storeManager,
         private readonly GuestOrderVerification $emailVerification,
         private readonly ActionRateLimiter $rateLimiter,
         private readonly EncryptorInterface $encryptor,
@@ -45,11 +46,13 @@ class SupportCaseService
         string $verificationToken = '',
         string $verificationSessionId = ''
     ): array {
-        if (!$this->scopeConfig->isSetFlag('afd_ai/support/enabled')) {
+        $scope = $this->currentStoreScope();
+        if (!$this->scopeConfig->isSetFlag('afd_ai/support/enabled', ScopeInterface::SCOPE_STORE, $scope['store_id'])) {
             return ['status' => 'unavailable', 'reason' => 'handoff_disabled', 'message' => __('Human support handoff is currently unavailable.')->render()];
         }
         $guestId = strtolower(trim((string)$guestId));
-        if (!$this->conversationIdentity->ownsConversation($conversationId, $customerId, $guestId)) {
+        $sourceConversation = $this->getOwnedSourceConversation($conversationId, $customerId, $guestId, $scope);
+        if ($sourceConversation === null) {
             return ['status' => 'error', 'reason' => 'conversation_not_owned', 'message' => __('The conversation could not be verified.')->render()];
         }
 
@@ -99,6 +102,8 @@ class SupportCaseService
             $connection->insert($conversationTable, [
                 'customer_id' => ($customerId ?? 0) > 0 ? $customerId : null,
                 'guest_id' => ($customerId ?? 0) > 0 ? null : $guestId,
+                'store_id' => $scope['store_id'],
+                'website_id' => $scope['website_id'],
                 'title' => mb_substr($subject, 0, 255),
                 'conversation_type' => 'support',
                 'is_archived' => 0,
@@ -124,6 +129,8 @@ class SupportCaseService
                 'message_id' => $initialMessageId,
                 'customer_id' => ($customerId ?? 0) > 0 ? $customerId : null,
                 'guest_id' => ($customerId ?? 0) > 0 ? null : $guestId,
+                'store_id' => $scope['store_id'],
+                'website_id' => $scope['website_id'],
                 'category' => $category,
                 'priority' => $priority,
                 'status' => 'open',
@@ -156,6 +163,8 @@ class SupportCaseService
             'summary' => $summary,
             'conversation_id' => $ticketConversationId,
             'created_at' => $now,
+            'store_id' => $scope['store_id'],
+            'website_id' => $scope['website_id'],
         ];
         $this->notifier->notify($safeCase);
         $this->publisher->publishMode($row, true, (string)__('Support team'));
@@ -188,11 +197,22 @@ class SupportCaseService
         if (($customerId ?? 0) < 1 && !preg_match('/^[a-f0-9]{64}$/', $guestId)) {
             return ['status' => 'error', 'reason' => 'invalid_identity', 'cases' => []];
         }
+        $scope = $this->currentStoreScope();
         $connection = $this->resource->getConnection();
         $select = $connection->select()
-            ->from($this->resource->getTableName('afd_ai_support_case'))
-            ->where('contact_email_hash = ?', hash('sha256', $contactEmail))
-            ->order('updated_at DESC')
+            ->from(['support_case' => $this->resource->getTableName('afd_ai_support_case')])
+            ->joinInner(
+                ['conversation' => $this->resource->getTableName('afd_ai_conversation')],
+                "conversation.conversation_id = support_case.conversation_id"
+                    . " AND conversation.conversation_type = 'support'",
+                []
+            )
+            ->where('support_case.contact_email_hash = ?', hash('sha256', $contactEmail))
+            ->where('support_case.store_id = ?', $scope['store_id'])
+            ->where('support_case.website_id = ?', $scope['website_id'])
+            ->where('conversation.store_id = ?', $scope['store_id'])
+            ->where('conversation.website_id = ?', $scope['website_id'])
+            ->order('support_case.updated_at DESC')
             ->limit(20);
         $cases = $connection->fetchAll($select);
 
@@ -266,6 +286,53 @@ class SupportCaseService
     {
         $email = strtolower(trim($email));
         return filter_var($email, FILTER_VALIDATE_EMAIL) ? mb_substr($email, 0, 254) : '';
+    }
+
+    /** @return array{store_id:int,website_id:int} */
+    private function currentStoreScope(): array
+    {
+        $store = $this->storeManager->getStore();
+        return [
+            'store_id' => (int)$store->getId(),
+            'website_id' => (int)$store->getWebsiteId(),
+        ];
+    }
+
+    /**
+     * The source conversation is both the ownership proof and the source of
+     * the ticket's store/website boundary. A verified email must never allow a
+     * shopper to create or discover a support thread from another storefront.
+     *
+     * @param array{store_id:int,website_id:int} $scope
+     */
+    private function getOwnedSourceConversation(
+        int $conversationId,
+        ?int $customerId,
+        string $guestId,
+        array $scope
+    ): ?array {
+        if ($conversationId < 1) {
+            return null;
+        }
+
+        $connection = $this->resource->getConnection();
+        $select = $connection->select()
+            ->from($this->resource->getTableName('afd_ai_conversation'), ['conversation_id'])
+            ->where('conversation_id = ?', $conversationId)
+            ->where('conversation_type = ?', 'ai')
+            ->where('store_id = ?', $scope['store_id'])
+            ->where('website_id = ?', $scope['website_id'])
+            ->limit(1);
+        if (($customerId ?? 0) > 0) {
+            $select->where('customer_id = ?', (int)$customerId);
+        } elseif (preg_match('/^[a-f0-9]{64}$/', $guestId)) {
+            $select->where('guest_id = ?', $guestId);
+        } else {
+            return null;
+        }
+
+        $source = $connection->fetchRow($select);
+        return is_array($source) && $source !== [] ? $source : null;
     }
 
     private function createPublicId(): string

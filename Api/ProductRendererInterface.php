@@ -17,7 +17,7 @@ interface ProductRendererInterface
      * @param string $ids Comma-separated product IDs
      * @return string Rendered HTML
      */
-    public function renderProducts(string $ids): string;
+    public function renderProducts(string $ids, ?int $customerGroupId = null): string;
 
     /**
      * Render product cards HTML from a preloaded collection to avoid requerying.

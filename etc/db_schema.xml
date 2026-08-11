@@ -5,6 +5,8 @@
         <column xsi:type="int" name="conversation_id" unsigned="true" nullable="false" identity="true" comment="Conversation ID"/>
         <column xsi:type="int" name="customer_id" unsigned="true" nullable="true" comment="Customer ID"/>
         <column xsi:type="varchar" name="guest_id" nullable="true" length="64" comment="Hashed Guest Session ID"/>
+        <column xsi:type="smallint" name="store_id" unsigned="true" nullable="false" default="0" comment="Owning Store View ID"/>
+        <column xsi:type="smallint" name="website_id" unsigned="true" nullable="false" default="0" comment="Owning Website ID"/>
         <column xsi:type="varchar" name="title" nullable="false" length="255" default="New Chat" comment="Conversation Title"/>
         <column xsi:type="varchar" name="conversation_type" nullable="false" length="16" default="ai" comment="AI Or Support Thread"/>
         <column xsi:type="smallint" name="is_archived" unsigned="true" nullable="false" default="0" comment="Is Archived"/>
@@ -18,6 +20,16 @@
             <column name="updated_at"/>
         </index>
         <index referenceId="AFD_AI_CONV_GUEST_UPDATED_AT" indexType="btree">
+            <column name="guest_id"/>
+            <column name="updated_at"/>
+        </index>
+        <index referenceId="AFD_AI_CONV_STORE_CUSTOMER_UPDATED_AT" indexType="btree">
+            <column name="store_id"/>
+            <column name="customer_id"/>
+            <column name="updated_at"/>
+        </index>
+        <index referenceId="AFD_AI_CONV_STORE_GUEST_UPDATED_AT" indexType="btree">
+            <column name="store_id"/>
             <column name="guest_id"/>
             <column name="updated_at"/>
         </index>
@@ -80,6 +92,8 @@
         <column xsi:type="int" name="message_id" unsigned="true" nullable="true" comment="Source Message ID"/>
         <column xsi:type="int" name="customer_id" unsigned="true" nullable="true" comment="Customer ID"/>
         <column xsi:type="varchar" name="guest_id" nullable="true" length="64" comment="Hashed Guest Session ID"/>
+        <column xsi:type="smallint" name="store_id" unsigned="true" nullable="false" default="0" comment="Owning Store View ID"/>
+        <column xsi:type="smallint" name="website_id" unsigned="true" nullable="false" default="0" comment="Owning Website ID"/>
         <column xsi:type="varchar" name="category" nullable="false" length="32" default="general" comment="Case Category"/>
         <column xsi:type="varchar" name="priority" nullable="false" length="16" default="normal" comment="Case Priority"/>
         <column xsi:type="varchar" name="status" nullable="false" length="24" default="open" comment="Case Status"/>
@@ -113,6 +127,7 @@
                     referenceTable="afd_ai_message" referenceColumn="entity_id" onDelete="SET NULL"/>
         <index referenceId="AFD_AI_CASE_CUSTOMER_CREATED_AT" indexType="btree"><column name="customer_id"/><column name="created_at"/></index>
         <index referenceId="AFD_AI_CASE_GUEST_CREATED_AT" indexType="btree"><column name="guest_id"/><column name="created_at"/></index>
+        <index referenceId="AFD_AI_CASE_STORE_UPDATED_AT" indexType="btree"><column name="store_id"/><column name="website_id"/><column name="updated_at"/></index>
         <index referenceId="AFD_AI_CASE_STATUS_UPDATED_AT" indexType="btree"><column name="status"/><column name="updated_at"/></index>
         <index referenceId="AFD_AI_CASE_EMAIL_UPDATED_AT" indexType="btree"><column name="contact_email_hash"/><column name="updated_at"/></index>
         <index referenceId="AFD_AI_CASE_ADMIN_UNREAD" indexType="btree"><column name="admin_unread_count"/><column name="updated_at"/></index>

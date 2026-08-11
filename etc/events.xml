@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:Event/etc/events.xsd">
+    <event name="catalog_product_save_after">
+        <observer name="afd_ai_invalidate_catalog_on_product_save" instance="Afd\AI\Observer\InvalidateGatewayCatalogCache"/>
+    </event>
+    <event name="catalog_product_delete_after">
+        <observer name="afd_ai_invalidate_catalog_on_product_delete" instance="Afd\AI\Observer\InvalidateGatewayCatalogCache"/>
+    </event>
+    <event name="catalog_category_save_after">
+        <observer name="afd_ai_invalidate_catalog_on_category_save" instance="Afd\AI\Observer\InvalidateGatewayCatalogCache"/>
+    </event>
+    <event name="catalog_product_website_update">
+        <observer name="afd_ai_invalidate_catalog_on_website_update" instance="Afd\AI\Observer\InvalidateGatewayCatalogCache"/>
+    </event>
+    <event name="cataloginventory_stock_item_save_after">
+        <observer name="afd_ai_invalidate_catalog_on_stock_save" instance="Afd\AI\Observer\InvalidateGatewayCatalogCache"/>
+    </event>
+    <event name="catalogrule_after_apply">
+        <observer name="afd_ai_invalidate_catalog_on_rule_apply" instance="Afd\AI\Observer\InvalidateGatewayCatalogCache"/>
+    </event>
+</config>

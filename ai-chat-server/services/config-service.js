@@ -17,6 +17,7 @@ const IMAGE_SIZES = new Set(['1024x1024', '1536x1024', '1024x1536']);
 const IMAGE_QUALITIES = new Set(['low', 'medium', 'high']);
 
 let cachedConfig = null;
+const STORE_CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 function defaultModelForProvider(provider) {
     switch (provider) {
@@ -176,6 +177,29 @@ export function normalizeConfig(config = {}) {
     };
 }
 
+function normalizeConfigSnapshot(config = {}) {
+    const source = config && typeof config === 'object' && !Array.isArray(config) ? config : {};
+    const rawStores = source.stores && typeof source.stores === 'object' && !Array.isArray(source.stores)
+        ? source.stores
+        : {};
+    const stores = {};
+    for (const [storeCode, value] of Object.entries(rawStores)) {
+        if (!STORE_CODE_PATTERN.test(storeCode)) continue;
+        stores[storeCode] = normalizeConfig(value);
+    }
+
+    return {
+        version: 2,
+        default: normalizeConfig(source.default && typeof source.default === 'object' ? source.default : source),
+        stores
+    };
+}
+
+function resolveStoreConfig(snapshot, storeCode = '') {
+    const normalizedStoreCode = String(storeCode || '').trim();
+    return snapshot.stores?.[normalizedStoreCode] || snapshot.default;
+}
+
 function loadConfigFromDisk() {
     if (!fs.existsSync(CONFIG_FILE)) {
         return null;
@@ -183,7 +207,7 @@ function loadConfigFromDisk() {
 
     try {
         const parsed = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
-        return normalizeConfig(unsealConfig(parsed));
+        return normalizeConfigSnapshot(unsealConfig(parsed));
     } catch (error) {
         console.error('Could not read the local AI configuration snapshot:', error.message);
         return null;
@@ -214,22 +238,22 @@ function persistConfigSnapshot(config) {
  * Return the last configuration accepted by the Node service. The service no
  * longer fetches configuration from Magento during a customer chat request.
  */
-export const getAiConfig = async (runtime = null) => {
+export const getAiConfig = async (runtime = null, storeCode = '') => {
     if (runtime) {
         const distributedConfig = await runtime.getConfig();
         if (distributedConfig) {
-            return normalizeConfig(unsealConfig(distributedConfig));
+            return resolveStoreConfig(normalizeConfigSnapshot(unsealConfig(distributedConfig)), storeCode);
         }
     }
 
-    if (cachedConfig) return cachedConfig.value;
+    if (cachedConfig) return resolveStoreConfig(cachedConfig.value, storeCode);
 
-    const config = loadConfigFromDisk() || normalizeConfig({});
+    const config = loadConfigFromDisk() || normalizeConfigSnapshot({});
     cachedConfig = {
         value: config,
         source: fs.existsSync(CONFIG_FILE) ? 'local_snapshot' : 'runtime_environment'
     };
-    return config;
+    return resolveStoreConfig(config, storeCode);
 };
 
 /**
@@ -241,24 +265,25 @@ export const applyPushedConfig = async (config, runtime = null) => {
         throw new Error('Configuration payload must be an object.');
     }
 
-    const requestedProvider = readString(config.provider);
+    const rawDefault = config.default && typeof config.default === 'object' ? config.default : config;
+    const requestedProvider = readString(rawDefault.provider);
     if (!VALID_PROVIDERS.has(requestedProvider)) {
-        throw new Error('Configuration provider is not supported.');
+        throw new Error('Default configuration provider is not supported.');
     }
 
-    const normalized = normalizeConfig({
-        enabled: config.enabled,
-        persist_guest_history: config.persist_guest_history,
-        provider: requestedProvider,
-        model: config.model,
-        api_key: config.api_key,
-        base_url: config.base_url,
-        agent: config.agent,
-        image_generation: config.image_generation,
-        rate_limits: config.rate_limits,
-        capacity: config.capacity,
-        attachments: config.attachments,
-        magento_oauth: config.magento_oauth
+    const rawStores = config.stores && typeof config.stores === 'object' && !Array.isArray(config.stores)
+        ? config.stores
+        : {};
+    for (const [storeCode, storeConfig] of Object.entries(rawStores)) {
+        if (!STORE_CODE_PATTERN.test(storeCode)
+            || !VALID_PROVIDERS.has(readString(storeConfig?.provider))) {
+            throw new Error('Store configuration is invalid.');
+        }
+    }
+
+    const normalized = normalizeConfigSnapshot({
+        default: rawDefault,
+        stores: rawStores
     });
 
     persistConfigSnapshot(normalized);

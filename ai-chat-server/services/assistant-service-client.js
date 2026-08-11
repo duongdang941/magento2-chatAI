@@ -1,11 +1,18 @@
 import axios from 'axios';
 import { createInternalMagentoRequestConfig } from './magento-auth.js';
+import { normalizeCatalogScope } from './catalog-scope.js';
 
 const MAGENTO_URL = process.env.MAGENTO_API_URL || 'http://afd.test';
 
-async function postInternal(path, payload) {
+async function postInternal(path, payload, catalogScope = null) {
     const url = `${MAGENTO_URL}${path}`;
-    const body = JSON.stringify(payload || {});
+    const body = JSON.stringify({
+        ...(payload || {}),
+        // The browser never supplies this field. It comes from the
+        // Magento-signed WebSocket ticket and lets Magento select the same
+        // store view for direct internal endpoints as it does for REST tools.
+        storeCode: normalizeCatalogScope(catalogScope)?.storeCode || ''
+    });
     const response = await axios.post(
         url,
         body,
@@ -16,14 +23,14 @@ async function postInternal(path, payload) {
         : { status: 'error', message: 'Magento returned an invalid response.' };
 }
 
-export function searchStoreKnowledge(query, limit = 5) {
+export function searchStoreKnowledge(query, limit = 5, catalogScope = null) {
     return postInternal('/afd_ai/chat/knowledge', {
         query: String(query || '').trim().slice(0, 160),
         limit: Math.max(1, Math.min(Math.trunc(Number(limit) || 5), 8))
-    });
+    }, catalogScope);
 }
 
-export function createSupportCase(identity, conversationId, args = {}) {
+export function createSupportCase(identity, conversationId, args = {}, catalogScope = identity?.catalogScope || null) {
     const customerId = Number(identity?.customerId) || 0;
     const guestId = customerId > 0 ? '' : String(identity?.guestId || '');
     return postInternal('/afd_ai/chat/support', {
@@ -40,10 +47,10 @@ export function createSupportCase(identity, conversationId, args = {}) {
         context: args.context && typeof args.context === 'object' && !Array.isArray(args.context)
             ? args.context
             : {}
-    });
+    }, catalogScope);
 }
 
-export function listSupportCases(identity) {
+export function listSupportCases(identity, catalogScope = identity?.catalogScope || null) {
     const customerId = Number(identity?.customerId) || 0;
     return postInternal('/afd_ai/chat/support', {
         operation: 'list',
@@ -52,19 +59,19 @@ export function listSupportCases(identity) {
         email: String(identity?.verifiedEmail || '').slice(0, 254),
         verificationToken: String(identity?.verificationToken || '').slice(0, 128),
         verificationSessionId: String(identity?.verificationSessionId || '').slice(0, 128)
-    });
+    }, catalogScope);
 }
 
-export function getSupportConversationState(identity, conversationId) {
+export function getSupportConversationState(identity, conversationId, catalogScope = identity?.catalogScope || null) {
     const customerId = Number(identity?.customerId) || 0;
     return postInternal('/afd_ai/chat/supportState', {
         customerId,
         guestId: customerId > 0 ? '' : String(identity?.guestId || ''),
         conversationId: Math.max(0, Math.trunc(Number(conversationId) || 0))
-    });
+    }, catalogScope);
 }
 
-export function mutateSupportMessage(identity, conversationId, messageId, operation, content = '') {
+export function mutateSupportMessage(identity, conversationId, messageId, operation, content = '', catalogScope = identity?.catalogScope || null) {
     const customerId = Number(identity?.customerId) || 0;
     return postInternal('/afd_ai/chat/supportMessage', {
         customerId,
@@ -73,12 +80,12 @@ export function mutateSupportMessage(identity, conversationId, messageId, operat
         messageId: Math.max(0, Math.trunc(Number(messageId) || 0)),
         operation: operation === 'delete' ? 'delete' : 'edit',
         content: String(content || '').trim().slice(0, 4000)
-    });
+    }, catalogScope);
 }
 
-export function subscribeBackInStock(customerId, sku) {
+export function subscribeBackInStock(customerId, sku, catalogScope = null) {
     return postInternal('/afd_ai/chat/alerts', {
         customerId: Math.max(0, Math.trunc(Number(customerId) || 0)),
         sku: String(sku || '').trim().slice(0, 64)
-    });
+    }, catalogScope);
 }

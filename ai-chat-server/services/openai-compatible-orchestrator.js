@@ -15,7 +15,8 @@ import {
     createToolActivityId,
     emitToolActivity
 } from './tool-activity.js';
-import { createCustomerResponseStreamSanitizer } from './customer-response-sanitizer.js';
+import { createCustomerTurnBuffer } from './customer-turn-buffer.js';
+import { createResponseProgressPulse } from './response-progress-pulse.js';
 import { generateImage } from './image-generation.js';
 import { acquireImageGenerationAdmission } from './image-generation-guard.js';
 import { createToolExecutionBudget, toolBudgetMessage } from './tool-execution-budget.js';
@@ -35,6 +36,7 @@ import {
 } from './catalog-tool-outcome.js';
 import { openAiToolDefinitions } from './tools/tool-registry.js';
 import { buildAgentSystemInstruction } from './agent-system-guidance.js';
+import { pageContextInstruction } from './page-context.js';
 import { executeRegisteredMagentoTool } from './tools/magento-tool-executor.js';
 import { createCatalogQueryContinuity } from './catalog-query-continuity.js';
 
@@ -55,6 +57,7 @@ const configuredProviderStreamTimeout = Number(process.env.AI_PROVIDER_STREAM_TI
 const PROVIDER_STREAM_TIMEOUT_MS = Number.isFinite(configuredProviderStreamTimeout)
     ? Math.max(15000, Math.min(Math.trunc(configuredProviderStreamTimeout), 300000))
     : 120000;
+const PROVISIONAL_TEXT_HOLD_MS = 900;
 
 const systemInstruction = buildAgentSystemInstruction({ extendedTools: true });
 
@@ -110,7 +113,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
     const messages = [
         {
             role: 'system',
-            content: `${systemInstruction}\n\nRUNTIME TOOL BUDGET: Use at most ${maxToolRounds} reasoning rounds and ${agentConfig.max_tool_executions || 15} total tool executions. Blocked duplicate or over-budget calls must not be repeated; finish from verified evidence already returned.\n\n${guestOrderAccessInstruction(options.customerId, options.guestOrderAccess)}`
+            content: `${systemInstruction}\n\nRUNTIME TOOL BUDGET: Use at most ${maxToolRounds} reasoning rounds and ${agentConfig.max_tool_executions || 15} total tool executions. Blocked duplicate or over-budget calls must not be repeated; finish from verified evidence already returned.\n\n${pageContextInstruction(options.pageContext)}\n\n${guestOrderAccessInstruction(options.customerId, options.guestOrderAccess)}`
         },
         ...formatHistory(history),
         {
@@ -131,8 +134,10 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
     let pendingProductPresentation = null;
     let terminalCatalogMessage = '';
     let catalogIdentityResolved = false;
+    const progressPulse = createResponseProgressPulse({ ws, isCancelled });
 
     try {
+        progressPulse.start();
         for (let iteration = 0; iteration < maxToolRounds; iteration += 1) {
             if (isCancelled()) return { cancelled: true };
 
@@ -141,20 +146,40 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 content: '',
                 tool_calls: []
             };
-            let streamedTextThisTurn = false;
-            let sawToolCallDelta = false;
-            const responseSanitizer = createCustomerResponseStreamSanitizer();
+            const customerTurn = createCustomerTurnBuffer();
             const smoothEmitter = createSmoothChunkEmitter({
                 emit: content => ws.send(JSON.stringify({ type: 'chunk', content })),
                 isCancelled
             });
-            const emitCustomerText = (content) => {
-                const safeContent = responseSanitizer.push(content);
-                if (!safeContent) return;
-
-                hasVisibleText = true;
-                streamedTextThisTurn = true;
-                smoothEmitter.push(safeContent);
+            let releaseTimer = null;
+            let provisionalTextWasEmitted = false;
+            let customerTextStreamingEnabled = false;
+            const releaseCustomerText = () => {
+                const customerText = customerTurn.release();
+                if (!customerText) return;
+                provisionalTextWasEmitted = true;
+                smoothEmitter.push(customerText);
+            };
+            const scheduleCustomerTextRelease = () => {
+                if (releaseTimer !== null) return;
+                releaseTimer = setTimeout(() => {
+                    releaseTimer = null;
+                    customerTextStreamingEnabled = true;
+                    releaseCustomerText();
+                }, PROVISIONAL_TEXT_HOLD_MS);
+            };
+            const clearCustomerTextRelease = () => {
+                if (releaseTimer === null) return;
+                clearTimeout(releaseTimer);
+                releaseTimer = null;
+            };
+            const bufferCustomerText = (content) => {
+                customerTurn.push(content);
+                // Tool calls generally arrive together with the first provider
+                // deltas. After this short hold, ordinary answers return to
+                // genuine token streaming instead of a late full-text replay.
+                if (customerTextStreamingEnabled) releaseCustomerText();
+                else scheduleCustomerTextRelease();
             };
             let finishReason = '';
             for (let providerAttempt = 0; providerAttempt < 2; providerAttempt += 1) {
@@ -187,19 +212,16 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                             if (isCancelled()) return;
 
                             if (Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0) {
-                                sawToolCallDelta = true;
                                 collectToolCalls(assistantMessage.tool_calls, delta.tool_calls);
                             }
 
                             if (typeof delta.content === 'string' && delta.content.length > 0) {
                                 assistantMessage.content += delta.content;
-                                // Stream immediately for responsive progress. If the
-                                // same turn later becomes a tool call, this temporary
-                                // narration is explicitly discarded before results
-                                // or a final customer-facing answer are shown.
-                                if (!sawToolCallDelta) {
-                                    emitCustomerText(delta.content);
-                                }
+                                // Tool calls may arrive after normal text deltas. Hold
+                                // this turn until its finish reason is known so the UI
+                                // never hides Thinking, shows temporary narration, then
+                                // removes it again when a tool is selected.
+                                bufferCustomerText(delta.content);
                             }
                         },
                         isCancelled
@@ -239,25 +261,26 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             }
 
             if (toolCalls.length === 0) {
-                const safeRemainingText = responseSanitizer.flush();
-                if (safeRemainingText) {
-                    hasVisibleText = true;
-                    streamedTextThisTurn = true;
-                    smoothEmitter.push(safeRemainingText);
+                clearCustomerTextRelease();
+                releaseCustomerText();
+                const finalCustomerText = customerTurn.commit();
+                if (finalCustomerText) {
+                    smoothEmitter.push(finalCustomerText);
                 }
+                if (provisionalTextWasEmitted || finalCustomerText) hasVisibleText = true;
                 await smoothEmitter.drain();
                 break;
             }
 
             // A provider occasionally writes “I will check…” before it emits
-            // a tool call. That text is transient progress, never a shopper
-            // response: remove it from the browser and storage before moving
-            // to the next retrieval step.
-            responseSanitizer.discard();
-            await smoothEmitter.drain();
-            if (streamedTextThisTurn) {
+            // a tool call. Usually it is still held locally. If it already
+            // streamed, retract just that provisional narration before the
+            // tool timeline starts.
+            clearCustomerTextRelease();
+            customerTurn.discard();
+            if (provisionalTextWasEmitted) {
+                smoothEmitter.discard();
                 ws.send(JSON.stringify({ type: 'discard_thinking_text' }));
-                hasVisibleText = false;
             }
 
             let stopAfterToolBatch = false;
@@ -325,7 +348,8 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                         isCustomer: Boolean(options.customerId),
                         shopperMessage: currentUserMessage.text || currentUserMessage.content || ''
                     },
-                    toolArgs
+                    toolArgs,
+                    options.catalogScope || null
                 );
                 lastToolOutcome = toolMessage.outcome;
                 catalogQueryContinuity.observe(toolName, toolArgs, toolMessage.outcome?.content);
@@ -408,6 +432,8 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         console.error(`[${label} Adapter]`, summarizeError(error));
         ws.send(JSON.stringify({ type: 'error', content: formatProviderError(error, label) }));
         return { cancelled: false, error };
+    } finally {
+        progressPulse.stop();
     }
 };
 
@@ -649,7 +675,8 @@ async function executeToolCall(
     conversationId = null,
     guestId = null,
     nativeSearchConfig = {},
-    preparedArgs = null
+    preparedArgs = null,
+    catalogScope = null
 ) {
     const name = toolCall.function?.name || '';
     const args = preparedArgs && typeof preparedArgs === 'object'
@@ -691,6 +718,7 @@ async function executeToolCall(
                 supportEmailAccess,
                 conversationId,
                 guestId,
+                catalogScope,
                 shopperMessage: nativeSearchConfig.shopperMessage || ''
             });
     } catch (error) {

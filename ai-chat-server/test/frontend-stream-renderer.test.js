@@ -28,16 +28,22 @@ function createRendererMethods() {
     });
 }
 
-test('keeps raw streamed text append-only until one final markdown pass', () => {
+test('renders streaming text through the Markdown renderer and finalizes it once complete', () => {
     const methods = createRendererMethods();
     const part = methods.createStreamingTextPart('Hello');
 
     methods.appendStreamingText.call(methods, part, ' world');
     assert.equal(part.raw, 'Hello world');
-    assert.equal(part.html, '');
+    assert.equal(part.html, 'stream:Hello world');
     assert.equal(part.streaming, true);
+    assert.equal('mountStreamingMarkdown' in methods, false);
 
     methods.finalizeStreamingText.call(methods, part);
     assert.equal(part.html, 'final:Hello world');
     assert.equal(part.streaming, false);
+
+    const spacedPart = methods.createStreamingTextPart('First paragraph\n \n\n\nSecond paragraph\n\n\n');
+    methods.finalizeStreamingText.call(methods, spacedPart);
+    assert.equal(spacedPart.raw, 'First paragraph\n \n\n\nSecond paragraph\n\n\n');
+    assert.equal(spacedPart.html, 'final:First paragraph\n \n\n\nSecond paragraph\n\n\n');
 });

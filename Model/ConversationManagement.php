@@ -14,6 +14,7 @@ use Magento\Framework\Api\SortOrderBuilder;
 use Afd\AI\Model\Security\NodeRequestAuthorizer;
 use Afd\AI\Model\Support\SupportInboxService;
 use Magento\Framework\App\ResourceConnection;
+use Magento\Store\Model\StoreManagerInterface;
 use Psr\Log\LoggerInterface;
 
 class ConversationManagement implements ConversationManagementInterface
@@ -29,6 +30,7 @@ class ConversationManagement implements ConversationManagementInterface
     private ChatAttachmentStorage $chatAttachmentStorage;
     private NodeRequestAuthorizer $nodeRequestAuthorizer;
     private SupportInboxService $supportInboxService;
+    private StoreManagerInterface $storeManager;
     private $logger;
 
     public function __construct(
@@ -43,6 +45,7 @@ class ConversationManagement implements ConversationManagementInterface
         ChatAttachmentStorage $chatAttachmentStorage,
         NodeRequestAuthorizer $nodeRequestAuthorizer,
         SupportInboxService $supportInboxService,
+        StoreManagerInterface $storeManager,
         LoggerInterface $logger
     ) {
         $this->conversationRepository = $conversationRepository;
@@ -56,6 +59,7 @@ class ConversationManagement implements ConversationManagementInterface
         $this->chatAttachmentStorage = $chatAttachmentStorage;
         $this->nodeRequestAuthorizer = $nodeRequestAuthorizer;
         $this->supportInboxService = $supportInboxService;
+        $this->storeManager = $storeManager;
         $this->logger = $logger;
     }
 
@@ -71,10 +75,13 @@ class ConversationManagement implements ConversationManagementInterface
     public function createConversation(int $customerId, string $title): int
     {
         $this->nodeRequestAuthorizer->assertAuthorized();
+        $scope = $this->currentStoreScope();
 
         try {
             $conversation = $this->conversationFactory->create();
             $conversation->setCustomerId($customerId);
+            $conversation->setData('store_id', $scope['store_id']);
+            $conversation->setData('website_id', $scope['website_id']);
             $conversation->setTitle(mb_substr($title, 0, 255));
             $this->conversationRepository->save($conversation);
             return (int)$conversation->getConversationId();
@@ -93,6 +100,7 @@ class ConversationManagement implements ConversationManagementInterface
         int $currentPage = 1
     ): array {
         $this->nodeRequestAuthorizer->assertAuthorized();
+        $scope = $this->currentStoreScope();
 
         $pageSize = max(1, min($pageSize, 20));
         $currentPage = max(1, $currentPage);
@@ -104,6 +112,8 @@ class ConversationManagement implements ConversationManagementInterface
 
         $searchCriteria = $this->searchCriteriaBuilder
             ->addFilter('customer_id', $customerId)
+            ->addFilter('store_id', $scope['store_id'])
+            ->addFilter('website_id', $scope['website_id'])
             ->addFilter('is_archived', 0)
             ->addSortOrder($sortOrder)
             ->setPageSize($pageSize)
@@ -148,7 +158,7 @@ class ConversationManagement implements ConversationManagementInterface
             return [];
         }
 
-        if ((int)$conversation->getCustomerId() !== $customerId) {
+        if ((int)$conversation->getCustomerId() !== $customerId || !$this->matchesCurrentStoreScope($conversation)) {
             return [];
         }
 
@@ -171,6 +181,10 @@ class ConversationManagement implements ConversationManagementInterface
         int $pageSize = 50
     ): array {
         $this->nodeRequestAuthorizer->assertAuthorized();
+
+        if (!$this->getCustomerOwnedConversation($conversationId, $customerId)) {
+            return ['messages' => [], 'has_more' => false, 'next_before_message_id' => null];
+        }
 
         return $this->messagePageLoader->load(
             $conversationId,
@@ -199,7 +213,7 @@ class ConversationManagement implements ConversationManagementInterface
         try {
             // Verify conversation ownership
             $conversation = $this->conversationRepository->getById($conversationId);
-            if ((int)$conversation->getCustomerId() !== $customerId) {
+            if ((int)$conversation->getCustomerId() !== $customerId || !$this->matchesCurrentStoreScope($conversation)) {
                 throw new \Magento\Framework\Exception\LocalizedException(__('Unauthorized'));
             }
 
@@ -237,7 +251,7 @@ class ConversationManagement implements ConversationManagementInterface
 
         try {
             $conversation = $this->conversationRepository->getById($conversationId);
-            if ((int)$conversation->getCustomerId() !== $customerId) {
+            if ((int)$conversation->getCustomerId() !== $customerId || !$this->matchesCurrentStoreScope($conversation)) {
                 return false;
             }
 
@@ -264,7 +278,7 @@ class ConversationManagement implements ConversationManagementInterface
 
         try {
             $conversation = $this->conversationRepository->getById($conversationId);
-            if ((int)$conversation->getCustomerId() !== $customerId) {
+            if ((int)$conversation->getCustomerId() !== $customerId || !$this->matchesCurrentStoreScope($conversation)) {
                 return false;
             }
 
@@ -293,6 +307,9 @@ class ConversationManagement implements ConversationManagementInterface
 
         try {
             $conversation = $this->conversationRepository->getById($conversationId);
+            if (!$this->matchesCurrentStoreScope($conversation)) {
+                return false;
+            }
             $this->conversationRepository->save($conversation);
             return true;
         } catch (\Exception $e) {
@@ -309,7 +326,7 @@ class ConversationManagement implements ConversationManagementInterface
 
         try {
             $conversation = $this->conversationRepository->getById($conversationId);
-            if ((int)$conversation->getCustomerId() !== $customerId) {
+            if ((int)$conversation->getCustomerId() !== $customerId || !$this->matchesCurrentStoreScope($conversation)) {
                 return false;
             }
             $conversation->setTitle(mb_substr($title, 0, 255));
@@ -330,6 +347,9 @@ class ConversationManagement implements ConversationManagementInterface
             $conversation = $this->conversationFactory->create();
             $conversation->setCustomerId(null);
             $conversation->setGuestId($guestId);
+            $scope = $this->currentStoreScope();
+            $conversation->setData('store_id', $scope['store_id']);
+            $conversation->setData('website_id', $scope['website_id']);
             $conversation->setTitle(mb_substr($title, 0, 255));
             $this->conversationRepository->save($conversation);
             return (int)$conversation->getConversationId();
@@ -342,6 +362,7 @@ class ConversationManagement implements ConversationManagementInterface
     public function listGuestConversations(string $guestId, int $pageSize = 20, int $currentPage = 1): array
     {
         $this->nodeRequestAuthorizer->assertAuthorized();
+        $scope = $this->currentStoreScope();
         $guestId = $this->normalizeGuestId($guestId);
         $pageSize = max(1, min($pageSize, 20));
         $currentPage = max(1, $currentPage);
@@ -352,6 +373,8 @@ class ConversationManagement implements ConversationManagementInterface
             ->create();
         $criteria = $this->searchCriteriaBuilder
             ->addFilter('guest_id', $guestId)
+            ->addFilter('store_id', $scope['store_id'])
+            ->addFilter('website_id', $scope['website_id'])
             ->addFilter('conversation_type', 'ai')
             ->addFilter('is_archived', 0)
             ->addSortOrder($sortOrder)
@@ -382,6 +405,9 @@ class ConversationManagement implements ConversationManagementInterface
         int $pageSize = 50
     ): array {
         $this->nodeRequestAuthorizer->assertAuthorized();
+        if (!$this->getGuestOwnedConversation($conversationId, $guestId)) {
+            return ['messages' => [], 'has_more' => false, 'next_before_message_id' => null];
+        }
         $page = $this->messagePageLoader->loadGuest(
             $conversationId,
             $this->normalizeGuestId($guestId),
@@ -400,6 +426,7 @@ class ConversationManagement implements ConversationManagementInterface
     ): int {
         $this->nodeRequestAuthorizer->assertAuthorized();
         $guestId = $this->normalizeGuestId($guestId);
+        $scope = $this->currentStoreScope();
         $conversation = $this->getGuestOwnedConversation($conversationId, $guestId);
         if (!$conversation) {
             throw new \Magento\Framework\Exception\LocalizedException(__('Unauthorized'));
@@ -472,6 +499,7 @@ class ConversationManagement implements ConversationManagementInterface
     public function deleteGuestConversations(string $guestId): bool
     {
         $this->nodeRequestAuthorizer->assertAuthorized();
+        $scope = $this->currentStoreScope();
         $guestId = $this->normalizeGuestId($guestId);
 
         try {
@@ -482,6 +510,8 @@ class ConversationManagement implements ConversationManagementInterface
                 $connection->select()
                     ->from($conversationTable, ['conversation_id'])
                     ->where('guest_id = ?', $guestId)
+                    ->where('store_id = ?', $scope['store_id'])
+                    ->where('website_id = ?', $scope['website_id'])
                     ->where('conversation_type = ?', 'ai')
             );
 
@@ -566,7 +596,10 @@ class ConversationManagement implements ConversationManagementInterface
         try {
             $conversation = $this->conversationRepository->getById($conversationId);
             $guestId = $this->normalizeGuestId($guestId);
-            return hash_equals((string)$conversation->getGuestId(), $guestId) ? $conversation : null;
+            return hash_equals((string)$conversation->getGuestId(), $guestId)
+                && $this->matchesCurrentStoreScope($conversation)
+                ? $conversation
+                : null;
         } catch (\Exception $exception) {
             return null;
         }
@@ -581,6 +614,36 @@ class ConversationManagement implements ConversationManagementInterface
             'created_at' => (string)$conversation->getCreatedAt(),
             'updated_at' => (string)$conversation->getUpdatedAt()
         ];
+    }
+
+    private function getCustomerOwnedConversation(int $conversationId, int $customerId)
+    {
+        try {
+            $conversation = $this->conversationRepository->getById($conversationId);
+            return (int)$conversation->getCustomerId() === $customerId
+                && $this->matchesCurrentStoreScope($conversation)
+                ? $conversation
+                : null;
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /** @return array{store_id:int,website_id:int} */
+    private function currentStoreScope(): array
+    {
+        $store = $this->storeManager->getStore();
+        return [
+            'store_id' => (int)$store->getId(),
+            'website_id' => (int)$store->getWebsiteId(),
+        ];
+    }
+
+    private function matchesCurrentStoreScope($conversation): bool
+    {
+        $scope = $this->currentStoreScope();
+        return (int)$conversation->getData('store_id') === $scope['store_id']
+            && (int)$conversation->getData('website_id') === $scope['website_id'];
     }
 
     private function closeSupportConversation($conversation): bool

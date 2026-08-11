@@ -6,18 +6,22 @@ namespace Afd\AI\Block;
 use Magento\Framework\View\Element\Template;
 use Magento\Framework\View\Element\Template\Context;
 use Magento\Customer\Model\Session as CustomerSession;
+use Afd\AI\Model\Config\Config as AiConfig;
 
 class ChatWidget extends Template
 {
     private CustomerSession $customerSession;
+    private AiConfig $aiConfig;
 
     public function __construct(
         Context $context,
         CustomerSession $customerSession,
+        AiConfig $aiConfig,
         array $data = []
     ) {
         parent::__construct($context, $data);
         $this->customerSession = $customerSession;
+        $this->aiConfig = $aiConfig;
     }
 
     /**
@@ -25,7 +29,7 @@ class ChatWidget extends Template
      */
     public function isEnabled(): bool
     {
-        return $this->_scopeConfig->isSetFlag('afd_ai/general/enabled');
+        return $this->aiConfig->isEnabled();
     }
 
     /**
@@ -41,7 +45,7 @@ class ChatWidget extends Template
      */
     public function getChatServerUrl(): string
     {
-        return $this->_scopeConfig->getValue('afd_ai/general/chat_server_url') ?: 'ws://127.0.0.1:3001';
+        return $this->aiConfig->getChatServerUrl() ?: 'ws://127.0.0.1:3001';
     }
 
     /**

@@ -114,6 +114,16 @@ export function createSmoothChunkEmitter({
                 drainWaiters.push({ resolve, reject });
                 schedule();
             });
+        },
+
+        /** Drop provisional prose if the provider changes to a tool call. */
+        discard() {
+            queue = '';
+            if (timer !== null) {
+                clearTimeout(timer);
+                timer = null;
+            }
+            settleDrains();
         }
     };
 }

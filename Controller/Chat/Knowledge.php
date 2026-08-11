@@ -5,6 +5,7 @@ namespace Afd\AI\Controller\Chat;
 
 use Afd\AI\Model\Knowledge\StoreKnowledgeSearch;
 use Afd\AI\Model\Security\NodeRequestAuthorizer;
+use Afd\AI\Model\Store\InternalStoreContext;
 use Magento\Framework\App\Action\HttpPostActionInterface;
 use Magento\Framework\App\CsrfAwareActionInterface;
 use Magento\Framework\App\Request\Http as HttpRequest;
@@ -20,7 +21,8 @@ class Knowledge implements HttpPostActionInterface, CsrfAwareActionInterface
         private readonly HttpRequest $request,
         private readonly ResultFactory $resultFactory,
         private readonly NodeRequestAuthorizer $authorizer,
-        private readonly StoreKnowledgeSearch $knowledgeSearch
+        private readonly StoreKnowledgeSearch $knowledgeSearch,
+        private readonly InternalStoreContext $storeContext
     ) {
     }
 
@@ -34,9 +36,12 @@ class Knowledge implements HttpPostActionInterface, CsrfAwareActionInterface
         try {
             $this->authorizer->assertAuthorized();
             $payload = json_decode($this->request->getContent(), true, 16, JSON_THROW_ON_ERROR);
-            return $result->setData($this->knowledgeSearch->search(
-                (string)($payload['query'] ?? ''),
-                (int)($payload['limit'] ?? 5)
+            return $result->setData($this->storeContext->execute(
+                (string)($payload['storeCode'] ?? ''),
+                fn (): array => $this->knowledgeSearch->search(
+                    (string)($payload['query'] ?? ''),
+                    (int)($payload['limit'] ?? 5)
+                )
             ));
         } catch (AuthorizationException) {
             return $result->setHttpResponseCode(403)->setData(['status' => 'error', 'message' => 'The knowledge request could not be verified.']);

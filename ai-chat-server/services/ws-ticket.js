@@ -1,4 +1,6 @@
 import crypto from 'node:crypto';
+import { normalizeCatalogScope } from './catalog-scope.js';
+import { normalizePageContext } from './page-context.js';
 
 const TOKEN_AUDIENCE = 'afd-ai-websocket';
 const MAX_CLOCK_SKEW_SECONDS = 15;
@@ -99,6 +101,7 @@ export function verifyWebSocketTicket(ticket, secret = process.env.AI_WS_TICKET_
             sessionId: String(claims.sid),
             sessionCookie: '',
             ticketId: String(claims.jti),
+            expiresAt: Number(claims.exp) * 1000,
             role: 'support_admin',
             source: 'ticket'
         };
@@ -109,6 +112,8 @@ export function verifyWebSocketTicket(ticket, secret = process.env.AI_WS_TICKET_
     }
 
     const customerId = Number(claims.sub || 0);
+    const catalogScope = normalizeCatalogScope(claims.catalog_scope);
+    const pageContext = normalizePageContext(claims.page_context);
     const checkoutSessionId = decryptCheckoutSession(claims.sct, secret);
     const checkoutSessionName = String(claims.scn || '').trim();
     if (!checkoutSessionId || !/^[A-Za-z0-9_-]{1,80}$/.test(checkoutSessionName)) {
@@ -120,8 +125,11 @@ export function verifyWebSocketTicket(ticket, secret = process.env.AI_WS_TICKET_
         sessionId: String(claims.sid),
         sessionCookie: `${checkoutSessionName}=${encodeURIComponent(checkoutSessionId)}`,
         ticketId: String(claims.jti),
+        expiresAt: Number(claims.exp) * 1000,
         role: 'customer',
-        source: 'ticket'
+        source: 'ticket',
+        ...(catalogScope ? { catalogScope } : {}),
+        ...(pageContext ? { pageContext } : {})
     };
 }
 

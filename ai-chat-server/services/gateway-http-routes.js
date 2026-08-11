@@ -39,6 +39,7 @@ export function registerGatewayHttpRoutes({
     broadcastSupportMessage = () => 0,
     broadcastSupportMutation = () => 0,
     broadcastSupportMode = () => 0,
+    revokeSession = () => 0,
     metricsToken = process.env.AI_METRICS_TOKEN || '',
     syncSecret = process.env.AI_NODE_SYNC_SECRET || ''
 }) {
@@ -88,7 +89,7 @@ export function registerGatewayHttpRoutes({
         }
 
         try {
-            if (req.body?.version !== 1 || !req.body?.sync_id) {
+            if (![1, 2].includes(Number(req.body?.version)) || !req.body?.sync_id) {
                 res.status(400).json({ status: 'error', message: 'Invalid configuration sync payload.' });
                 return;
             }
@@ -100,13 +101,15 @@ export function registerGatewayHttpRoutes({
                 return;
             }
 
-            const config = await applyPushedConfig(req.body.config, runtime);
+            const snapshot = await applyPushedConfig(req.body.config, runtime);
+            const config = snapshot.default;
             res.json({
                 status: 'ok',
                 message: 'Node accepted the configuration.',
                 sync_id: syncId,
                 provider: config.provider,
                 model: config.model,
+                store_count: Object.keys(snapshot.stores || {}).length,
                 applied_at: new Date().toISOString()
             });
         } catch (error) {
@@ -115,6 +118,52 @@ export function registerGatewayHttpRoutes({
                 message: error.message || 'Could not apply configuration.'
             });
         }
+    });
+
+    app.post('/internal/session-revoke', async (req, res) => {
+        if (!verifyConfigPush(req, syncSecret)) {
+            res.status(401).json({ status: 'error', message: 'Invalid session revocation signature.' });
+            return;
+        }
+
+        const payload = req.body || {};
+        const eventId = String(payload.event_id || '');
+        const sessionHash = String(payload.session_hash || '').toLowerCase();
+        const customerId = Math.max(0, Math.trunc(Number(payload.customer_id) || 0));
+        if (payload.version !== 1
+            || !/^[a-f0-9]{32}$/i.test(eventId)
+            || !/^[a-f0-9]{64}$/.test(sessionHash)) {
+            res.status(400).json({ status: 'error', message: 'Invalid session revocation payload.' });
+            return;
+        }
+        if (!await runtime.claimOnce('session-revoke', eventId, CONFIG_SYNC_TTL_MS)) {
+            res.status(409).json({ status: 'error', message: 'Session revocation request was already used.' });
+            return;
+        }
+
+        const closed = await Promise.resolve(revokeSession({ sessionHash, customerId }));
+        res.json({ status: 'ok', event_id: eventId, closed: Math.max(0, Number(closed) || 0) });
+    });
+
+    app.post('/internal/catalog-invalidate', async (req, res) => {
+        if (!verifyConfigPush(req, syncSecret)) {
+            res.status(401).json({ status: 'error', message: 'Invalid catalogue invalidation signature.' });
+            return;
+        }
+        const payload = req.body || {};
+        const eventId = String(payload.event_id || '');
+        if (payload.version !== 1 || !/^[a-f0-9]{32}$/i.test(eventId)) {
+            res.status(400).json({ status: 'error', message: 'Invalid catalogue invalidation payload.' });
+            return;
+        }
+        if (!await runtime.claimOnce('catalog-invalidate', eventId, CONFIG_SYNC_TTL_MS)) {
+            res.status(409).json({ status: 'error', message: 'Catalogue invalidation request was already used.' });
+            return;
+        }
+        const version = typeof runtime.bumpCacheVersion === 'function'
+            ? await runtime.bumpCacheVersion('catalog')
+            : 0;
+        res.json({ status: 'ok', event_id: eventId, catalog_version: version });
     });
 
     app.post('/internal/support-message', async (req, res) => {

@@ -93,6 +93,7 @@ export class GatewayRuntime {
         this.memorySingleFlight = new Map();
         this.memoryLocks = new Map();
         this.memoryConfig = null;
+        this.memoryVersions = new Map();
     }
 
     async connect() {
@@ -630,6 +631,26 @@ export class GatewayRuntime {
             return;
         }
         this.memoryConfig = config;
+    }
+
+    async getCacheVersion(namespace) {
+        const name = String(namespace || 'default').replace(/[^a-z0-9:_-]/gi, '_').slice(0, 48) || 'default';
+        const key = `${PREFIX}:version:${name}`;
+        if (this.mode === 'redis') {
+            return Number(await this.redis.get(key)) || 0;
+        }
+        return Number(this.memoryVersions.get(key)) || 0;
+    }
+
+    async bumpCacheVersion(namespace) {
+        const name = String(namespace || 'default').replace(/[^a-z0-9:_-]/gi, '_').slice(0, 48) || 'default';
+        const key = `${PREFIX}:version:${name}`;
+        if (this.mode === 'redis') {
+            return Number(await this.redis.incr(key)) || 0;
+        }
+        const next = (Number(this.memoryVersions.get(key)) || 0) + 1;
+        this.memoryVersions.set(key, next);
+        return next;
     }
 }
 

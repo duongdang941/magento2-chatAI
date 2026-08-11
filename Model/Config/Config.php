@@ -10,6 +10,7 @@ class Config
     const XML_PATH_ENABLED = 'afd_ai/general/enabled';
     const XML_PATH_PERSIST_GUEST_HISTORY = 'afd_ai/general/persist_guest_history';
     const XML_PATH_CHAT_SERVER_URL = 'afd_ai/general/chat_server_url';
+    const XML_PATH_EXPOSE_COUPON_CODES = 'afd_ai/general/expose_coupon_codes';
     const XML_PATH_PROVIDER = 'afd_ai/general/provider';
     
     const XML_PATH_GEMINI_API_KEY = 'afd_ai/general/gemini_api_key';
@@ -113,6 +114,20 @@ class Config
     public function getChatServerUrl($storeId = null)
     {
         return $this->scopeConfig->getValue(self::XML_PATH_CHAT_SERVER_URL, ScopeInterface::SCOPE_STORE, $storeId);
+    }
+
+    /**
+     * Coupon codes can be partner-, campaign- or one-time-only data. Keep
+     * them hidden from the AI unless a merchant deliberately enables this for
+     * the current store view.
+     */
+    public function canExposeCouponCodes($storeId = null): bool
+    {
+        return $this->scopeConfig->isSetFlag(
+            self::XML_PATH_EXPOSE_COUPON_CODES,
+            ScopeInterface::SCOPE_STORE,
+            $storeId
+        );
     }
 
     public function getProvider($storeId = null)

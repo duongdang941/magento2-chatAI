@@ -20,7 +20,12 @@ import {
 } from '../customer-order-tool-arguments.js';
 import { hashKey } from '../gateway-runtime.js';
 import { guestOrderAction } from '../guest-order-client.js';
-import { createMagentoRequestConfig } from '../magento-auth.js';
+import { createInternalMagentoRequestConfig, createMagentoRequestConfig } from '../magento-auth.js';
+import {
+    catalogRestUrl,
+    catalogScopeCacheIdentity,
+    catalogScopeRequestParams
+} from '../catalog-scope.js';
 
 const MAGENTO_URL = process.env.MAGENTO_API_URL || 'http://afd.test';
 
@@ -39,7 +44,8 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
         supportEmailAccess = null,
         conversationId = null,
         guestId = null,
-        shopperMessage = ''
+        shopperMessage = '',
+        catalogScope = null
     } = context;
 
     try {
@@ -51,24 +57,20 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
                     DEFAULT_CATALOG_PAGE_SIZE,
                     shopperMessage
                 );
-                const url = `${MAGENTO_URL}/rest/V1/afd-ai/products/search`;
-                return cachedMagentoRead(runtime, 'catalog-search', { params, token }, 60000, async () => {
-                    const response = await axios.get(url, {
-                        ...magentoRequest('GET', url, { signParams: params, magentoOauth }),
-                        params
-                    });
+                Object.assign(params, catalogScopeRequestParams(catalogScope, customerId));
+                const url = catalogRestUrl(MAGENTO_URL, 'afd-ai/products/search', catalogScope);
+                return cachedMagentoRead(runtime, 'catalog-search', { params, token, catalogScope, customerId }, 60000, async () => {
+                    const response = await secureMagentoGet(url, params, magentoOauth);
                     return normalizeMagentoToolResponse(response.data);
                 });
             }
 
             case 'getProductAvailability': {
                 const params = normalizeAvailabilityArguments(args);
-                const url = `${MAGENTO_URL}/rest/V1/afd-ai/products/availability`;
-                return cachedMagentoRead(runtime, 'catalog-availability', { params, token }, 15000, async () => {
-                    const response = await axios.get(url, {
-                        ...magentoRequest('GET', url, { signParams: params, magentoOauth }),
-                        params
-                    });
+                Object.assign(params, catalogScopeRequestParams(catalogScope, customerId));
+                const url = catalogRestUrl(MAGENTO_URL, 'afd-ai/products/availability', catalogScope);
+                return cachedMagentoRead(runtime, 'catalog-availability', { params, token, catalogScope, customerId }, 15000, async () => {
+                    const response = await secureMagentoGet(url, params, magentoOauth);
                     return normalizeMagentoToolResponse(response.data);
                 });
             }
@@ -76,22 +78,21 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
             case 'compareProducts': {
                 const params = {
                     sku1: String(args.sku1 || '').trim().slice(0, 64),
-                    sku2: String(args.sku2 || '').trim().slice(0, 64)
+                    sku2: String(args.sku2 || '').trim().slice(0, 64),
+                    ...catalogScopeRequestParams(catalogScope, customerId)
                 };
                 if (!params.sku1 || !params.sku2) {
                     return actionRequired('missing_skus', 'Choose two products to compare.');
                 }
-                const url = `${MAGENTO_URL}/rest/V1/afd-ai/products/compare`;
-                const response = await axios.get(url, {
-                    ...magentoRequest('GET', url, { signParams: params, magentoOauth }),
-                    params
-                });
+                const url = catalogRestUrl(MAGENTO_URL, 'afd-ai/products/compare', catalogScope);
+                const response = await secureMagentoGet(url, params, magentoOauth);
                 return normalizeMagentoToolResponse(response.data);
             }
 
             case 'listCategories': {
-                const url = `${MAGENTO_URL}/rest/V1/afd-ai/categories`;
-                const response = await axios.get(url, magentoRequest('GET', url, { magentoOauth }));
+                const params = catalogScopeRequestParams(catalogScope, customerId);
+                const url = catalogRestUrl(MAGENTO_URL, 'afd-ai/categories', catalogScope);
+                const response = await secureMagentoGet(url, params, magentoOauth);
                 return normalizeMagentoToolResponse(response.data);
             }
 
@@ -192,7 +193,7 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
             }
 
             case 'searchStoreKnowledge':
-                return searchStoreKnowledge(args.query, args.limit);
+                return searchStoreKnowledge(args.query, args.limit, catalogScope);
 
             case 'handoffToHuman':
                 if (!supportEmailAccess?.email || !supportEmailAccess?.token || !supportEmailAccess?.sessionId) {
@@ -203,11 +204,19 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
                     guestId,
                     verifiedEmail: supportEmailAccess.email,
                     verificationToken: supportEmailAccess.token,
-                    verificationSessionId: supportEmailAccess.sessionId
-                });
+                    verificationSessionId: supportEmailAccess.sessionId,
+                    catalogScope
+                }, catalogScope);
 
             case 'subscribeBackInStock':
-                return subscribeBackInStock(customerId, args.sku);
+                return subscribeBackInStock(customerId, args.sku, catalogScope);
+
+            case 'getActiveCoupons': {
+                const params = catalogScopeRequestParams(catalogScope, customerId);
+                const url = catalogRestUrl(MAGENTO_URL, 'afd-ai/coupons', catalogScope);
+                const response = await secureMagentoGet(url, params, magentoOauth);
+                return normalizeMagentoToolResponse(response.data);
+            }
 
             default:
                 return { status: 'error', reason: 'unknown_tool', message: 'Tool is not registered.' };
@@ -235,8 +244,16 @@ function magentoRequest(method, url, options = {}) {
 }
 
 async function cachedMagentoRead(runtime, namespace, identity, ttlMs, loader) {
+    // A logged-in shopper can change group or be disabled between WebSocket
+    // messages. Do not serve an old catalogue cache entry before Magento has
+    // revalidated that customer's live group.
+    if (Number(identity.customerId) > 0) return loader();
     if (!runtime || typeof runtime.getOrSetJsonCache !== 'function') return loader();
-    const scope = identity.token ? `customer:${hashKey(identity.token)}` : 'guest';
+    const scope = {
+        shopper: identity.token ? `customer:${hashKey(identity.token)}` : 'guest',
+        catalog: catalogScopeCacheIdentity(identity.catalogScope),
+        catalog_version: await runtime.getCacheVersion?.('catalog') || 0
+    };
     const cached = await runtime.getOrSetJsonCache(namespace, stableJson({
         scope,
         params: identity.params || {}
@@ -246,6 +263,30 @@ async function cachedMagentoRead(runtime, namespace, identity, ttlMs, loader) {
         waitMs: Math.min(20000, ttlMs + 2000)
     }, loader);
     return cached.value;
+}
+
+async function secureMagentoGet(url, params, magentoOauth) {
+    const requestUrl = appendQuery(url, params);
+    const oauth = magentoRequest('GET', requestUrl, {
+        signParams: {},
+        magentoOauth
+    });
+    const internal = createInternalMagentoRequestConfig('GET', requestUrl, '', { timeout: 20000 });
+
+    return axios.get(requestUrl, {
+        ...oauth,
+        ...internal,
+        headers: { ...oauth.headers, ...internal.headers }
+    });
+}
+
+function appendQuery(url, params = {}) {
+    const requestUrl = new URL(url);
+    for (const [key, value] of Object.entries(params)) {
+        if (value === null || value === undefined) continue;
+        requestUrl.searchParams.set(key, String(value));
+    }
+    return requestUrl.toString();
 }
 
 function stableJson(value) {

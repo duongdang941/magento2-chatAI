@@ -67,6 +67,12 @@
                                             <div class="afd-ai-chat__swatches" role="group" aria-label="Accent presets">
                                                 <button type="button"
                                                         class="afd-ai-chat__swatch"
+                                                        style="--afd-chat-swatch: #004272"
+                                                        :class="{ 'afd-ai-chat__swatch--active': uiSettings.accent === '#004272' }"
+                                                        @click="setUiSetting('accent', '#004272')"
+                                                        aria-label="Brand blue"></button>
+                                                <button type="button"
+                                                        class="afd-ai-chat__swatch"
                                                         style="--afd-chat-swatch: #c32654"
                                                         :class="{ 'afd-ai-chat__swatch--active': uiSettings.accent === '#c32654' }"
                                                         @click="setUiSetting('accent', '#c32654')"

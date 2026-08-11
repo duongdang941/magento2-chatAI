@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace Afd\AI\Controller\Chat;
 
 use Afd\AI\Model\Security\NodeRequestAuthorizer;
+use Afd\AI\Model\Store\InternalStoreContext;
 use Afd\AI\Model\Support\SupportTakeoverService;
 use Magento\Framework\App\Action\HttpPostActionInterface;
 use Magento\Framework\App\CsrfAwareActionInterface;
@@ -18,7 +19,8 @@ class SupportState implements HttpPostActionInterface, CsrfAwareActionInterface
         private readonly HttpRequest $request,
         private readonly ResultFactory $resultFactory,
         private readonly NodeRequestAuthorizer $authorizer,
-        private readonly SupportTakeoverService $takeoverService
+        private readonly SupportTakeoverService $takeoverService,
+        private readonly InternalStoreContext $storeContext
     ) {}
     public function createCsrfValidationException(RequestInterface $request): ?InvalidRequestException { return null; }
     public function validateForCsrf(RequestInterface $request): ?bool { return $request instanceof HttpRequest; }
@@ -29,10 +31,13 @@ class SupportState implements HttpPostActionInterface, CsrfAwareActionInterface
             $this->authorizer->assertAuthorized();
             $payload = json_decode($this->request->getContent(), true, 8, JSON_THROW_ON_ERROR);
             $customerId = max(0, (int)($payload['customerId'] ?? 0));
-            return $result->setData($this->takeoverService->getConversationState(
-                (int)($payload['conversationId'] ?? 0),
-                $customerId > 0 ? $customerId : null,
-                $customerId > 0 ? null : (string)($payload['guestId'] ?? '')
+            return $result->setData($this->storeContext->execute(
+                (string)($payload['storeCode'] ?? ''),
+                fn (): array => $this->takeoverService->getConversationState(
+                    (int)($payload['conversationId'] ?? 0),
+                    $customerId > 0 ? $customerId : null,
+                    $customerId > 0 ? null : (string)($payload['guestId'] ?? '')
+                )
             ));
         } catch (\Throwable) {
             return $result->setHttpResponseCode(403)->setData(['active' => false, 'agent_label' => '', 'case_id' => 0]);

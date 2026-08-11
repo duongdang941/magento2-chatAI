@@ -16,7 +16,8 @@ import {
     createToolActivityId,
     emitToolActivity
 } from './tool-activity.js';
-import { createCustomerResponseStreamSanitizer } from './customer-response-sanitizer.js';
+import { createCustomerTurnBuffer } from './customer-turn-buffer.js';
+import { createResponseProgressPulse } from './response-progress-pulse.js';
 import { createToolExecutionBudget, toolBudgetMessage } from './tool-execution-budget.js';
 import { buildCustomerAddressFormPayload, buildOrderAddressFormPayload } from './order-address-form.js';
 import {
@@ -33,6 +34,7 @@ import {
 } from './catalog-tool-outcome.js';
 import { geminiToolDefinitions } from './tools/tool-registry.js';
 import { buildAgentSystemInstruction } from './agent-system-guidance.js';
+import { pageContextInstruction } from './page-context.js';
 import { executeRegisteredMagentoTool } from './tools/magento-tool-executor.js';
 import { createCatalogQueryContinuity } from './catalog-query-continuity.js';
 
@@ -41,13 +43,17 @@ import { createCatalogQueryContinuity } from './catalog-query-continuity.js';
 const tools = geminiToolDefinitions();
 
 const systemInstruction = buildAgentSystemInstruction();
+const PROVISIONAL_TEXT_HOLD_MS = 900;
 
 // ==================== ORCHESTRATOR ====================
 
 export const streamChatResponse = async (userMessage, ws, history = [], customerToken = null, config = {}, options = {}) => {
+    let progressPulse = null;
     try {
         const signal = options.signal || null;
         const isCancelled = () => signal?.aborted || (typeof options.isCancelled === 'function' && options.isCancelled());
+        progressPulse = createResponseProgressPulse({ ws, isCancelled });
+        progressPulse.start();
         const apiKey = config.api_key || process.env.GEMINI_API_KEY;
         const modelName = config.model || "gemini-1.5-flash";
         const agentConfig = config.agent || {};
@@ -75,7 +81,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             model: modelName,
             tools,
             generationConfig: { maxOutputTokens },
-            systemInstruction: `${systemInstruction}\n\nRUNTIME TOOL BUDGET: Use at most ${maxToolRounds} reasoning rounds and ${agentConfig.max_tool_executions || 15} total tool executions. Blocked duplicate or over-budget calls must not be repeated; finish from verified evidence already returned.\n\n${guestOrderAccessInstruction(options.customerId, options.guestOrderAccess)}`
+            systemInstruction: `${systemInstruction}\n\nRUNTIME TOOL BUDGET: Use at most ${maxToolRounds} reasoning rounds and ${agentConfig.max_tool_executions || 15} total tool executions. Blocked duplicate or over-budget calls must not be repeated; finish from verified evidence already returned.\n\n${pageContextInstruction(options.pageContext)}\n\n${guestOrderAccessInstruction(options.customerId, options.guestOrderAccess)}`
         });
         // Prepare History in API format
         const chatHistory = history
@@ -128,19 +134,37 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
 
             let combinedParts = [];
             let functionCalls = [];
-            let streamedTextThisTurn = false;
-            const responseSanitizer = createCustomerResponseStreamSanitizer();
+            const customerTurn = createCustomerTurnBuffer();
             const smoothEmitter = createSmoothChunkEmitter({
                 emit: content => ws.send(JSON.stringify({ type: 'chunk', content })),
                 isCancelled
             });
-            const emitCustomerText = (content) => {
-                const safeContent = responseSanitizer.push(content);
-                if (!safeContent) return;
-
-                hasVisibleText = true;
-                streamedTextThisTurn = true;
-                smoothEmitter.push(safeContent);
+            let releaseTimer = null;
+            let provisionalTextWasEmitted = false;
+            let customerTextStreamingEnabled = false;
+            const releaseCustomerText = () => {
+                const customerText = customerTurn.release();
+                if (!customerText) return;
+                provisionalTextWasEmitted = true;
+                smoothEmitter.push(customerText);
+            };
+            const scheduleCustomerTextRelease = () => {
+                if (releaseTimer !== null) return;
+                releaseTimer = setTimeout(() => {
+                    releaseTimer = null;
+                    customerTextStreamingEnabled = true;
+                    releaseCustomerText();
+                }, PROVISIONAL_TEXT_HOLD_MS);
+            };
+            const clearCustomerTextRelease = () => {
+                if (releaseTimer === null) return;
+                clearTimeout(releaseTimer);
+                releaseTimer = null;
+            };
+            const bufferCustomerText = (content) => {
+                customerTurn.push(content);
+                if (customerTextStreamingEnabled) releaseCustomerText();
+                else scheduleCustomerTextRelease();
             };
 
             for await (const chunk of result.stream) {
@@ -152,7 +176,10 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 if (parts) {
                     for (const part of parts) {
                         if (part.text) {
-                            emitCustomerText(part.text);
+                            // Gemini can emit prose before function calls in the
+                            // same turn. Buffer it until the complete turn proves
+                            // it is a customer response rather than tool narration.
+                            bufferCustomerText(part.text);
                         }
 
                         combinedParts.push(part);
@@ -179,11 +206,11 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
 
             // If AI called tools, we need to execute and continue
             if (functionCalls.length > 0) {
-                responseSanitizer.discard();
-                await smoothEmitter.drain();
-                if (streamedTextThisTurn) {
+                clearCustomerTextRelease();
+                customerTurn.discard();
+                if (provisionalTextWasEmitted) {
+                    smoothEmitter.discard();
                     ws.send(JSON.stringify({ type: 'discard_thinking_text' }));
-                    hasVisibleText = false;
                 }
                 const functionResponses = await Promise.all(
                     functionCalls.map(async (fnCall) => {
@@ -244,6 +271,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                             customerId: options.customerId || null,
                             guestOrderAccess: options.guestOrderAccess || null,
                             conversationId: options.conversationId || null,
+                            catalogScope: options.catalogScope || null,
                             shopperMessage: currentUserMessage.text || currentUserMessage.content || ''
                         });
                         if (requiresGuestOrderAccessForm(name, content)) {
@@ -483,12 +511,13 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 }
 
             } else {
-                const safeRemainingText = responseSanitizer.flush();
-                if (safeRemainingText) {
-                    hasVisibleText = true;
-                    streamedTextThisTurn = true;
-                    smoothEmitter.push(safeRemainingText);
+                clearCustomerTextRelease();
+                releaseCustomerText();
+                const finalCustomerText = customerTurn.commit();
+                if (finalCustomerText) {
+                    smoothEmitter.push(finalCustomerText);
                 }
+                if (provisionalTextWasEmitted || finalCustomerText) hasVisibleText = true;
                 await smoothEmitter.drain();
                 isDone = true;
             }
@@ -522,6 +551,8 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         console.error('Gemini Orchestrator Error:', summarizeError(error));
         ws.send(JSON.stringify({ type: 'error', content: formatGeminiError(error) }));
         return { cancelled: false, error };
+    } finally {
+        progressPulse?.stop();
     }
 };
 

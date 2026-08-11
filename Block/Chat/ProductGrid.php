@@ -92,7 +92,7 @@ class ProductGrid extends Template
      */
     public function getFormattedPrice($product): string
     {
-        return $this->priceCurrency->format($product->getFinalPrice(), false);
+        return $this->priceCurrency->format($this->getIndexedFinalPrice($product), false);
     }
 
     /**
@@ -100,13 +100,22 @@ class ProductGrid extends Template
      */
     public function getFormattedOriginalPrice($product): ?string
     {
-        $originalPrice = (float)$product->getPrice();
-        $finalPrice = (float)$product->getFinalPrice();
+        $originalPrice = (float)$product->getData('price');
+        $finalPrice = $this->getIndexedFinalPrice($product);
 
         if ($originalPrice > $finalPrice) {
             return $this->priceCurrency->format($originalPrice, false);
         }
 
         return null;
+    }
+
+    private function getIndexedFinalPrice($product): float
+    {
+        $indexedPrice = $product->getData('final_price');
+
+        return is_numeric($indexedPrice)
+            ? (float)$indexedPrice
+            : (float)$product->getFinalPrice();
     }
 }

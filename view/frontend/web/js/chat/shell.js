@@ -115,8 +115,12 @@ const {
                 return !this.isOpen && this.showBubble;
             },
             openChat() {
-                if (!this.isOpen && !this.wsHasEverConnected && !this.hasStartedChat) {
+                // This is a user-visible history hydration. Keep the loading
+                // cover until the first history result is ready; background
+                // tab synchronization must not use this state.
+                if (!this.isOpen && !this.hasStartedChat) {
                     this.isHistoryLoading = true;
+                    this.armHistoryLoadingTimeout?.();
                 }
                 this.isOpen = true;
                 this.showBubble = false;

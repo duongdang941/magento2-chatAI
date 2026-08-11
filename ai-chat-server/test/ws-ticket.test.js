@@ -41,13 +41,42 @@ test('validates a short-lived Magento WebSocket ticket', () => {
         exp: now + 60
     }, secret);
 
-    assert.deepEqual(verifyWebSocketTicket(ticket, secret), {
+    const verified = verifyWebSocketTicket(ticket, secret);
+    assert.equal(verified.expiresAt, (now + 60) * 1000);
+    assert.deepEqual({ ...verified, expiresAt: undefined }, {
         customerId: 42,
         sessionId: 'session-hash',
         sessionCookie: 'PHPSESSID=checkout-session-id',
         ticketId: 'ticket-id',
         role: 'customer',
-        source: 'ticket'
+        source: 'ticket',
+        expiresAt: undefined
+    });
+});
+
+test('preserves the signed Magento store and customer group scope', () => {
+    const secret = 'd'.repeat(32);
+    const now = Math.floor(Date.now() / 1000);
+    const ticket = sign({
+        aud: 'afd-ai-websocket',
+        sub: '42',
+        sid: 'session-hash',
+        sct: encryptCheckoutSessionId('checkout-session-id', secret),
+        scn: 'PHPSESSID',
+        catalog_scope: {
+            store_id: 2,
+            store_code: 'parteimitglied_de',
+            website_id: 1,
+            customer_group_id: 3
+        },
+        jti: 'ticket-id',
+        iat: now,
+        exp: now + 60
+    }, secret);
+
+    assert.deepEqual(verifyWebSocketTicket(ticket, secret).catalogScope, {
+        storeCode: 'parteimitglied_de',
+        customerGroupId: 3
     });
 });
 
@@ -65,7 +94,9 @@ test('validates a support administrator WebSocket ticket without a checkout sess
         exp: now + 60
     }, secret);
 
-    assert.deepEqual(verifyWebSocketTicket(ticket, secret), {
+    const verified = verifyWebSocketTicket(ticket, secret);
+    assert.equal(verified.expiresAt, (now + 60) * 1000);
+    assert.deepEqual({ ...verified, expiresAt: undefined }, {
         adminId: 17,
         adminName: 'Store Admin',
         customerId: null,
@@ -73,7 +104,8 @@ test('validates a support administrator WebSocket ticket without a checkout sess
         sessionCookie: '',
         ticketId: 'admin-ticket-id',
         role: 'support_admin',
-        source: 'ticket'
+        source: 'ticket',
+        expiresAt: undefined
     });
 });
 

@@ -16,6 +16,16 @@ export function normalizeSearchArguments(
     delete normalized.response_language;
     delete normalized.responseLanguageEvidence;
     delete normalized.response_language_evidence;
+    // Scope belongs to the signed WebSocket ticket. Never let model-provided
+    // arguments select another store or customer price group.
+    delete normalized.customerGroupId;
+    delete normalized.customer_group_id;
+    delete normalized.storeCode;
+    delete normalized.store_code;
+    delete normalized.storeId;
+    delete normalized.store_id;
+    delete normalized.websiteId;
+    delete normalized.website_id;
     const boundedDefault = Math.max(1, Math.min(Math.trunc(Number(defaultResults) || 5), maxResults));
     const rawRequestedLimit = Number(normalized.limit || normalized.pageSize || boundedDefault);
     const requestedLimit = Number.isFinite(rawRequestedLimit) ? Math.trunc(rawRequestedLimit) : boundedDefault;

@@ -28,6 +28,10 @@
         overflow-x: hidden;
         overflow-y: auto;
         overscroll-behavior: contain;
+        // Reserve the scrollbar rail before streamed text exceeds the visible
+        // area. Without it, the reading column repeatedly loses and regains
+        // a few pixels as chunks change the scroll height.
+        scrollbar-gutter: stable;
         padding: 1.45rem 1.25rem;
         scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
         scrollbar-width: thin;
@@ -313,6 +317,7 @@
     display: flex;
     align-items: flex-start;
     width: ~"min(100%, 760px)";
+    min-width: 0;
     margin-right: auto;
     margin-left: auto;
     gap: 0.65rem;
@@ -377,6 +382,8 @@
 
 .afd-ai-chat__msg-content {
     align-items: flex-start;
+    align-self: stretch;
+    flex: 1 1 auto;
     width: ~"min(100%, 720px)";
 }
 
@@ -387,17 +394,23 @@
 
 .afd-ai-chat__msg-assistant-stack,
 .afd-ai-chat__msg-user-stack {
-    display: inline-flex;
     flex-direction: column;
     min-width: 0;
     max-width: 100%;
 }
 
 .afd-ai-chat__msg-assistant-stack {
+    // Streaming Markdown is appended as an incremental DOM tree. An
+    // inline-flex stack sizes itself from every temporary tree shape, so the
+    // response column could grow outside the chat and then snap narrower when
+    // the final Markdown pass ran. Keep the assistant column stable instead.
+    display: flex;
     align-items: flex-start;
+    width: 100%;
 }
 
 .afd-ai-chat__msg-user-stack {
+    display: inline-flex;
     align-items: flex-end;
 }
 
@@ -424,11 +437,34 @@
 }
 
 .afd-ai-chat__msg-bubble-ai {
+    align-self: stretch;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     padding: 0.1rem 0 0.14rem;
     border: 0;
     background: transparent;
     color: @afd-chat-text-secondary;
     line-height: 1.58;
+}
+
+.afd-ai-chat__msg-part,
+.afd-ai-chat__streaming-markdown {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+    contain: inline-size;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    // `marked` renders paragraphs and line breaks as HTML. Preserving source
+    // whitespace here also renders invisible newlines around its block nodes,
+    // producing large vertical gaps between otherwise normal paragraphs.
+    white-space: normal;
+}
+
+.afd-ai-chat__streaming-markdown > * {
+    max-width: 100%;
 }
 
 .afd-ai-chat__msg-bubble-user {

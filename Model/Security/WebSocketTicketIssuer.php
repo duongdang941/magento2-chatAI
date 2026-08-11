@@ -3,7 +3,10 @@ declare(strict_types=1);
 
 namespace Afd\AI\Model\Security;
 
+use Afd\AI\Model\Catalog\ShopperScopeResolver;
+use Afd\AI\Model\Catalog\PageContextResolver;
 use Afd\AI\Model\Config\Config as AiConfig;
+use Magento\Customer\Model\Session as CustomerSession;
 use Magento\Framework\Session\Config as SessionConfig;
 
 class WebSocketTicketIssuer
@@ -13,13 +16,20 @@ class WebSocketTicketIssuer
 
     public function __construct(
         private readonly AiConfig $config,
-        private readonly SessionConfig $sessionConfig
+        private readonly SessionConfig $sessionConfig,
+        private readonly CustomerSession $customerSession,
+        private readonly ShopperScopeResolver $shopperScopeResolver,
+        private readonly PageContextResolver $pageContextResolver
     ) {
     }
 
     public function issue(?int $customerId, string $sessionId): string
     {
         $secret = $this->webSocketSecret();
+        $customerGroupId = $customerId && $customerId > 0
+            ? (int)$this->customerSession->getCustomerGroupId()
+            : 0;
+        $shopperScope = $this->shopperScopeResolver->resolve($customerGroupId, (int)($customerId ?? 0));
 
         return $this->sign([
             'aud' => self::AUDIENCE,
@@ -34,6 +44,10 @@ class WebSocketTicketIssuer
             // then present it solely to the HMAC-protected internal cart route.
             'sct' => $this->encryptCheckoutSessionId($sessionId, $secret),
             'scn' => (string)$this->sessionConfig->getName(),
+            // Store and group are resolved by Magento and signed into the
+            // one-minute ticket. The browser never supplies pricing scope.
+            'catalog_scope' => $shopperScope->toArray(),
+            'page_context' => $this->pageContextResolver->resolve(),
         ]);
     }
 
