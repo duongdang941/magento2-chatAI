@@ -6,10 +6,12 @@ namespace Afd\AI\Block\Chat;
 
 use Afd\AI\Model\Product\DirectAddEligibility;
 use Afd\AI\Model\Product\SaleQuantityPolicy;
+use Magento\Catalog\Model\Product;
+use Magento\Catalog\Pricing\Price\FinalPrice;
 use Magento\Catalog\Helper\Product as ProductHelper;
 use Magento\Catalog\Model\ResourceModel\Product\Collection;
 use Magento\Framework\Data\Helper\PostHelper;
-use Magento\Framework\Pricing\PriceCurrencyInterface;
+use Magento\Framework\Pricing\Render;
 use Magento\Framework\View\Element\Template;
 
 /**
@@ -19,11 +21,12 @@ class ProductGrid extends Template
 {
     private ?Collection $products = null;
 
+    private ?Render $priceRenderer = null;
+
     public function __construct(
         Template\Context $context,
         private readonly ProductHelper $productHelper,
         private readonly PostHelper $postHelper,
-        private readonly PriceCurrencyInterface $priceCurrency,
         private readonly DirectAddEligibility $directAddEligibility,
         private readonly SaleQuantityPolicy $saleQuantityPolicy,
         array $data = []
@@ -88,34 +91,61 @@ class ProductGrid extends Template
     }
 
     /**
-     * Get formatted price
+     * Render a product price with Magento's native price renderer.
+     *
+     * Product types own their pricing calculation in Magento. In particular,
+     * configurable products resolve their price from eligible child products;
+     * reading the parent collection's final_price field directly can therefore
+     * display 0.00. Delegating to the renderer also preserves catalog rules,
+     * customer-group prices, tax settings and special-price presentation.
      */
-    public function getFormattedPrice($product): string
+    public function getProductPriceHtml(Product $product): string
     {
-        return $this->priceCurrency->format($this->getIndexedFinalPrice($product), false);
-    }
-
-    /**
-     * Get original price formatted (show only if higher than final price)
-     */
-    public function getFormattedOriginalPrice($product): ?string
-    {
-        $originalPrice = (float)$product->getData('price');
-        $finalPrice = $this->getIndexedFinalPrice($product);
-
-        if ($originalPrice > $finalPrice) {
-            return $this->priceCurrency->format($originalPrice, false);
+        if ($this->priceRenderer instanceof Render) {
+            return $this->renderProductPrice($this->priceRenderer, $product);
         }
 
-        return null;
+        $priceRenderer = $this->getLayout()->getBlock('product.price.render.default');
+
+        // The chat grid can also be rendered by an AJAX/API context whose
+        // page layout has not loaded the default price block. Keep the same
+        // Magento renderer, with the same price-render handle, in that case.
+        if (!$priceRenderer instanceof Render) {
+            $priceRenderer = $this->getLayout()->createBlock(
+                Render::class,
+                'afd.ai.product.price.render.' . spl_object_id($this),
+                [
+                    'data' => [
+                        'price_render_handle' => 'catalog_product_prices',
+                        'use_link_for_as_low_as' => true,
+                    ],
+                ]
+            );
+        }
+
+        if (!$priceRenderer instanceof Render) {
+            return '';
+        }
+
+        // Match Magento's product-list block. The renderer reads this flag
+        // while building each type-specific price box.
+        $priceRenderer->setData('is_product_list', true);
+        $this->priceRenderer = $priceRenderer;
+
+        return $this->renderProductPrice($priceRenderer, $product);
     }
 
-    private function getIndexedFinalPrice($product): float
+    private function renderProductPrice(Render $priceRenderer, Product $product): string
     {
-        $indexedPrice = $product->getData('final_price');
-
-        return is_numeric($indexedPrice)
-            ? (float)$indexedPrice
-            : (float)$product->getFinalPrice();
+        return $priceRenderer->render(
+            FinalPrice::PRICE_CODE,
+            $product,
+            [
+                'price_id' => 'afd-ai-product-price-' . (int)$product->getId(),
+                'display_minimal_price' => true,
+                'zone' => Render::ZONE_ITEM_LIST,
+                'list_category_page' => true,
+            ]
+        );
     }
 }

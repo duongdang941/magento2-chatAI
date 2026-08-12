@@ -42,10 +42,7 @@ if (!$products || !$products->getSize()) {
                     </h4>
                 </a>
                 <div class="afd-ai-chat__product-pricing">
-                    <?php if ($originalPrice = $block->getFormattedOriginalPrice($product)): ?>
-                        <p class="afd-ai-chat__product-price-old"><?= /* @noEscape */ $originalPrice ?></p>
-                    <?php endif; ?>
-                    <p class="afd-ai-chat__product-price-current"><?= /* @noEscape */ $block->getFormattedPrice($product) ?></p>
+                    <?= /* @noEscape */ $block->getProductPriceHtml($product) ?>
                 </div>
 
                 <div class="afd-ai-chat__product-actions">
