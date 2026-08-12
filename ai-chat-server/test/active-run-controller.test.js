@@ -4,7 +4,7 @@ import {
     attachRequestId,
     createActiveRunController,
     isAbortError
-} from '../services/active-run-controller.js';
+} from '../services/conversation/active-run-controller.js';
 
 test('cancels only the matching active request and notifies once', () => {
     const messages = [];

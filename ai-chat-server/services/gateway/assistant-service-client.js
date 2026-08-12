@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { createInternalMagentoRequestConfig } from './magento-auth.js';
-import { normalizeCatalogScope } from './catalog-scope.js';
+import { normalizeCatalogScope } from '../catalog/catalog-scope.js';
 
 const MAGENTO_URL = process.env.MAGENTO_API_URL || 'http://afd.test';
 

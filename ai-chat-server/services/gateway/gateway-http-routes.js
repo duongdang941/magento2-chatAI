@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import express from 'express';
-import { applyPushedConfig } from './config-service.js';
+import { applyPushedConfig } from '../configuration/config-service.js';
 
 const CONFIG_SYNC_TTL_MS = 5 * 60 * 1000;
 const HEALTH_CACHE_TTL_MS = 5000;

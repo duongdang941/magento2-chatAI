@@ -1,7 +1,7 @@
-import { activeAddressFormCacheKey } from './address-update-admission.js';
-import { issueAddressFormToken } from './address-form-token.js';
-import { rehydrateCatalogContinuation } from './catalog-pagination.js';
-import { summarizeError } from './error-summary.js';
+import { activeAddressFormCacheKey } from '../customer/address-update-admission.js';
+import { issueAddressFormToken } from '../customer/address-form-token.js';
+import { rehydrateCatalogContinuation } from '../catalog/catalog-pagination.js';
+import { summarizeError } from '../gateway/error-summary.js';
 
 /**
  * Rehydrate structured history without leaking expired address data.

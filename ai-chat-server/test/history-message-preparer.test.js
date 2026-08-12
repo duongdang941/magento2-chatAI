@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createHistoryMessagePreparer } from '../services/history-message-preparer.js';
-import { verifyCatalogPageToken } from '../services/catalog-pagination.js';
+import { createHistoryMessagePreparer } from '../services/conversation/history-message-preparer.js';
+import { verifyCatalogPageToken } from '../services/catalog/catalog-pagination.js';
 
 function createPreparer(overrides = {}) {
     return createHistoryMessagePreparer({

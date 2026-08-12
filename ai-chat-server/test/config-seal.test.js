@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isSealedConfig, sealConfig, unsealConfig } from '../services/config-seal.js';
+import { isSealedConfig, sealConfig, unsealConfig } from '../services/configuration/config-seal.js';
 
 test('encrypts provider and Magento credentials before persistence', () => {
     const secret = 's'.repeat(32);

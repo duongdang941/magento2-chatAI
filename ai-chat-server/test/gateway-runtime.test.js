@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { GatewayRuntime } from '../services/gateway-runtime.js';
+import { GatewayRuntime } from '../services/gateway/gateway-runtime.js';
 
 test('rate limits a shared identity', async () => {
     const runtime = new GatewayRuntime({ allowInMemory: true, instanceId: 'test-rate' });

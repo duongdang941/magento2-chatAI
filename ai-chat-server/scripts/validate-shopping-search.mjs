@@ -4,11 +4,11 @@ import 'dotenv/config';
 import assert from 'node:assert/strict';
 import axios from 'axios';
 
-import { createMagentoRequestConfig } from '../services/magento-auth.js';
-import { buildLocalGatewayEnvironment } from '../services/local-magento-bootstrap.js';
+import { createMagentoRequestConfig } from '../services/gateway/magento-auth.js';
+import { buildLocalGatewayEnvironment } from '../services/configuration/local-magento-bootstrap.js';
 
 Object.assign(process.env, buildLocalGatewayEnvironment());
-const { getAiConfig } = await import('../services/config-service.js');
+const { getAiConfig } = await import('../services/configuration/config-service.js');
 
 const baseUrl = (process.env.MAGENTO_API_URL || 'http://afd.test').replace(/\/+$/, '');
 const searchEndpoint = `${baseUrl}/rest/V1/afd-ai/products/search`;

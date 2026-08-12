@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createToolExecutionBudget } from '../services/tool-execution-budget.js';
+import { createToolExecutionBudget } from '../services/orchestration/tool-execution-budget.js';
 
 test('enforces the total execution budget without counting blocked calls', () => {
     const budget = createToolExecutionBudget({

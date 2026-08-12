@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { summarizeError } from '../services/error-summary.js';
+import { summarizeError } from '../services/gateway/error-summary.js';
 
 test('redacts provider and OAuth credentials from operational errors', () => {
     const summary = summarizeError({

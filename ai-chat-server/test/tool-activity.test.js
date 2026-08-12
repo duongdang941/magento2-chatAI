@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
     createToolActivityId,
     emitToolActivity
-} from '../services/tool-activity.js';
+} from '../services/orchestration/tool-activity.js';
 
 test('emits a customer-safe running and completed tool timeline event', () => {
     const sent = [];

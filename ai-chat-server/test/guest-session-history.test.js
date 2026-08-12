@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { GuestSessionHistory } from '../services/guest-session-history.js';
+import { GuestSessionHistory } from '../services/conversation/guest-session-history.js';
 
 function createRuntime() {
     const records = new Map();

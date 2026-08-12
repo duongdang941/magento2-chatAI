@@ -1,4 +1,4 @@
-import { normalizeResponseLanguage } from './response-language-guidance.js';
+import { normalizeResponseLanguage } from '../conversation/response-language-guidance.js';
 
 export function isUnavailableQueryMatch(content) {
     return content?.meta?.scope?.unavailable_query_match === true;

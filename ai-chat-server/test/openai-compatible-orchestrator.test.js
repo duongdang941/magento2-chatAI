@@ -8,23 +8,23 @@ import {
     isBlockingToolFailure,
     isRetryableProviderError,
     resolveProviderConfig
-} from '../services/openai-compatible-orchestrator.js';
+} from '../services/orchestration/openai-compatible-orchestrator.js';
 import {
     GUEST_ORDER_AGENT_GUIDANCE,
     guestOrderAccessInstruction
-} from '../services/guest-order-access-guidance.js';
+} from '../services/customer/guest-order-access-guidance.js';
 import {
     CATALOG_AGENT_GUIDANCE,
     MAX_CATALOG_TOOL_ROUNDS
-} from '../services/catalog-agent-guidance.js';
-import { RESPONSE_LANGUAGE_AGENT_GUIDANCE } from '../services/response-language-guidance.js';
+} from '../services/catalog/catalog-agent-guidance.js';
+import { RESPONSE_LANGUAGE_AGENT_GUIDANCE } from '../services/conversation/response-language-guidance.js';
 import {
     normalizeAvailabilityArguments,
     normalizeAddToCartArguments,
     normalizeRemoveFromCartArguments,
     normalizeSearchArguments
-} from '../services/catalog-tool-arguments.js';
-import { normalizeCustomerAddressArguments } from '../services/customer-order-tool-arguments.js';
+} from '../services/catalog/catalog-tool-arguments.js';
+import { normalizeCustomerAddressArguments } from '../services/customer/customer-order-tool-arguments.js';
 
 test('buildBaseUrlCandidates always includes the public 9router endpoint', () => {
     const originalBase = process.env.NINE_ROUTER_BASE_URL;

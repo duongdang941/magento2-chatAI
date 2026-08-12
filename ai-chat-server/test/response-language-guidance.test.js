@@ -5,7 +5,7 @@ import {
     normalizeResponseLanguage,
     normalizeResponseLanguageEvidence,
     responseLanguageInstruction
-} from '../services/response-language-guidance.js';
+} from '../services/conversation/response-language-guidance.js';
 
 test('keeps a bounded language tag and rejects injected instructions', () => {
     assert.equal(normalizeResponseLanguage('vi'), 'vi');

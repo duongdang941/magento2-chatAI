@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { acquireImageGenerationAdmission } from '../services/image-generation-guard.js';
+import { acquireImageGenerationAdmission } from '../services/media/image-generation-guard.js';
 
 test('applies customer hourly, daily and cooldown limits before acquiring capacity', async () => {
     const calls = [];

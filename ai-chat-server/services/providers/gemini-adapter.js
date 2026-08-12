@@ -1,4 +1,4 @@
-import { streamChatResponse } from '../gemini-orchestrator.js';
+import { streamChatResponse } from '../orchestration/gemini-orchestrator.js';
 import { defineProviderAdapter } from './provider-adapter.js';
 
 export default defineProviderAdapter({

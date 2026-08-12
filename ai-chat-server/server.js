@@ -2,73 +2,73 @@ import 'dotenv/config';
 import crypto from 'node:crypto';
 import express from 'express';
 import { WebSocketServer } from 'ws';
-import { guardWebSocketAction } from './services/websocket-action-guard.js';
+import { guardWebSocketAction } from './services/security/websocket-action-guard.js';
 import {
     configuredWebSocketOrigins,
     installWebSocketHeartbeat,
     isAllowedWebSocketOrigin
-} from './services/websocket-security.js';
+} from './services/security/websocket-security.js';
 import {
     acceptsClientContract,
     installGatewayEventContract
-} from './services/message-contract.js';
-import { createSupportBroadcaster } from './services/support-broadcaster.js';
-import { createAddressUpdateAdmission } from './services/address-update-admission.js';
+} from './services/conversation/message-contract.js';
+import { createSupportBroadcaster } from './services/support/support-broadcaster.js';
+import { createAddressUpdateAdmission } from './services/customer/address-update-admission.js';
 import http from 'http';
 
 // Services
-import { getAiConfig } from './services/config-service.js';
-import { getOrchestrator } from './services/orchestrator-factory.js';
-import { summarizeError } from './services/error-summary.js';
-import { getGatewayRuntime } from './services/gateway-runtime.js';
-import { GatewayMetrics } from './services/gateway-metrics.js';
-import { verifyWebSocketTicket } from './services/ws-ticket.js';
-import { loadCatalogPage } from './services/catalog-page-loader.js';
+import { getAiConfig } from './services/configuration/config-service.js';
+import { getOrchestrator } from './services/orchestration/orchestrator-factory.js';
+import { summarizeError } from './services/gateway/error-summary.js';
+import { getGatewayRuntime } from './services/gateway/gateway-runtime.js';
+import { GatewayMetrics } from './services/gateway/gateway-metrics.js';
+import { verifyWebSocketTicket } from './services/security/ws-ticket.js';
+import { loadCatalogPage } from './services/catalog/catalog-page-loader.js';
 import {
     buildCatalogProductsPayload,
     verifyCatalogPageToken
-} from './services/catalog-pagination.js';
-import { replaceProductPart } from './services/product-presentation.js';
-import * as db from './services/db-service.js';
-import { GuestSessionHistory } from './services/guest-session-history.js';
+} from './services/catalog/catalog-pagination.js';
+import { replaceProductPart } from './services/catalog/product-presentation.js';
+import * as db from './services/gateway/db-service.js';
+import { GuestSessionHistory } from './services/conversation/guest-session-history.js';
 import {
     buildUserMessageDescriptor,
     validateImageParts
-} from './services/message-parts.js';
+} from './services/conversation/message-parts.js';
 import {
     buildInterruptedAssistantPayload
-} from './services/interrupted-response.js';
-import { BrowserCartBridge } from './services/browser-cart-bridge.js';
-import { guestOrderAction } from './services/guest-order-client.js';
-import { executeCustomerOrderAction } from './services/customer-order-client.js';
-import { executeCustomerAddressAction } from './services/customer-address-client.js';
-import { normalizeCustomerAddressArguments, normalizeOrderAddressArguments } from './services/customer-order-tool-arguments.js';
+} from './services/conversation/interrupted-response.js';
+import { BrowserCartBridge } from './services/customer/browser-cart-bridge.js';
+import { guestOrderAction } from './services/customer/guest-order-client.js';
+import { executeCustomerOrderAction } from './services/customer/customer-order-client.js';
+import { executeCustomerAddressAction } from './services/customer/customer-address-client.js';
+import { normalizeCustomerAddressArguments, normalizeOrderAddressArguments } from './services/customer/customer-order-tool-arguments.js';
 import {
     isCustomerAddressChangeRequest,
     isOrderAddressChangeRequest,
     normalizeOrderAddressFormPart
-} from './services/order-address-form.js';
-import { registerGatewayHttpRoutes } from './services/gateway-http-routes.js';
-import { revokeCustomerSockets } from './services/session-revoker.js';
+} from './services/customer/order-address-form.js';
+import { registerGatewayHttpRoutes } from './services/gateway/gateway-http-routes.js';
+import { revokeCustomerSockets } from './services/security/session-revoker.js';
 import {
     createSupportCase,
     getSupportConversationState,
     listSupportCases,
     mutateSupportMessage
-} from './services/assistant-service-client.js';
-import { createConversationHistoryCodec } from './services/conversation-history.js';
+} from './services/gateway/assistant-service-client.js';
+import { createConversationHistoryCodec } from './services/conversation/conversation-history.js';
 import {
     attachRequestId,
     createActiveRunController,
     isAbortError
-} from './services/active-run-controller.js';
+} from './services/conversation/active-run-controller.js';
 import {
     clearPendingVerificationAction,
     consumePendingVerificationAction,
     rememberPendingVerificationAction
-} from './services/pending-verification-action.js';
-import { createHistoryMessagePreparer } from './services/history-message-preparer.js';
-import { stopGateway } from './services/graceful-shutdown.js';
+} from './services/conversation/pending-verification-action.js';
+import { createHistoryMessagePreparer } from './services/conversation/history-message-preparer.js';
+import { stopGateway } from './services/gateway/graceful-shutdown.js';
 
 const app = express();
 const port = process.env.PORT || 3001;

@@ -4,7 +4,7 @@ import {
     normalizeOrderAddressArguments,
     normalizeOrderDetailsArguments,
     normalizeRecentOrdersArguments
-} from '../services/customer-order-tool-arguments.js';
+} from '../services/customer/customer-order-tool-arguments.js';
 
 test('bounds the number of customer orders requested from Magento', () => {
     assert.deepEqual(normalizeRecentOrdersArguments({ limit: 99 }), { limit: 10 });

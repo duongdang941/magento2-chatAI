@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
     buildInterruptedAssistantPayload,
     interruptedResponseMetadata
-} from '../services/interrupted-response.js';
+} from '../services/conversation/interrupted-response.js';
 
 test('interrupted assistant payload retains only text already streamed to the shopper', () => {
     const payload = buildInterruptedAssistantPayload([

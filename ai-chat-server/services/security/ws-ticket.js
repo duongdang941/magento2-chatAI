@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
-import { normalizeCatalogScope } from './catalog-scope.js';
-import { normalizePageContext } from './page-context.js';
+import { normalizeCatalogScope } from '../catalog/catalog-scope.js';
+import { normalizePageContext } from '../catalog/page-context.js';
 
 const TOKEN_AUDIENCE = 'afd-ai-websocket';
 const MAX_CLOCK_SKEW_SECONDS = 15;

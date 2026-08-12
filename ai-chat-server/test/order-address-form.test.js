@@ -8,7 +8,7 @@ import {
     isCustomerAddressRequest,
     isOrderAddressChangeRequest,
     normalizeOrderAddressFormPart
-} from '../services/order-address-form.js';
+} from '../services/customer/order-address-form.js';
 
 const TOKEN_SECRET = 'test-address-form-secret-that-is-long-enough';
 

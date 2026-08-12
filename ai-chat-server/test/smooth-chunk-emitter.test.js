@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSmoothChunkEmitter } from '../services/smooth-chunk-emitter.js';
+import { createSmoothChunkEmitter } from '../services/conversation/smooth-chunk-emitter.js';
 
 test('paces a provider burst into ordered, bounded chunks', async () => {
     const chunks = [];

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { normalizeConfig } from '../services/config-service.js';
+import { normalizeConfig } from '../services/configuration/config-service.js';
 
 test('normalizes Magento agent, traffic, capacity and image limits', () => {
     const config = normalizeConfig({

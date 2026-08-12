@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
     createCustomerResponseStreamSanitizer,
     sanitizeCustomerResponse
-} from '../services/customer-response-sanitizer.js';
+} from '../services/conversation/customer-response-sanitizer.js';
 
 test('removes internal tool identifiers from customer prose', () => {
     assert.equal(

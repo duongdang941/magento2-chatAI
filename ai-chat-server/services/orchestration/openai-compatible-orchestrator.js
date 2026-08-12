@@ -1,44 +1,44 @@
 import {
     toOpenAiContent
-} from './message-parts.js';
-import { summarizeError } from './error-summary.js';
-import { createSmoothChunkEmitter } from './smooth-chunk-emitter.js';
+} from '../conversation/message-parts.js';
+import { summarizeError } from '../gateway/error-summary.js';
+import { createSmoothChunkEmitter } from '../conversation/smooth-chunk-emitter.js';
 import {
     createCatalogToolPresentation,
     emitProductPresentation
-} from './product-presentation.js';
+} from '../catalog/product-presentation.js';
 import {
     MAX_CATALOG_TOOL_ROUNDS,
     catalogCoverageInstruction
-} from './catalog-agent-guidance.js';
+} from '../catalog/catalog-agent-guidance.js';
 import {
     createToolActivityId,
     emitToolActivity
 } from './tool-activity.js';
-import { createCustomerTurnBuffer } from './customer-turn-buffer.js';
-import { createResponseProgressPulse } from './response-progress-pulse.js';
-import { generateImage } from './image-generation.js';
-import { acquireImageGenerationAdmission } from './image-generation-guard.js';
+import { createCustomerTurnBuffer } from '../conversation/customer-turn-buffer.js';
+import { createResponseProgressPulse } from '../conversation/response-progress-pulse.js';
+import { generateImage } from '../media/image-generation.js';
+import { acquireImageGenerationAdmission } from '../media/image-generation-guard.js';
 import { createToolExecutionBudget, toolBudgetMessage } from './tool-execution-budget.js';
-import { buildCustomerAddressFormPayload, buildOrderAddressFormPayload } from './order-address-form.js';
-import { searchWebWithAi } from './native-web-search.js';
+import { buildCustomerAddressFormPayload, buildOrderAddressFormPayload } from '../customer/order-address-form.js';
+import { searchWebWithAi } from '../media/native-web-search.js';
 import {
     guestOrderAccessInstruction
-} from './guest-order-access-guidance.js';
+} from '../customer/guest-order-access-guidance.js';
 import {
     responseLanguageInstruction
-} from './response-language-guidance.js';
+} from '../conversation/response-language-guidance.js';
 import {
     isResolvedCatalogIdentity,
     isTerminalCatalogMiss,
     resolvedCatalogIdentityBlock,
     unavailableCatalogMessage
-} from './catalog-tool-outcome.js';
-import { openAiToolDefinitions } from './tools/tool-registry.js';
+} from '../catalog/catalog-tool-outcome.js';
+import { openAiToolDefinitions } from '../tools/tool-registry.js';
 import { buildAgentSystemInstruction } from './agent-system-guidance.js';
-import { pageContextInstruction } from './page-context.js';
-import { executeRegisteredMagentoTool } from './tools/magento-tool-executor.js';
-import { createCatalogQueryContinuity } from './catalog-query-continuity.js';
+import { pageContextInstruction } from '../catalog/page-context.js';
+import { executeRegisteredMagentoTool } from '../tools/magento-tool-executor.js';
+import { createCatalogQueryContinuity } from '../catalog/catalog-query-continuity.js';
 
 const DEFAULT_BASE_URL = 'https://raud4eq.9router.com/v1';
 const DEFAULT_FALLBACK_BASE_URL = 'https://aud4eq.tailabefe9.ts.net/v1';

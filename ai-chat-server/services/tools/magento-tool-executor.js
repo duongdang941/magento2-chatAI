@@ -1,31 +1,31 @@
 import axios from 'axios';
 
-import { listSupportCases, searchStoreKnowledge, subscribeBackInStock } from '../assistant-service-client.js';
-import { normalizeMagentoToolResponse } from '../catalog-page-loader.js';
-import { DEFAULT_CATALOG_PAGE_SIZE, MAX_CATALOG_PAGE_SIZE } from '../catalog-pagination.js';
+import { listSupportCases, searchStoreKnowledge, subscribeBackInStock } from '../gateway/assistant-service-client.js';
+import { normalizeMagentoToolResponse } from '../catalog/catalog-page-loader.js';
+import { DEFAULT_CATALOG_PAGE_SIZE, MAX_CATALOG_PAGE_SIZE } from '../catalog/catalog-pagination.js';
 import {
     normalizeAddToCartArguments,
     normalizeAvailabilityArguments,
     normalizeRemoveFromCartArguments,
     normalizeSearchArguments
-} from '../catalog-tool-arguments.js';
-import { executeCustomerAddressAction } from '../customer-address-client.js';
-import { executeCustomerOrderAction } from '../customer-order-client.js';
-import { summarizeError } from '../error-summary.js';
+} from '../catalog/catalog-tool-arguments.js';
+import { executeCustomerAddressAction } from '../customer/customer-address-client.js';
+import { executeCustomerOrderAction } from '../customer/customer-order-client.js';
+import { summarizeError } from '../gateway/error-summary.js';
 import {
     normalizeCustomerAddressArguments,
     normalizeOrderAddressArguments,
     normalizeOrderDetailsArguments,
     normalizeRecentOrdersArguments
-} from '../customer-order-tool-arguments.js';
-import { hashKey } from '../gateway-runtime.js';
-import { guestOrderAction } from '../guest-order-client.js';
-import { createInternalMagentoRequestConfig, createMagentoRequestConfig } from '../magento-auth.js';
+} from '../customer/customer-order-tool-arguments.js';
+import { hashKey } from '../gateway/gateway-runtime.js';
+import { guestOrderAction } from '../customer/guest-order-client.js';
+import { createInternalMagentoRequestConfig, createMagentoRequestConfig } from '../gateway/magento-auth.js';
 import {
     catalogRestUrl,
     catalogScopeCacheIdentity,
     catalogScopeRequestParams
-} from '../catalog-scope.js';
+} from '../catalog/catalog-scope.js';
 
 const MAGENTO_URL = process.env.MAGENTO_API_URL || 'http://afd.test';
 

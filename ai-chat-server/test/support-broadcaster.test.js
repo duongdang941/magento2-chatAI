@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createSupportBroadcaster } from '../services/support-broadcaster.js';
+import { createSupportBroadcaster } from '../services/support/support-broadcaster.js';
 
 test('routes support messages only to their customer and subscribed admins', () => {
     const customerFrames = [];

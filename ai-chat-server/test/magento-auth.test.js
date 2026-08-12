@@ -7,7 +7,7 @@ import {
     createMagentoRequestConfig,
     hasMagentoOAuthCredentials,
     normalizeMagentoHostHeader
-} from '../services/magento-auth.js';
+} from '../services/gateway/magento-auth.js';
 import crypto from 'node:crypto';
 
 test('normalizeMagentoHostHeader accepts plain hosts and full URLs', () => {

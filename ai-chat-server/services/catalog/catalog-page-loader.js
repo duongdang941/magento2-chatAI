@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { createInternalMagentoRequestConfig, createMagentoRequestConfig } from './magento-auth.js';
+import { createInternalMagentoRequestConfig, createMagentoRequestConfig } from '../gateway/magento-auth.js';
 import { normalizeSearchArguments } from './catalog-tool-arguments.js';
 import { MAX_CATALOG_PAGE_SIZE } from './catalog-pagination.js';
 import {

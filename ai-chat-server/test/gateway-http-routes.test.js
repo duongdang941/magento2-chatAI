@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
-import { registerGatewayHttpRoutes, verifyConfigPush } from '../services/gateway-http-routes.js';
+import { registerGatewayHttpRoutes, verifyConfigPush } from '../services/gateway/gateway-http-routes.js';
 
 function signedRequest(body, secret, timestamp = Math.floor(Date.now() / 1000).toString()) {
     const signature = crypto
