@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import { spawn } from 'node:child_process';
-import { buildLocalGatewayEnvironment } from '../services/local-magento-bootstrap.js';
+import { buildLocalGatewayEnvironment } from '../services/configuration/local-magento-bootstrap.js';
 
 // The local .env contains only bootstrap secrets (not provider configuration).
 // It must win over a stale launchd environment; the remaining runtime config

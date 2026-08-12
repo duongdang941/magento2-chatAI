@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import assert from 'node:assert/strict';
 import axios from 'axios';
-import { createInternalMagentoRequestConfig } from '../services/magento-auth.js';
+import { createInternalMagentoRequestConfig } from '../services/gateway/magento-auth.js';
 
 const gatewayUrl = String(process.env.AI_GATEWAY_URL || 'http://127.0.0.1:3001').replace(/\/+$/, '');
 const magentoInternalUrl = String(process.env.MAGENTO_API_URL || 'http://127.0.0.1').replace(/\/+$/, '');

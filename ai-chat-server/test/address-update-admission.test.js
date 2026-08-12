@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
     activeAddressFormCacheKey,
     createAddressUpdateAdmission
-} from '../services/address-update-admission.js';
+} from '../services/customer/address-update-admission.js';
 
 test('uses one canonical owner-scoped key for activation and history hydration', () => {
     assert.equal(

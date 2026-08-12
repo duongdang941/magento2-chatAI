@@ -1,6 +1,6 @@
 import { sanitizeCustomerResponse } from './customer-response-sanitizer.js';
-import { normalizeOrderAddressFormPart } from './order-address-form.js';
-import { coalesceProductParts } from './product-presentation.js';
+import { normalizeOrderAddressFormPart } from '../customer/order-address-form.js';
+import { coalesceProductParts } from '../catalog/product-presentation.js';
 
 export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } = {}) {
     function extractTextFromParts(parts) {

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
     configuredWebSocketOrigins,
     isAllowedWebSocketOrigin
-} from '../services/websocket-security.js';
+} from '../services/security/websocket-security.js';
 
 test('accepts only configured browser origins', () => {
     const env = {

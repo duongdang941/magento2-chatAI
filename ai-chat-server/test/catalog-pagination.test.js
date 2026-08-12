@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { normalizeSearchArguments } from '../services/catalog-tool-arguments.js';
+import { normalizeSearchArguments } from '../services/catalog/catalog-tool-arguments.js';
 import {
     buildCatalogProductsPayload,
     verifyCatalogPageToken
-} from '../services/catalog-pagination.js';
-import { normalizeMagentoToolResponse } from '../services/catalog-page-loader.js';
-import { catalogCoverageInstruction } from '../services/catalog-agent-guidance.js';
+} from '../services/catalog/catalog-pagination.js';
+import { normalizeMagentoToolResponse } from '../services/catalog/catalog-page-loader.js';
+import { catalogCoverageInstruction } from '../services/catalog/catalog-agent-guidance.js';
 
 test('keeps the catalogue default at five unless the shopper explicitly requests another count', () => {
     assert.deepEqual(

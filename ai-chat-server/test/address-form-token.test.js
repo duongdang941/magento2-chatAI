@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { issueAddressFormToken, verifyAddressFormToken } from '../services/address-form-token.js';
+import { issueAddressFormToken, verifyAddressFormToken } from '../services/customer/address-form-token.js';
 
 const SECRET = 'test-address-form-secret-that-is-long-enough';
 

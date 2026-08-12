@@ -7,7 +7,7 @@ import {
     isTerminalCatalogMiss,
     resolvedCatalogIdentityBlock,
     unavailableCatalogMessage
-} from '../services/catalog-tool-outcome.js';
+} from '../services/catalog/catalog-tool-outcome.js';
 
 test('recognizes only the authoritative unavailable product sentinel', () => {
     assert.equal(isUnavailableQueryMatch({

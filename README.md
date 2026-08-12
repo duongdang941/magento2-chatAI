@@ -21,7 +21,7 @@ Important boundaries:
 - `ai-chat-server/services/providers/`: provider protocol adapters only.
 - `ai-chat-server/services/tools/tool-registry.js`: canonical schemas and risk policies.
 - `ai-chat-server/services/tools/magento-tool-executor.js`: provider-neutral tool execution.
-- `ai-chat-server/services/history-message-preparer.js`: secure structured-history hydration and expired-form redaction.
+- `ai-chat-server/services/conversation/history-message-preparer.js`: secure structured-history hydration and expired-form redaction.
 - `Model/Security`, `Model/Order`, `Model/Privacy`: Magento authorization and privacy policies.
 - `Model/Cart/OptionalQuoteCartAdapter.php`: the only optional Amasty Request Quote boundary.
 - `view/frontend/web/js/chat/state.js`: grouped initial UI state; feature behavior remains in `chat/*.js`.

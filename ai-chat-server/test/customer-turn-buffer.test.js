@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createCustomerTurnBuffer } from '../services/customer-turn-buffer.js';
+import { createCustomerTurnBuffer } from '../services/conversation/customer-turn-buffer.js';
 
 test('does not commit provisional prose from a provider turn that selects a tool', () => {
     const turn = createCustomerTurnBuffer();

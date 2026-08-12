@@ -4,7 +4,7 @@ import test from 'node:test';
 import {
     parseSafeWebUrl,
     searchWebWithAi
-} from '../services/native-web-search.js';
+} from '../services/media/native-web-search.js';
 
 const BASE_OPTIONS = {
     provider: 'cockpit',

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { createInternalMagentoRequestConfig } from './magento-auth.js';
+import { createInternalMagentoRequestConfig } from '../gateway/magento-auth.js';
 
 const MAGENTO_URL = process.env.MAGENTO_API_URL || 'http://afd.test';
 const GUEST_ORDER_ENDPOINT = '/afd_ai/chat/guestOrders';

@@ -6,8 +6,8 @@ import {
     catalogScopeCacheIdentity,
     catalogScopeRequestParams,
     normalizeCatalogScope
-} from '../services/catalog-scope.js';
-import { normalizeSearchArguments } from '../services/catalog-tool-arguments.js';
+} from '../services/catalog/catalog-scope.js';
+import { normalizeSearchArguments } from '../services/catalog/catalog-tool-arguments.js';
 
 test('uses only a validated Magento ticket catalogue scope', () => {
     const scope = normalizeCatalogScope({

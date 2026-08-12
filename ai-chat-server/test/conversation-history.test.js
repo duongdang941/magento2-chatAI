@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createConversationHistoryCodec } from '../services/conversation-history.js';
+import { createConversationHistoryCodec } from '../services/conversation/conversation-history.js';
 
 const codec = createConversationHistoryCodec({ maxModelHistoryMessages: 2 });
 

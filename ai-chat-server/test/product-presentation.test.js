@@ -6,7 +6,7 @@ import {
     createCatalogToolPresentation,
     emitProductPresentation,
     replaceProductPart
-} from '../services/product-presentation.js';
+} from '../services/catalog/product-presentation.js';
 
 function catalogueResult(ids, { directAddOnly = false } = {}) {
     return createCatalogToolPresentation({

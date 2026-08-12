@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { GatewayRuntime } from '../services/gateway-runtime.js';
-import { guardWebSocketAction } from '../services/websocket-action-guard.js';
+import { GatewayRuntime } from '../services/gateway/gateway-runtime.js';
+import { guardWebSocketAction } from '../services/security/websocket-action-guard.js';
 
 test('rate limits OTP requests by email even after the guest session rotates', async () => {
     const runtime = new GatewayRuntime({ allowInMemory: true, instanceId: 'test-ws-action' });

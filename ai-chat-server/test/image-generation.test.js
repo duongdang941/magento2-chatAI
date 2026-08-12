@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildImageGenerationRequest } from '../services/image-generation.js';
+import { buildImageGenerationRequest } from '../services/media/image-generation.js';
 
 test('builds a Cockpit image generation request from synced Magento settings', () => {
     const request = buildImageGenerationRequest('A friendly brown puppy', {

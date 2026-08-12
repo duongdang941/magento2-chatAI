@@ -9,7 +9,7 @@ const read = (...parts) => fs.readFileSync(path.join(root, ...parts), 'utf8');
 
 test('provider adapters do not own Magento persistence or tool schemas', () => {
     for (const filename of ['gemini-orchestrator.js', 'openai-compatible-orchestrator.js']) {
-        const source = read('services', filename);
+        const source = read('services', 'orchestration', filename);
         assert.doesNotMatch(source, /executeMagentoTool|createMagentoRequestConfig|axios/);
         assert.match(source, /ToolDefinitions/);
         assert.match(source, /executeRegisteredMagentoTool/);
@@ -19,7 +19,7 @@ test('provider adapters do not own Magento persistence or tool schemas', () => {
 test('server composition root stays below the monolith regression budget', () => {
     const lines = read('server.js').split('\n').length;
     assert.ok(lines < 1900, `server.js has regressed to ${lines} lines`);
-    assert.match(read('services', 'history-message-preparer.js'), /activeAddressFormCacheKey/);
+    assert.match(read('services', 'conversation', 'history-message-preparer.js'), /activeAddressFormCacheKey/);
     assert.doesNotMatch(read('server.js'), /async function prepareHistoryMessages/);
 });
 

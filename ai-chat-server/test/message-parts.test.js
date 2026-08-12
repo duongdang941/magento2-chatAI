@@ -6,7 +6,7 @@ import {
     toGeminiParts,
     toOpenAiContent,
     validateImageParts
-} from '../services/message-parts.js';
+} from '../services/conversation/message-parts.js';
 
 const RED_PIXEL_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR42mP8z8BQDwAFgwJ/lC0AAAAASUVORK5CYII=';
 

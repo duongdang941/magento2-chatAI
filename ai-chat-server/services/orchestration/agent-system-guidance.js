@@ -1,6 +1,6 @@
-import { CATALOG_AGENT_GUIDANCE } from './catalog-agent-guidance.js';
-import { GUEST_ORDER_AGENT_GUIDANCE } from './guest-order-access-guidance.js';
-import { RESPONSE_LANGUAGE_AGENT_GUIDANCE } from './response-language-guidance.js';
+import { CATALOG_AGENT_GUIDANCE } from '../catalog/catalog-agent-guidance.js';
+import { GUEST_ORDER_AGENT_GUIDANCE } from '../customer/guest-order-access-guidance.js';
+import { RESPONSE_LANGUAGE_AGENT_GUIDANCE } from '../conversation/response-language-guidance.js';
 
 const CORE_RULES = `
 1. Use the same language as the shopper's latest message unless explicitly asked otherwise. Preserve catalogue labels as data, but never switch the surrounding prose to the catalogue language.

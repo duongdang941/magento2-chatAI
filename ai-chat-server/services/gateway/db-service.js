@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { summarizeError } from './error-summary.js';
 import { createInternalMagentoRequestConfig } from './magento-auth.js';
-import { catalogRestUrl } from './catalog-scope.js';
+import { catalogRestUrl } from '../catalog/catalog-scope.js';
 
 const MAGENTO_URL = process.env.MAGENTO_API_URL || 'http://afd.test';
 

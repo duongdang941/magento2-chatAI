@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { conversationExists, normalizeConversationPage } from '../services/db-service.js';
+import { conversationExists, normalizeConversationPage } from '../services/gateway/db-service.js';
 
 test('conversationExists returns true only for matching conversation ids', () => {
     const conversations = [

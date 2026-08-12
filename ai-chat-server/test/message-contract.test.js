@@ -5,7 +5,7 @@ import {
     acceptsClientContract,
     encodeGatewayEvent,
     installGatewayEventContract
-} from '../services/message-contract.js';
+} from '../services/conversation/message-contract.js';
 
 test('versions gateway events while retaining the legacy top-level shape', () => {
     assert.deepEqual(JSON.parse(encodeGatewayEvent({ type: 'chunk', content: 'hello' })), {

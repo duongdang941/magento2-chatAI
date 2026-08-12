@@ -5,11 +5,11 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { productGroundTruthCases } from '../evals/product-ground-truth-cases.mjs';
-import { buildLocalGatewayEnvironment } from '../services/local-magento-bootstrap.js';
+import { buildLocalGatewayEnvironment } from '../services/configuration/local-magento-bootstrap.js';
 
 Object.assign(process.env, buildLocalGatewayEnvironment());
-const { getAiConfig } = await import('../services/config-service.js');
-const { getOrchestrator } = await import('../services/orchestrator-factory.js');
+const { getAiConfig } = await import('../services/configuration/config-service.js');
+const { getOrchestrator } = await import('../services/orchestration/orchestrator-factory.js');
 
 const options = parseArgs(process.argv.slice(2));
 const limit = clamp(options.limit, productGroundTruthCases.length, 1, productGroundTruthCases.length);

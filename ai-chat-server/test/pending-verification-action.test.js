@@ -4,7 +4,7 @@ import {
     clearPendingVerificationAction,
     consumePendingVerificationAction,
     rememberPendingVerificationAction
-} from '../services/pending-verification-action.js';
+} from '../services/conversation/pending-verification-action.js';
 
 test('stores a safe, bounded pending verification action', () => {
     const client = {};

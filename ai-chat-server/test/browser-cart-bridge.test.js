@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BrowserCartBridge } from '../services/browser-cart-bridge.js';
+import { BrowserCartBridge } from '../services/customer/browser-cart-bridge.js';
 
 function createSocket() {
     const sent = [];

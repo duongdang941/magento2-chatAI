@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createCatalogQueryContinuity } from '../services/catalog-query-continuity.js';
+import { createCatalogQueryContinuity } from '../services/catalog/catalog-query-continuity.js';
 
 test('keeps a missed product query when narrowing to a category', () => {
     const continuity = createCatalogQueryContinuity();
