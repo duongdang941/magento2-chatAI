@@ -56,6 +56,33 @@ class ChatWidget extends Template
         return $this->customerSession->isLoggedIn() ? (int)$this->customerSession->getCustomerId() : null;
     }
 
+    /** Expose only the feature flag; provider credentials remain server-side. */
+    public function isVoiceInputEnabled(): bool
+    {
+        return (bool)$this->aiConfig->getVoiceConfig()['enabled'];
+    }
+
+    public function getVoiceMaximumDuration(): int
+    {
+        return (int)$this->aiConfig->getVoiceConfig()['max_duration_seconds'];
+    }
+
+    /**
+     * The browser receives only an enable flag. OpenAI credentials and model
+     * selection are kept in Magento configuration and pushed to Node only.
+     */
+    public function isLiveVoiceEnabled(): bool
+    {
+        $voice = $this->aiConfig->getVoiceConfig();
+        return (bool)($voice['live']['enabled'] ?? false);
+    }
+
+    public function getLiveVoiceMaximumDuration(): int
+    {
+        $voice = $this->aiConfig->getVoiceConfig();
+        return (int)($voice['live']['max_duration_seconds'] ?? 600);
+    }
+
     /**
      * Deprecated: do not mint or expose OAuth customer tokens from template rendering.
      */

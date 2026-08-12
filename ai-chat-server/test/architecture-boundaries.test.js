@@ -21,6 +21,7 @@ test('server composition root stays below the monolith regression budget', () =>
     assert.ok(lines < 1900, `server.js has regressed to ${lines} lines`);
     assert.match(read('services', 'conversation', 'history-message-preparer.js'), /activeAddressFormCacheKey/);
     assert.doesNotMatch(read('server.js'), /async function prepareHistoryMessages/);
+    assert.doesNotMatch(read('server.js'), /async function handleVoiceTranscription/);
 });
 
 test('optional quote extension is isolated behind a Magento adapter', () => {

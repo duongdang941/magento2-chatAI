@@ -147,6 +147,7 @@ class SyncNodeConfig implements ObserverInterface
             'rate_limits' => $this->aiConfig->getRateLimitConfig($storeId),
             'capacity' => $this->aiConfig->getCapacityConfig($storeId),
             'attachments' => $this->aiConfig->getAttachmentConfig($storeId),
+            'voice' => $this->aiConfig->getVoiceConfig($storeId),
             'magento_oauth' => $this->aiConfig->getMagentoOauthConfig($storeId),
         ];
     }

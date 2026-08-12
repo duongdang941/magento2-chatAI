@@ -9,6 +9,7 @@ use Afd\AI\Api\CatalogVisibilityPolicyInterface;
 use Afd\AI\Model\Config\Config as AiConfig;
 use Afd\AI\Model\Data\ToolResponseFactory;
 use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory as ProductCollectionFactory;
+use Magento\Catalog\Pricing\Price\FinalPrice;
 use Magento\Framework\Pricing\PriceCurrencyInterface;
 use Magento\SalesRule\Model\ResourceModel\Rule\CollectionFactory as RuleCollectionFactory;
 use Psr\Log\LoggerInterface;
@@ -53,7 +54,7 @@ class CommerceTool
                     $products[] = [
                         'name' => $product->getName(),
                         'sku' => $product->getSku(),
-                        'price' => $this->priceCurrency->format($this->getIndexedFinalPrice($product), false),
+                        'price' => $this->priceCurrency->format($this->getDisplayFinalPrice($product), false),
                         'description' => strip_tags((string)$product->getShortDescription()),
                         'weight' => $product->getWeight(),
                         'url' => $product->getProductUrl()
@@ -93,8 +94,13 @@ class CommerceTool
         return (int)$product->getId() > 0 ? $product : null;
     }
 
-    private function getIndexedFinalPrice($product): float
+    private function getDisplayFinalPrice($product): float
     {
+        $price = $product->getPriceInfo()->getPrice(FinalPrice::PRICE_CODE)->getValue();
+        if (is_numeric($price)) {
+            return (float)$price;
+        }
+
         $indexedPrice = $product->getData('final_price');
 
         return is_numeric($indexedPrice)

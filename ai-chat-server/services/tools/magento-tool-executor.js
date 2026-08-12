@@ -20,7 +20,7 @@ import {
 } from '../customer/customer-order-tool-arguments.js';
 import { hashKey } from '../gateway/gateway-runtime.js';
 import { guestOrderAction } from '../customer/guest-order-client.js';
-import { createInternalMagentoRequestConfig, createMagentoRequestConfig } from '../gateway/magento-auth.js';
+import { createInternalMagentoRequestConfig } from '../gateway/magento-auth.js';
 import {
     catalogRestUrl,
     catalogScopeCacheIdentity,
@@ -231,18 +231,6 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
     }
 }
 
-function magentoRequest(method, url, options = {}) {
-    const config = createMagentoRequestConfig(method, url, {
-        timeout: 20000,
-        signParams: options.signParams || {},
-        magentoOauth: options.magentoOauth || {}
-    });
-    if (!config.headers.Authorization) {
-        throw new Error('Magento gateway OAuth credentials are not configured.');
-    }
-    return config;
-}
-
 async function cachedMagentoRead(runtime, namespace, identity, ttlMs, loader) {
     // A logged-in shopper can change group or be disabled between WebSocket
     // messages. Do not serve an old catalogue cache entry before Magento has
@@ -267,16 +255,16 @@ async function cachedMagentoRead(runtime, namespace, identity, ttlMs, loader) {
 
 async function secureMagentoGet(url, params, magentoOauth) {
     const requestUrl = appendQuery(url, params);
-    const oauth = magentoRequest('GET', requestUrl, {
-        signParams: {},
-        magentoOauth
-    });
+    // Catalogue routes are service-to-service endpoints. Their Magento
+    // implementation verifies this HMAC before returning data, so attaching
+    // an OAuth header as well is both redundant and harmful: Magento chooses
+    // the OAuth identity first and rejects a valid internal request when an
+    // integration lacks this module's private ACL resource.
     const internal = createInternalMagentoRequestConfig('GET', requestUrl, '', { timeout: 20000 });
 
     return axios.get(requestUrl, {
-        ...oauth,
         ...internal,
-        headers: { ...oauth.headers, ...internal.headers }
+        headers: internal.headers
     });
 }
 

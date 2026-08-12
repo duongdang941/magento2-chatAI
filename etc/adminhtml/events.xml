@@ -13,6 +13,9 @@
     <event name="admin_system_config_changed_section_afd_ai_images">
         <observer name="afd_ai_sync_node_config_images" instance="Afd\AI\Observer\SyncNodeConfig"/>
     </event>
+    <event name="admin_system_config_changed_section_afd_ai_voice">
+        <observer name="afd_ai_sync_node_config_voice" instance="Afd\AI\Observer\SyncNodeConfig"/>
+    </event>
     <event name="admin_system_config_changed_section_afd_ai_limits">
         <observer name="afd_ai_sync_node_config_limits" instance="Afd\AI\Observer\SyncNodeConfig"/>
     </event>

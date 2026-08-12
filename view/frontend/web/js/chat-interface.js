@@ -20,6 +20,8 @@
             modules.historyMethods(context),
             modules.preferenceMethods(context),
             modules.attachmentMethods(context),
+            modules.voiceMethods(context),
+            modules.liveVoiceMethods(context),
             modules.requestMethods(context),
             modules.streamRendererMethods(context),
             modules.streamMethods(context),

@@ -14,6 +14,7 @@ use Afd\AI\Model\Product\SaleQuantityPolicy;
 use Magento\Catalog\Model\ResourceModel\Category\CollectionFactory as CategoryCollectionFactory;
 use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory as ProductCollectionFactory;
 use Magento\CatalogInventory\Helper\Stock as StockHelper;
+use Magento\Catalog\Pricing\Price\FinalPrice;
 use Magento\Framework\Pricing\PriceCurrencyInterface;
 
 /**
@@ -156,7 +157,11 @@ class CatalogSearchTool
             $totalResults = 0;
         }
         $html = $productIds !== []
-            ? $this->productRenderer->renderProducts(implode(',', $productIds), $shopperScope->getCustomerGroupId())
+            ? $this->productRenderer->renderProducts(
+                implode(',', $productIds),
+                $shopperScope->getCustomerGroupId(),
+                $customerId
+            )
             : '';
 
         $response = $this->toolResponseFactory->create();
@@ -372,7 +377,7 @@ class CatalogSearchTool
                 'product_ref' => 'product:' . (int)$product->getId(),
                 'sku' => (string)$product->getSku(),
                 'name' => (string)$product->getName(),
-                'price' => $this->priceCurrency->format($this->getIndexedFinalPrice($product), false),
+                'price' => $this->priceCurrency->format($this->getDisplayFinalPrice($product), false),
                 'url' => (string)$product->getProductUrl(),
                 'product_type' => (string)$product->getTypeId(),
                 'direct_addable' => $this->directAddEligibility->canAddToCartDirectly($product),
@@ -392,8 +397,21 @@ class CatalogSearchTool
         return [$resultData, $productIds];
     }
 
-    private function getIndexedFinalPrice($product): float
+    /**
+     * Resolve the same product-type-aware price used by Magento's storefront.
+     *
+     * A configurable parent can legitimately have a zero parent/index value
+     * while its eligible children start at a non-zero price. PriceInfo delegates
+     * configurable pricing to Magento's child-price resolver, matching the
+     * native price renderer used by the product card.
+     */
+    private function getDisplayFinalPrice($product): float
     {
+        $price = $product->getPriceInfo()->getPrice(FinalPrice::PRICE_CODE)->getValue();
+        if (is_numeric($price)) {
+            return (float)$price;
+        }
+
         $indexedPrice = $product->getData('final_price');
 
         return is_numeric($indexedPrice)

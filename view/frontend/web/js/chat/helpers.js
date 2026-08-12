@@ -332,6 +332,14 @@
 
             const pageHost = window.location.hostname;
             const localHosts = ['localhost', '127.0.0.1', '::1'];
+
+            // A secure storefront cannot connect to a plain ws:// gateway.
+            // Local reverse proxies (including the development tunnel) expose
+            // the gateway on the storefront origin at /ai-gateway/.
+            if (window.location.protocol === 'https:' && parsed.protocol === 'ws:') {
+                return `wss://${window.location.host}/ai-gateway/`;
+            }
+
             if (pageHost && !localHosts.includes(pageHost) && localHosts.includes(parsed.hostname)) {
                 parsed.hostname = pageHost;
             }

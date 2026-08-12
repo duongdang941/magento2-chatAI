@@ -39,6 +39,20 @@ test('normalizes Magento agent, traffic, capacity and image limits', () => {
         attachments: {
             max_image_bytes: 500,
             max_images_per_message: 99
+        },
+        voice: {
+            max_duration_seconds: 999,
+            max_audio_bytes: 500,
+            requests_per_minute: 0,
+            max_concurrent_per_identity: 8,
+            timeout_ms: 5000,
+            live: {
+                enabled: true,
+                api_key: 'realtime-test-key',
+                model: 'gpt-realtime-2.1',
+                max_sessions_per_minute: 999,
+                max_duration_seconds: 9999
+            }
         }
     });
 
@@ -71,6 +85,22 @@ test('normalizes Magento agent, traffic, capacity and image limits', () => {
         max_image_bytes: 262144,
         max_images_per_message: 4
     });
+    assert.deepEqual(config.voice, {
+        enabled: true,
+        transcription_model: 'gpt-4o-mini-transcribe',
+        max_duration_seconds: 300,
+        max_audio_bytes: 262144,
+        requests_per_minute: 1,
+        max_concurrent_per_identity: 2,
+        timeout_ms: 10000,
+        live: {
+            enabled: true,
+            api_key: 'realtime-test-key',
+            model: 'gpt-realtime-2.1',
+            max_sessions_per_minute: 30,
+            max_duration_seconds: 1800
+        }
+    });
 });
 
 test('uses quality-first defaults when Magento has not pushed runtime settings', () => {
@@ -85,4 +115,6 @@ test('uses quality-first defaults when Magento has not pushed runtime settings',
     assert.equal(config.capacity.model_lease_ms, 180000);
     assert.equal(config.attachments.max_image_bytes, 4194304);
     assert.equal(config.attachments.max_images_per_message, 4);
+    assert.equal(config.voice.max_duration_seconds, 120);
+    assert.equal(config.voice.max_audio_bytes, 4194304);
 });

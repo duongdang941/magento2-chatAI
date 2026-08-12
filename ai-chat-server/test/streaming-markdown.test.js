@@ -10,9 +10,46 @@ const helperSource = fs.readFileSync(
     path.resolve(testDirectory, '../../view/frontend/web/js/chat/helpers.js'),
     'utf8'
 );
-const sandbox = { window: { AfdAiChat: {} } };
+const sandbox = {
+    URL,
+    window: {
+        AfdAiChat: {},
+        location: {
+            protocol: 'http:',
+            hostname: 'afd.test',
+            host: 'afd.test'
+        }
+    }
+};
 vm.runInNewContext(helperSource, sandbox);
-const { normalizeMarkdownForCopy, stabilizeStreamingMarkdown } = sandbox.window.AfdAiChat.helpers;
+const {
+    normalizeMarkdownForCopy,
+    resolveWebSocketUrl,
+    stabilizeStreamingMarkdown
+} = sandbox.window.AfdAiChat.helpers;
+
+test('routes an insecure local gateway through the secure storefront proxy', () => {
+    sandbox.window.location = {
+        protocol: 'https:',
+        hostname: 'shop-tunnel.example',
+        host: 'shop-tunnel.example'
+    };
+
+    assert.equal(
+        resolveWebSocketUrl('ws://shop-tunnel.example:3001'),
+        'wss://shop-tunnel.example/ai-gateway/'
+    );
+});
+
+test('preserves a direct local WebSocket gateway on an HTTP storefront', () => {
+    sandbox.window.location = {
+        protocol: 'http:',
+        hostname: 'afd.test',
+        host: 'afd.test'
+    };
+
+    assert.equal(resolveWebSocketUrl('ws://afd.test:3001'), 'ws://afd.test:3001/');
+});
 
 test('withholds an unfinished Markdown link from the live stream', () => {
     const source = 'Mở sản phẩm: [Bóng bay (Luftballons)](http://afd.test/bong-bay';

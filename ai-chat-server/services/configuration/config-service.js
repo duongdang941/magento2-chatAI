@@ -4,7 +4,11 @@ import { fileURLToPath } from 'url';
 import { sealConfig, unsealConfig } from './config-seal.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CONFIG_DIRECTORY = process.env.AI_CONFIG_DIRECTORY || path.join(__dirname, '../.local');
+// `__dirname` is `services/configuration`; configuration is operational state
+// for the whole gateway, not a file inside the source services directory.
+// Keeping it beside the gateway logs also makes a restart read the same
+// snapshot that Magento last synchronized.
+const CONFIG_DIRECTORY = process.env.AI_CONFIG_DIRECTORY || path.join(__dirname, '../../.local');
 const CONFIG_FILE = process.env.AI_CONFIG_FILE || path.join(CONFIG_DIRECTORY, 'ai-config.json');
 const VALID_PROVIDERS = new Set(['gemini', 'openai', 'openrouter', '9router', 'cockpit']);
 const MAGENTO_OAUTH_FIELDS = [
@@ -156,6 +160,33 @@ function normalizeAttachments(value) {
     };
 }
 
+function normalizeVoice(value) {
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    const liveSource = source.live && typeof source.live === 'object' && !Array.isArray(source.live)
+        ? source.live
+        : {};
+
+    return {
+        enabled: hasOwn(source, 'enabled') ? Boolean(source.enabled) : true,
+        transcription_model: readString(source.transcription_model, 'gpt-4o-mini-transcribe'),
+        max_duration_seconds: clampInteger(source.max_duration_seconds, 120, 5, 300),
+        max_audio_bytes: clampInteger(source.max_audio_bytes, 4 * 1024 * 1024, 256 * 1024, 4 * 1024 * 1024),
+        requests_per_minute: clampInteger(source.requests_per_minute, 6, 1, 30),
+        max_concurrent_per_identity: clampInteger(source.max_concurrent_per_identity, 1, 1, 2),
+        timeout_ms: clampInteger(source.timeout_ms, 120000, 10000, 180000),
+        // Live voice has a provider credential of its own.  A compatible
+        // chat endpoint (for example Cockpit) is not assumed to implement
+        // OpenAI's Realtime protocol.
+        live: {
+            enabled: hasOwn(liveSource, 'enabled') ? Boolean(liveSource.enabled) : false,
+            api_key: readString(liveSource.api_key, process.env.OPENAI_REALTIME_API_KEY || ''),
+            model: readString(liveSource.model, 'gpt-realtime-1.5'),
+            max_sessions_per_minute: clampInteger(liveSource.max_sessions_per_minute, 3, 1, 30),
+            max_duration_seconds: clampInteger(liveSource.max_duration_seconds, 600, 30, 1800)
+        }
+    };
+}
+
 export function normalizeConfig(config = {}) {
     const requestedProvider = readString(config.provider, process.env.AI_PROVIDER || 'cockpit');
     const provider = VALID_PROVIDERS.has(requestedProvider) ? requestedProvider : 'cockpit';
@@ -173,6 +204,7 @@ export function normalizeConfig(config = {}) {
         rate_limits: normalizeRateLimits(config.rate_limits),
         capacity: normalizeCapacity(config.capacity),
         attachments: normalizeAttachments(config.attachments),
+        voice: normalizeVoice(config.voice),
         magento_oauth: normalizeMagentoOauth(config.magento_oauth)
     };
 }

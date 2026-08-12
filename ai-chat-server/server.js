@@ -39,6 +39,7 @@ import {
     buildInterruptedAssistantPayload
 } from './services/conversation/interrupted-response.js';
 import { BrowserCartBridge } from './services/customer/browser-cart-bridge.js';
+import { routeVoiceAction } from './services/conversation/voice-action-router.js';
 import { guestOrderAction } from './services/customer/guest-order-client.js';
 import { executeCustomerOrderAction } from './services/customer/customer-order-client.js';
 import { executeCustomerAddressAction } from './services/customer/customer-address-client.js';
@@ -69,7 +70,6 @@ import {
 } from './services/conversation/pending-verification-action.js';
 import { createHistoryMessagePreparer } from './services/conversation/history-message-preparer.js';
 import { stopGateway } from './services/gateway/graceful-shutdown.js';
-
 const app = express();
 const port = process.env.PORT || 3001;
 const runtime = getGatewayRuntime();
@@ -169,7 +169,6 @@ registerGatewayHttpRoutes({
         rejectBrowserCart: (socket) => browserCartBridge.rejectAll(socket)
     })
 });
-
 
 async function supportConversationState(client, conversationId) {
     try {
@@ -738,6 +737,14 @@ wss.on('connection', async (ws, req) => {
                 case 'cart_add_result':
                 case 'cart_mutation_result': {
                     browserCartBridge.resolve(ws, data);
+                    break;
+                }
+
+                case 'voice_transcribe':
+                case 'live_voice_session':
+                case 'live_voice_save_turn':
+                case 'live_voice_tool_call': {
+                    await routeVoiceAction({ ws, data, client, runtime, metrics, getConfig: getAiConfig, attachRequestId, db, guestSessionHistory, broadcastGuestConversation });
                     break;
                 }
 

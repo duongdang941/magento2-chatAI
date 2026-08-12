@@ -49,6 +49,95 @@
             </group>
         </section>
 
+        <section id="afd_ai_voice" translate="label" type="text" sortOrder="35" showInDefault="1" showInWebsite="1" showInStore="1">
+            <label>Voice Dictation</label>
+            <tab>afd</tab>
+            <resource>Afd_AI::config</resource>
+            <group id="general" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Speech to Text</label>
+                <field id="enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable Voice Dictation</label>
+                    <comment>Records locally, transcribes through the configured AI provider, then inserts text into the composer. Audio is never saved in chat history.</comment>
+                    <config_path>afd_ai/voice/enabled</config_path>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="transcription_model" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Transcription Model</label>
+                    <comment>OpenAI-compatible speech-to-text model exposed by the selected provider, for example gpt-4o-mini-transcribe.</comment>
+                    <config_path>afd_ai/voice/transcription_model</config_path>
+                </field>
+                <field id="max_duration_seconds" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Maximum Recording Duration (Seconds)</label>
+                    <comment>Allowed range: 5–300 seconds.</comment>
+                    <config_path>afd_ai/voice/max_duration_seconds</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="max_audio_bytes" translate="label comment" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Maximum Recording Size (Bytes)</label>
+                    <comment>Allowed range: 262144–4194304 bytes. This remains safely below the gateway WebSocket payload limit after base64 encoding.</comment>
+                    <config_path>afd_ai/voice/max_audio_bytes</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="timeout_ms" translate="label comment" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Transcription Timeout (Milliseconds)</label>
+                    <comment>Allowed range: 10000–180000.</comment>
+                    <config_path>afd_ai/voice/timeout_ms</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+            </group>
+            <group id="limits" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Voice Usage Limits</label>
+                <field id="requests_per_minute" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Transcriptions per Minute</label>
+                    <comment>Per customer or stable guest session. Allowed range: 1–30.</comment>
+                    <config_path>afd_ai/voice/requests_per_minute</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="max_concurrent_per_identity" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Concurrent Transcriptions per Shopper</label>
+                    <comment>Allowed range: 1–2. Keep at 1 to avoid duplicate microphone requests.</comment>
+                    <config_path>afd_ai/voice/max_concurrent_per_identity</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+            </group>
+            <group id="live" translate="label" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Live Voice (Two-way)</label>
+                <field id="enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable Live Voice</label>
+                    <comment>Creates a short-lived WebRTC voice session directly with OpenAI. This is separate from Dictation and requires an OpenAI Realtime API key; the regular chat/Cockpit provider is never reused.</comment>
+                    <config_path>afd_ai/voice/live_enabled</config_path>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="openai_api_key" translate="label comment" type="obscure" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>OpenAI Realtime API Key</label>
+                    <comment>Stored encrypted and sent only to the Node gateway. It is never exposed to the shopper browser.</comment>
+                    <config_path>afd_ai/voice/live_openai_api_key</config_path>
+                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
+                    <depends><field id="enabled">1</field></depends>
+                </field>
+                <field id="model" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Realtime Model</label>
+                    <comment>OpenAI audio model, for example gpt-realtime-1.5.</comment>
+                    <config_path>afd_ai/voice/live_model</config_path>
+                    <depends><field id="enabled">1</field></depends>
+                </field>
+                <field id="max_sessions_per_minute" translate="label comment" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Live Sessions per Minute</label>
+                    <comment>Per customer or stable guest session. Allowed range: 1–30.</comment>
+                    <config_path>afd_ai/voice/live_max_sessions_per_minute</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                    <depends><field id="enabled">1</field></depends>
+                </field>
+                <field id="max_duration_seconds" translate="label comment" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Maximum Live Session Duration (Seconds)</label>
+                    <comment>The browser ends the call locally after this duration. Allowed range: 30–1800.</comment>
+                    <config_path>afd_ai/voice/live_max_duration_seconds</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                    <depends><field id="enabled">1</field></depends>
+                </field>
+            </group>
+        </section>
+
         <section id="afd_ai_providers" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
             <label>AI Providers</label>
             <tab>afd</tab>

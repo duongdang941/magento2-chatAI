@@ -3,6 +3,7 @@
     <head>
         <css src="Afd_AI::css/fonts.css"/>
         <css src="Afd_AI::css/chat-widget.css"/>
+        <css src="Afd_AI::css/composer-actions.css"/>
     </head>
     <body>
         <referenceContainer name="before.body.end">

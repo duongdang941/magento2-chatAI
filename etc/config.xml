@@ -48,6 +48,19 @@
                 <max_image_bytes>4194304</max_image_bytes>
                 <max_images_per_message>4</max_images_per_message>
             </attachments>
+            <voice>
+                <enabled>1</enabled>
+                <transcription_model>gpt-4o-mini-transcribe</transcription_model>
+                <max_duration_seconds>120</max_duration_seconds>
+                <max_audio_bytes>4194304</max_audio_bytes>
+                <requests_per_minute>6</requests_per_minute>
+                <max_concurrent_per_identity>1</max_concurrent_per_identity>
+                <timeout_ms>120000</timeout_ms>
+                <live_enabled>0</live_enabled>
+                <live_model>gpt-realtime-1.5</live_model>
+                <live_max_sessions_per_minute>3</live_max_sessions_per_minute>
+                <live_max_duration_seconds>600</live_max_duration_seconds>
+            </voice>
             <knowledge>
                 <enabled>1</enabled>
             </knowledge>

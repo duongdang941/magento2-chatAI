@@ -62,6 +62,24 @@ class Config
     const XML_PATH_ATTACHMENT_MAX_IMAGE_BYTES = 'afd_ai/attachments/max_image_bytes';
     const XML_PATH_ATTACHMENT_MAX_IMAGES = 'afd_ai/attachments/max_images_per_message';
 
+    const XML_PATH_VOICE_ENABLED = 'afd_ai/voice/enabled';
+    const XML_PATH_VOICE_TRANSCRIPTION_MODEL = 'afd_ai/voice/transcription_model';
+    const XML_PATH_VOICE_MAX_DURATION_SECONDS = 'afd_ai/voice/max_duration_seconds';
+    const XML_PATH_VOICE_MAX_AUDIO_BYTES = 'afd_ai/voice/max_audio_bytes';
+    const XML_PATH_VOICE_REQUESTS_PER_MINUTE = 'afd_ai/voice/requests_per_minute';
+    const XML_PATH_VOICE_MAX_CONCURRENT = 'afd_ai/voice/max_concurrent_per_identity';
+    const XML_PATH_VOICE_TIMEOUT_MS = 'afd_ai/voice/timeout_ms';
+    /**
+     * Live Voice intentionally has its own OpenAI credential.  Reusing the
+     * storefront chat provider would silently route audio through Cockpit or
+     * another OpenAI-compatible API which may not implement Realtime.
+     */
+    const XML_PATH_VOICE_LIVE_ENABLED = 'afd_ai/voice/live_enabled';
+    const XML_PATH_VOICE_LIVE_OPENAI_API_KEY = 'afd_ai/voice/live_openai_api_key';
+    const XML_PATH_VOICE_LIVE_MODEL = 'afd_ai/voice/live_model';
+    const XML_PATH_VOICE_LIVE_MAX_SESSIONS_PER_MINUTE = 'afd_ai/voice/live_max_sessions_per_minute';
+    const XML_PATH_VOICE_LIVE_MAX_DURATION_SECONDS = 'afd_ai/voice/live_max_duration_seconds';
+
     const XML_PATH_MAGENTO_CONSUMER_KEY = 'afd_ai/general/magento_consumer_key';
     const XML_PATH_MAGENTO_CONSUMER_SECRET = 'afd_ai/general/magento_consumer_secret';
     const XML_PATH_MAGENTO_ACCESS_TOKEN = 'afd_ai/general/magento_access_token';
@@ -323,6 +341,91 @@ class Config
                 4,
                 $storeId
             ),
+        ];
+    }
+
+    /**
+     * Voice is dictation, not an audio message feature. The browser records a
+     * short-lived blob, Node transcribes it, and only the shopper-approved
+     * transcript can later become part of a conversation.
+     */
+    public function getVoiceConfig($storeId = null): array
+    {
+        return [
+            'enabled' => $this->scopeConfig->isSetFlag(
+                self::XML_PATH_VOICE_ENABLED,
+                ScopeInterface::SCOPE_STORE,
+                $storeId
+            ),
+            'transcription_model' => (string)$this->scopeConfig->getValue(
+                self::XML_PATH_VOICE_TRANSCRIPTION_MODEL,
+                ScopeInterface::SCOPE_STORE,
+                $storeId
+            ),
+            'max_duration_seconds' => $this->getIntValue(
+                self::XML_PATH_VOICE_MAX_DURATION_SECONDS,
+                120,
+                5,
+                300,
+                $storeId
+            ),
+            'max_audio_bytes' => $this->getIntValue(
+                self::XML_PATH_VOICE_MAX_AUDIO_BYTES,
+                4194304,
+                262144,
+                4194304,
+                $storeId
+            ),
+            'requests_per_minute' => $this->getIntValue(
+                self::XML_PATH_VOICE_REQUESTS_PER_MINUTE,
+                6,
+                1,
+                30,
+                $storeId
+            ),
+            'max_concurrent_per_identity' => $this->getIntValue(
+                self::XML_PATH_VOICE_MAX_CONCURRENT,
+                1,
+                1,
+                2,
+                $storeId
+            ),
+            'timeout_ms' => $this->getIntValue(
+                self::XML_PATH_VOICE_TIMEOUT_MS,
+                120000,
+                10000,
+                180000,
+                $storeId
+            ),
+            'live' => [
+                'enabled' => $this->scopeConfig->isSetFlag(
+                    self::XML_PATH_VOICE_LIVE_ENABLED,
+                    ScopeInterface::SCOPE_STORE,
+                    $storeId
+                ),
+                // This is included only in the encrypted Magento → Node
+                // snapshot. It is never rendered into storefront JavaScript.
+                'api_key' => $this->getEncryptedValue(self::XML_PATH_VOICE_LIVE_OPENAI_API_KEY, $storeId),
+                'model' => (string)$this->scopeConfig->getValue(
+                    self::XML_PATH_VOICE_LIVE_MODEL,
+                    ScopeInterface::SCOPE_STORE,
+                    $storeId
+                ),
+                'max_sessions_per_minute' => $this->getIntValue(
+                    self::XML_PATH_VOICE_LIVE_MAX_SESSIONS_PER_MINUTE,
+                    3,
+                    1,
+                    30,
+                    $storeId
+                ),
+                'max_duration_seconds' => $this->getIntValue(
+                    self::XML_PATH_VOICE_LIVE_MAX_DURATION_SECONDS,
+                    600,
+                    30,
+                    1800,
+                    $storeId
+                ),
+            ],
         ];
     }
 

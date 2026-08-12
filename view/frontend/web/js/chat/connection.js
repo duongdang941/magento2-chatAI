@@ -22,6 +22,8 @@ const {
 
         return {
             initChat() {
+                this.initVoiceDictation?.();
+                this.initLiveVoice?.();
                 this.restoreUiSettings();
                 this.applyUiSettings();
                 this.restoreLauncherPosition();
@@ -48,6 +50,8 @@ const {
                         this.$nextTick(() => this.syncSupportTyping());
                     } else {
                         this.stopSupportTyping();
+                        if (this.voiceState === 'recording') this.cancelVoiceDictation();
+                        if (this.liveVoiceState !== 'idle') this.endLiveVoice?.();
                     }
                     this.syncPetAnimation();
                 });
@@ -226,6 +230,34 @@ const {
             },
 
             handleWsMessage(data) {
+                if (data.type === 'voice_transcript') {
+                    this.receiveVoiceTranscript(data);
+                    return;
+                }
+                if (data.type === 'voice_error') {
+                    this.receiveVoiceError(data);
+                    return;
+                }
+                if (data.type === 'live_voice_session') {
+                    this.connectLiveVoiceSession(data);
+                    return;
+                }
+                if (data.type === 'live_voice_error') {
+                    this.receiveLiveVoiceError(data);
+                    return;
+                }
+                if (data.type === 'live_voice_tool_result') {
+                    this.receiveLiveVoiceToolResult(data);
+                    return;
+                }
+                if (data.type === 'live_voice_saved') {
+                    this.receiveLiveVoiceSaved(data);
+                    return;
+                }
+                if (data.type === 'live_voice_save_error') {
+                    this.receiveLiveVoiceSaveError(data);
+                    return;
+                }
                 if (data.type === 'auth') {
                     this.isLoggedIn = data.isLoggedIn;
                     this.hasConversationHistory = data.historyAvailable === true;

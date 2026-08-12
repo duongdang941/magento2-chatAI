@@ -10,6 +10,10 @@ $frontendConfig = [
     'chatServerUrl' => $block->getChatServerUrl(),
     'customerId' => (int) $block->getCustomerId(),
     'isLoggedIn' => $block->isLoggedIn(),
+    'voiceEnabled' => $block->isVoiceInputEnabled(),
+    'voiceMaximumDuration' => $block->getVoiceMaximumDuration(),
+    'liveVoiceEnabled' => $block->isLiveVoiceEnabled(),
+    'liveVoiceMaximumDuration' => $block->getLiveVoiceMaximumDuration(),
     'petSpritesheetUrl' => $block->getViewFileUrl('Afd_AI::images/shadow-wolf-pet-spritesheet.webp'),
     'richTextAssets' => [
         'purify' => $block->getViewFileUrl('Afd_AI::js/purify.min.js'),
@@ -129,6 +133,8 @@ $frontendConfig = [
 <script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/history.js')) ?>"></script>
 <script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/preferences.js')) ?>"></script>
 <script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/attachments.js')) ?>"></script>
+<script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/voice.js')) ?>"></script>
+<script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/live-voice.js')) ?>"></script>
 <script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/requests.js')) ?>"></script>
 <script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/stream-renderer.js')) ?>"></script>
 <script src="<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::js/chat/stream.js')) ?>"></script>

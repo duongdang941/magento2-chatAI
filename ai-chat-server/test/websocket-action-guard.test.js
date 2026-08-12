@@ -39,6 +39,7 @@ test('allows known chat and address actions and rejects unknown actions', async 
 
     assert.equal((await guardWebSocketAction(runtime, client, 'chat')).allowed, true);
     assert.equal((await guardWebSocketAction(runtime, client, 'order_address_update')).allowed, true);
+    assert.equal((await guardWebSocketAction(runtime, client, 'voice_transcribe')).allowed, true);
     assert.deepEqual(
         await guardWebSocketAction(runtime, client, 'future_unreviewed_action'),
         { allowed: false, retryAfterMs: 0, reason: 'unknown_action' }
