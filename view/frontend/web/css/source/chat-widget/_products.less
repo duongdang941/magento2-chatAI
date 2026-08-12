@@ -195,25 +195,58 @@ h4.afd-ai-chat__product-name {
     flex-wrap: wrap;
     gap: 4px 6px;
     min-width: 0;
-}
 
-.afd-ai-chat__product-price-old,
-.afd-ai-chat__product-price-current {
-    margin: 0;
-}
+    .price-box,
+    .normal-price,
+    .special-price,
+    .old-price,
+    .price-wrapper {
+        display: inline-flex;
+        align-items: baseline;
+        min-width: 0;
+        margin: 0;
+        line-height: 1.25;
+    }
 
-.afd-ai-chat__product-price-old {
-    color: @afd-chat-text-faint;
-    font-size: ~"calc(11px * var(--afd-chat-font-scale))";
-    line-height: 1.2;
-    text-decoration: line-through;
-}
+    .price-box {
+        flex-wrap: wrap;
+        gap: 4px 6px;
+    }
 
-.afd-ai-chat__product-price-current {
-    color: #a8b0ff;
-    font-size: ~"calc(13px * var(--afd-chat-font-scale))";
-    font-weight: 760;
-    line-height: 1.25;
+    .normal-price,
+    .special-price {
+        color: #a8b0ff;
+        font-size: ~"calc(13px * var(--afd-chat-font-scale))";
+        font-weight: 760;
+    }
+
+    .old-price {
+        order: -1;
+        color: @afd-chat-text-faint;
+        font-size: ~"calc(11px * var(--afd-chat-font-scale))";
+        font-weight: 500;
+    }
+
+    .old-price .price {
+        text-decoration: line-through;
+    }
+
+    .price-label {
+        margin-right: 4px;
+        color: @afd-chat-text-muted;
+        font-size: ~"calc(11px * var(--afd-chat-font-scale))";
+        font-weight: 600;
+    }
+
+    .price {
+        color: inherit;
+    }
+
+    .minimal-price-link {
+        color: var(--afd-chat-accent-live);
+        font-size: ~"calc(11px * var(--afd-chat-font-scale))";
+        text-decoration: none;
+    }
 }
 
 .afd-ai-chat__product-actions {
