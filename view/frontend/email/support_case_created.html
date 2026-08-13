@@ -1,0 +1,17 @@
+<!--@subject New Store Assistant support request {{var case.public_id}} @-->
+<!--@vars {
+"var case.public_id":"Case ID",
+"var case.category":"Category",
+"var case.priority":"Priority",
+"var case.subject":"Subject",
+"var case.summary":"Summary",
+"var case.created_at":"Created at"
+} @-->
+{{template config_path="design/email/header_template"}}
+<p><strong>{{trans "A customer requested human support through Store Assistant."}}</strong></p>
+<p>{{trans "Case:"}} {{var case.public_id|escape}}</p>
+<p>{{trans "Category:"}} {{var case.category|escape}} · {{trans "Priority:"}} {{var case.priority|escape}}</p>
+<p>{{var case.subject|escape}}</p>
+<p>{{var case.summary|escape|nl2br}}</p>
+<p>{{trans "Created:"}} {{var case.created_at|escape}}</p>
+{{template config_path="design/email/footer_template"}}

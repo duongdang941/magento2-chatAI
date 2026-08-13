@@ -1,0 +1,6252 @@
+[
+  {
+    "id": "commerce-bac-windbreaker",
+    "title": "Bắc: Windbreaker individualisierbar",
+    "locale": "Bắc",
+    "dialect_marker": "kia",
+    "catalog_topic": {
+      "key": "windbreaker",
+      "query": "áo khoác",
+      "title": "Windbreaker individualisierbar",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bác ơi, shop mình có áo khoác không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên kia là Windbreaker individualisierbar. Cái đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Windbreaker individualisierbar nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-bac-tshirt",
+    "title": "Bắc: T-Shirt",
+    "locale": "Bắc",
+    "dialect_marker": "kia",
+    "catalog_topic": {
+      "key": "tshirt",
+      "query": "áo thun",
+      "title": "T-Shirt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bác ơi, shop mình có áo thun không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên kia là T-Shirt. Cái đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là T-Shirt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-bac-cap",
+    "title": "Bắc: Kappe",
+    "locale": "Bắc",
+    "dialect_marker": "kia",
+    "catalog_topic": {
+      "key": "cap",
+      "query": "mũ",
+      "title": "Kappe",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bác ơi, shop mình có mũ không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên kia. Cái đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kappe nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-bac-balloons",
+    "title": "Bắc: Luftballons",
+    "locale": "Bắc",
+    "dialect_marker": "kia",
+    "catalog_topic": {
+      "key": "balloons",
+      "query": "Luftballons",
+      "title": "Luftballons",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bác ơi, shop mình có Luftballons không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên kia. Cái đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Luftballons nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-bac-mug",
+    "title": "Bắc: Tasse",
+    "locale": "Bắc",
+    "dialect_marker": "kia",
+    "catalog_topic": {
+      "key": "mug",
+      "query": "Tasse",
+      "title": "Tasse",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bác ơi, shop mình có Tasse không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên kia. Cái đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Tasse nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-bac-banner",
+    "title": "Bắc: Banner",
+    "locale": "Bắc",
+    "dialect_marker": "kia",
+    "catalog_topic": {
+      "key": "banner",
+      "query": "Banner",
+      "title": "Banner",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bác ơi, shop mình có Banner không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên kia là Banner. Cái đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Banner nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-bac-flag",
+    "title": "Bắc: Fahne",
+    "locale": "Bắc",
+    "dialect_marker": "kia",
+    "catalog_topic": {
+      "key": "flag",
+      "query": "Fahne",
+      "title": "Fahne",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bác ơi, shop mình có Fahne không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên kia. Cái đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Fahne nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-bac-hoodie",
+    "title": "Bắc: Kapuzenpulli",
+    "locale": "Bắc",
+    "dialect_marker": "kia",
+    "catalog_topic": {
+      "key": "hoodie",
+      "query": "Kapuzenpulli",
+      "title": "Kapuzenpulli",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bác ơi, shop mình có Kapuzenpulli không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên kia là Kapuzenpulli. Cái đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kapuzenpulli nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-bac-flyer",
+    "title": "Bắc: Faltblatt",
+    "locale": "Bắc",
+    "dialect_marker": "kia",
+    "catalog_topic": {
+      "key": "flyer",
+      "query": "Faltblatt",
+      "title": "Faltblatt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bác ơi, shop mình có Faltblatt không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên kia là Faltblatt. Cái đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Faltblatt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-bac-sticker",
+    "title": "Bắc: Aufkleber",
+    "locale": "Bắc",
+    "dialect_marker": "kia",
+    "catalog_topic": {
+      "key": "sticker",
+      "query": "Aufkleber",
+      "title": "Aufkleber",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bác ơi, shop mình có Aufkleber không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên kia. Cái đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Aufkleber nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hanoi-windbreaker",
+    "title": "Hà Nội: Windbreaker individualisierbar",
+    "locale": "Hà Nội",
+    "dialect_marker": "ấy",
+    "catalog_topic": {
+      "key": "windbreaker",
+      "query": "áo khoác",
+      "title": "Windbreaker individualisierbar",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho em hỏi bên mình có áo khoác không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu số một vừa hiện là Windbreaker individualisierbar. Mẫu ấy còn hàng chứ ạ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Windbreaker individualisierbar nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hanoi-tshirt",
+    "title": "Hà Nội: T-Shirt",
+    "locale": "Hà Nội",
+    "dialect_marker": "ấy",
+    "catalog_topic": {
+      "key": "tshirt",
+      "query": "áo thun",
+      "title": "T-Shirt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho em hỏi bên mình có áo thun không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu số một vừa hiện là T-Shirt. Mẫu ấy còn hàng chứ ạ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là T-Shirt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hanoi-cap",
+    "title": "Hà Nội: Kappe",
+    "locale": "Hà Nội",
+    "dialect_marker": "ấy",
+    "catalog_topic": {
+      "key": "cap",
+      "query": "mũ",
+      "title": "Kappe",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho em hỏi bên mình có mũ không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu số một vừa hiện. Mẫu ấy còn hàng chứ ạ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kappe nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hanoi-balloons",
+    "title": "Hà Nội: Luftballons",
+    "locale": "Hà Nội",
+    "dialect_marker": "ấy",
+    "catalog_topic": {
+      "key": "balloons",
+      "query": "Luftballons",
+      "title": "Luftballons",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho em hỏi bên mình có Luftballons không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu số một vừa hiện. Mẫu ấy còn hàng chứ ạ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Luftballons nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hanoi-mug",
+    "title": "Hà Nội: Tasse",
+    "locale": "Hà Nội",
+    "dialect_marker": "ấy",
+    "catalog_topic": {
+      "key": "mug",
+      "query": "Tasse",
+      "title": "Tasse",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho em hỏi bên mình có Tasse không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu số một vừa hiện. Mẫu ấy còn hàng chứ ạ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Tasse nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hanoi-banner",
+    "title": "Hà Nội: Banner",
+    "locale": "Hà Nội",
+    "dialect_marker": "ấy",
+    "catalog_topic": {
+      "key": "banner",
+      "query": "Banner",
+      "title": "Banner",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho em hỏi bên mình có Banner không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu số một vừa hiện là Banner. Mẫu ấy còn hàng chứ ạ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Banner nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hanoi-flag",
+    "title": "Hà Nội: Fahne",
+    "locale": "Hà Nội",
+    "dialect_marker": "ấy",
+    "catalog_topic": {
+      "key": "flag",
+      "query": "Fahne",
+      "title": "Fahne",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho em hỏi bên mình có Fahne không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu số một vừa hiện. Mẫu ấy còn hàng chứ ạ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Fahne nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hanoi-hoodie",
+    "title": "Hà Nội: Kapuzenpulli",
+    "locale": "Hà Nội",
+    "dialect_marker": "ấy",
+    "catalog_topic": {
+      "key": "hoodie",
+      "query": "Kapuzenpulli",
+      "title": "Kapuzenpulli",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho em hỏi bên mình có Kapuzenpulli không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu số một vừa hiện là Kapuzenpulli. Mẫu ấy còn hàng chứ ạ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kapuzenpulli nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hanoi-flyer",
+    "title": "Hà Nội: Faltblatt",
+    "locale": "Hà Nội",
+    "dialect_marker": "ấy",
+    "catalog_topic": {
+      "key": "flyer",
+      "query": "Faltblatt",
+      "title": "Faltblatt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho em hỏi bên mình có Faltblatt không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu số một vừa hiện là Faltblatt. Mẫu ấy còn hàng chứ ạ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Faltblatt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hanoi-sticker",
+    "title": "Hà Nội: Aufkleber",
+    "locale": "Hà Nội",
+    "dialect_marker": "ấy",
+    "catalog_topic": {
+      "key": "sticker",
+      "query": "Aufkleber",
+      "title": "Aufkleber",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho em hỏi bên mình có Aufkleber không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu số một vừa hiện. Mẫu ấy còn hàng chứ ạ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Aufkleber nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hai_phong-windbreaker",
+    "title": "Hải Phòng: Windbreaker individualisierbar",
+    "locale": "Hải Phòng",
+    "dialect_marker": "đấy",
+    "catalog_topic": {
+      "key": "windbreaker",
+      "query": "áo khoác",
+      "title": "Windbreaker individualisierbar",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có áo khoác không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái mẫu đầu tiên đấy là Windbreaker individualisierbar. Cái đấy còn bao nhiêu?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Windbreaker individualisierbar nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hai_phong-tshirt",
+    "title": "Hải Phòng: T-Shirt",
+    "locale": "Hải Phòng",
+    "dialect_marker": "đấy",
+    "catalog_topic": {
+      "key": "tshirt",
+      "query": "áo thun",
+      "title": "T-Shirt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có áo thun không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái mẫu đầu tiên đấy là T-Shirt. Cái đấy còn bao nhiêu?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là T-Shirt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hai_phong-cap",
+    "title": "Hải Phòng: Kappe",
+    "locale": "Hải Phòng",
+    "dialect_marker": "đấy",
+    "catalog_topic": {
+      "key": "cap",
+      "query": "mũ",
+      "title": "Kappe",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có mũ không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái mẫu đầu tiên đấy. Cái đấy còn bao nhiêu?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kappe nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hai_phong-balloons",
+    "title": "Hải Phòng: Luftballons",
+    "locale": "Hải Phòng",
+    "dialect_marker": "đấy",
+    "catalog_topic": {
+      "key": "balloons",
+      "query": "Luftballons",
+      "title": "Luftballons",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có Luftballons không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái mẫu đầu tiên đấy. Cái đấy còn bao nhiêu?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Luftballons nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hai_phong-mug",
+    "title": "Hải Phòng: Tasse",
+    "locale": "Hải Phòng",
+    "dialect_marker": "đấy",
+    "catalog_topic": {
+      "key": "mug",
+      "query": "Tasse",
+      "title": "Tasse",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có Tasse không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái mẫu đầu tiên đấy. Cái đấy còn bao nhiêu?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Tasse nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hai_phong-banner",
+    "title": "Hải Phòng: Banner",
+    "locale": "Hải Phòng",
+    "dialect_marker": "đấy",
+    "catalog_topic": {
+      "key": "banner",
+      "query": "Banner",
+      "title": "Banner",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có Banner không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái mẫu đầu tiên đấy là Banner. Cái đấy còn bao nhiêu?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Banner nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hai_phong-flag",
+    "title": "Hải Phòng: Fahne",
+    "locale": "Hải Phòng",
+    "dialect_marker": "đấy",
+    "catalog_topic": {
+      "key": "flag",
+      "query": "Fahne",
+      "title": "Fahne",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có Fahne không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái mẫu đầu tiên đấy. Cái đấy còn bao nhiêu?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Fahne nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hai_phong-hoodie",
+    "title": "Hải Phòng: Kapuzenpulli",
+    "locale": "Hải Phòng",
+    "dialect_marker": "đấy",
+    "catalog_topic": {
+      "key": "hoodie",
+      "query": "Kapuzenpulli",
+      "title": "Kapuzenpulli",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có Kapuzenpulli không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái mẫu đầu tiên đấy là Kapuzenpulli. Cái đấy còn bao nhiêu?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kapuzenpulli nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hai_phong-flyer",
+    "title": "Hải Phòng: Faltblatt",
+    "locale": "Hải Phòng",
+    "dialect_marker": "đấy",
+    "catalog_topic": {
+      "key": "flyer",
+      "query": "Faltblatt",
+      "title": "Faltblatt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có Faltblatt không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái mẫu đầu tiên đấy là Faltblatt. Cái đấy còn bao nhiêu?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Faltblatt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hai_phong-sticker",
+    "title": "Hải Phòng: Aufkleber",
+    "locale": "Hải Phòng",
+    "dialect_marker": "đấy",
+    "catalog_topic": {
+      "key": "sticker",
+      "query": "Aufkleber",
+      "title": "Aufkleber",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có Aufkleber không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái mẫu đầu tiên đấy. Cái đấy còn bao nhiêu?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Aufkleber nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hue-windbreaker",
+    "title": "Huế: Windbreaker individualisierbar",
+    "locale": "Huế",
+    "dialect_marker": "ni",
+    "catalog_topic": {
+      "key": "windbreaker",
+      "query": "áo khoác",
+      "title": "Windbreaker individualisierbar",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho tui hỏi có áo khoác không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên ni là Windbreaker individualisierbar. Cái ni còn mấy cái rứa?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Windbreaker individualisierbar nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hue-tshirt",
+    "title": "Huế: T-Shirt",
+    "locale": "Huế",
+    "dialect_marker": "ni",
+    "catalog_topic": {
+      "key": "tshirt",
+      "query": "áo thun",
+      "title": "T-Shirt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho tui hỏi có áo thun không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên ni là T-Shirt. Cái ni còn mấy cái rứa?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là T-Shirt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hue-cap",
+    "title": "Huế: Kappe",
+    "locale": "Huế",
+    "dialect_marker": "ni",
+    "catalog_topic": {
+      "key": "cap",
+      "query": "mũ",
+      "title": "Kappe",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho tui hỏi có mũ không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên ni. Cái ni còn mấy cái rứa?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kappe nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hue-balloons",
+    "title": "Huế: Luftballons",
+    "locale": "Huế",
+    "dialect_marker": "ni",
+    "catalog_topic": {
+      "key": "balloons",
+      "query": "Luftballons",
+      "title": "Luftballons",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho tui hỏi có Luftballons không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên ni. Cái ni còn mấy cái rứa?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Luftballons nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hue-mug",
+    "title": "Huế: Tasse",
+    "locale": "Huế",
+    "dialect_marker": "ni",
+    "catalog_topic": {
+      "key": "mug",
+      "query": "Tasse",
+      "title": "Tasse",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho tui hỏi có Tasse không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên ni. Cái ni còn mấy cái rứa?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Tasse nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hue-banner",
+    "title": "Huế: Banner",
+    "locale": "Huế",
+    "dialect_marker": "ni",
+    "catalog_topic": {
+      "key": "banner",
+      "query": "Banner",
+      "title": "Banner",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho tui hỏi có Banner không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên ni là Banner. Cái ni còn mấy cái rứa?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Banner nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hue-flag",
+    "title": "Huế: Fahne",
+    "locale": "Huế",
+    "dialect_marker": "ni",
+    "catalog_topic": {
+      "key": "flag",
+      "query": "Fahne",
+      "title": "Fahne",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho tui hỏi có Fahne không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên ni. Cái ni còn mấy cái rứa?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Fahne nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hue-hoodie",
+    "title": "Huế: Kapuzenpulli",
+    "locale": "Huế",
+    "dialect_marker": "ni",
+    "catalog_topic": {
+      "key": "hoodie",
+      "query": "Kapuzenpulli",
+      "title": "Kapuzenpulli",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho tui hỏi có Kapuzenpulli không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên ni là Kapuzenpulli. Cái ni còn mấy cái rứa?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kapuzenpulli nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hue-flyer",
+    "title": "Huế: Faltblatt",
+    "locale": "Huế",
+    "dialect_marker": "ni",
+    "catalog_topic": {
+      "key": "flyer",
+      "query": "Faltblatt",
+      "title": "Faltblatt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho tui hỏi có Faltblatt không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên ni là Faltblatt. Cái ni còn mấy cái rứa?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Faltblatt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-hue-sticker",
+    "title": "Huế: Aufkleber",
+    "locale": "Huế",
+    "dialect_marker": "ni",
+    "catalog_topic": {
+      "key": "sticker",
+      "query": "Aufkleber",
+      "title": "Aufkleber",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho tui hỏi có Aufkleber không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên ni. Cái ni còn mấy cái rứa?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Aufkleber nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-danang-windbreaker",
+    "title": "Đà Nẵng: Windbreaker individualisierbar",
+    "locale": "Đà Nẵng",
+    "dialect_marker": "nớ",
+    "catalog_topic": {
+      "key": "windbreaker",
+      "query": "áo khoác",
+      "title": "Windbreaker individualisierbar",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi shop có áo khoác không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên nớ là Windbreaker individualisierbar. Mẫu nớ còn hàng không?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Windbreaker individualisierbar nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-danang-tshirt",
+    "title": "Đà Nẵng: T-Shirt",
+    "locale": "Đà Nẵng",
+    "dialect_marker": "nớ",
+    "catalog_topic": {
+      "key": "tshirt",
+      "query": "áo thun",
+      "title": "T-Shirt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi shop có áo thun không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên nớ là T-Shirt. Mẫu nớ còn hàng không?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là T-Shirt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-danang-cap",
+    "title": "Đà Nẵng: Kappe",
+    "locale": "Đà Nẵng",
+    "dialect_marker": "nớ",
+    "catalog_topic": {
+      "key": "cap",
+      "query": "mũ",
+      "title": "Kappe",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi shop có mũ không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên nớ. Mẫu nớ còn hàng không?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kappe nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-danang-balloons",
+    "title": "Đà Nẵng: Luftballons",
+    "locale": "Đà Nẵng",
+    "dialect_marker": "nớ",
+    "catalog_topic": {
+      "key": "balloons",
+      "query": "Luftballons",
+      "title": "Luftballons",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi shop có Luftballons không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên nớ. Mẫu nớ còn hàng không?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Luftballons nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-danang-mug",
+    "title": "Đà Nẵng: Tasse",
+    "locale": "Đà Nẵng",
+    "dialect_marker": "nớ",
+    "catalog_topic": {
+      "key": "mug",
+      "query": "Tasse",
+      "title": "Tasse",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi shop có Tasse không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên nớ. Mẫu nớ còn hàng không?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Tasse nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-danang-banner",
+    "title": "Đà Nẵng: Banner",
+    "locale": "Đà Nẵng",
+    "dialect_marker": "nớ",
+    "catalog_topic": {
+      "key": "banner",
+      "query": "Banner",
+      "title": "Banner",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi shop có Banner không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên nớ là Banner. Mẫu nớ còn hàng không?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Banner nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-danang-flag",
+    "title": "Đà Nẵng: Fahne",
+    "locale": "Đà Nẵng",
+    "dialect_marker": "nớ",
+    "catalog_topic": {
+      "key": "flag",
+      "query": "Fahne",
+      "title": "Fahne",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi shop có Fahne không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên nớ. Mẫu nớ còn hàng không?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Fahne nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-danang-hoodie",
+    "title": "Đà Nẵng: Kapuzenpulli",
+    "locale": "Đà Nẵng",
+    "dialect_marker": "nớ",
+    "catalog_topic": {
+      "key": "hoodie",
+      "query": "Kapuzenpulli",
+      "title": "Kapuzenpulli",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi shop có Kapuzenpulli không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên nớ là Kapuzenpulli. Mẫu nớ còn hàng không?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kapuzenpulli nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-danang-flyer",
+    "title": "Đà Nẵng: Faltblatt",
+    "locale": "Đà Nẵng",
+    "dialect_marker": "nớ",
+    "catalog_topic": {
+      "key": "flyer",
+      "query": "Faltblatt",
+      "title": "Faltblatt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi shop có Faltblatt không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên nớ là Faltblatt. Mẫu nớ còn hàng không?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Faltblatt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-danang-sticker",
+    "title": "Đà Nẵng: Aufkleber",
+    "locale": "Đà Nẵng",
+    "dialect_marker": "nớ",
+    "catalog_topic": {
+      "key": "sticker",
+      "query": "Aufkleber",
+      "title": "Aufkleber",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi shop có Aufkleber không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên nớ. Mẫu nớ còn hàng không?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Aufkleber nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-quangnam-windbreaker",
+    "title": "Quảng Nam: Windbreaker individualisierbar",
+    "locale": "Quảng Nam",
+    "dialect_marker": "hỉ",
+    "catalog_topic": {
+      "key": "windbreaker",
+      "query": "áo khoác",
+      "title": "Windbreaker individualisierbar",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Mi tìm giúp tau áo khoác không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó là Windbreaker individualisierbar. Cái đó còn bao nhiêu hỉ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Windbreaker individualisierbar nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-quangnam-tshirt",
+    "title": "Quảng Nam: T-Shirt",
+    "locale": "Quảng Nam",
+    "dialect_marker": "hỉ",
+    "catalog_topic": {
+      "key": "tshirt",
+      "query": "áo thun",
+      "title": "T-Shirt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Mi tìm giúp tau áo thun không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó là T-Shirt. Cái đó còn bao nhiêu hỉ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là T-Shirt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-quangnam-cap",
+    "title": "Quảng Nam: Kappe",
+    "locale": "Quảng Nam",
+    "dialect_marker": "hỉ",
+    "catalog_topic": {
+      "key": "cap",
+      "query": "mũ",
+      "title": "Kappe",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Mi tìm giúp tau mũ không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó. Cái đó còn bao nhiêu hỉ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kappe nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-quangnam-balloons",
+    "title": "Quảng Nam: Luftballons",
+    "locale": "Quảng Nam",
+    "dialect_marker": "hỉ",
+    "catalog_topic": {
+      "key": "balloons",
+      "query": "Luftballons",
+      "title": "Luftballons",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Mi tìm giúp tau Luftballons không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó. Cái đó còn bao nhiêu hỉ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Luftballons nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-quangnam-mug",
+    "title": "Quảng Nam: Tasse",
+    "locale": "Quảng Nam",
+    "dialect_marker": "hỉ",
+    "catalog_topic": {
+      "key": "mug",
+      "query": "Tasse",
+      "title": "Tasse",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Mi tìm giúp tau Tasse không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó. Cái đó còn bao nhiêu hỉ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Tasse nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-quangnam-banner",
+    "title": "Quảng Nam: Banner",
+    "locale": "Quảng Nam",
+    "dialect_marker": "hỉ",
+    "catalog_topic": {
+      "key": "banner",
+      "query": "Banner",
+      "title": "Banner",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Mi tìm giúp tau Banner không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó là Banner. Cái đó còn bao nhiêu hỉ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Banner nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-quangnam-flag",
+    "title": "Quảng Nam: Fahne",
+    "locale": "Quảng Nam",
+    "dialect_marker": "hỉ",
+    "catalog_topic": {
+      "key": "flag",
+      "query": "Fahne",
+      "title": "Fahne",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Mi tìm giúp tau Fahne không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó. Cái đó còn bao nhiêu hỉ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Fahne nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-quangnam-hoodie",
+    "title": "Quảng Nam: Kapuzenpulli",
+    "locale": "Quảng Nam",
+    "dialect_marker": "hỉ",
+    "catalog_topic": {
+      "key": "hoodie",
+      "query": "Kapuzenpulli",
+      "title": "Kapuzenpulli",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Mi tìm giúp tau Kapuzenpulli không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó là Kapuzenpulli. Cái đó còn bao nhiêu hỉ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kapuzenpulli nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-quangnam-flyer",
+    "title": "Quảng Nam: Faltblatt",
+    "locale": "Quảng Nam",
+    "dialect_marker": "hỉ",
+    "catalog_topic": {
+      "key": "flyer",
+      "query": "Faltblatt",
+      "title": "Faltblatt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Mi tìm giúp tau Faltblatt không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó là Faltblatt. Cái đó còn bao nhiêu hỉ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Faltblatt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-quangnam-sticker",
+    "title": "Quảng Nam: Aufkleber",
+    "locale": "Quảng Nam",
+    "dialect_marker": "hỉ",
+    "catalog_topic": {
+      "key": "sticker",
+      "query": "Aufkleber",
+      "title": "Aufkleber",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Mi tìm giúp tau Aufkleber không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó. Cái đó còn bao nhiêu hỉ?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Aufkleber nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-saigon-windbreaker",
+    "title": "Sài Gòn: Windbreaker individualisierbar",
+    "locale": "Sài Gòn",
+    "dialect_marker": "hồi nãy",
+    "catalog_topic": {
+      "key": "windbreaker",
+      "query": "áo khoác",
+      "title": "Windbreaker individualisierbar",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Shop ơi, có áo khoác không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên hồi nãy là Windbreaker individualisierbar. Mẫu đó còn bao nhiêu cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Windbreaker individualisierbar nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-saigon-tshirt",
+    "title": "Sài Gòn: T-Shirt",
+    "locale": "Sài Gòn",
+    "dialect_marker": "hồi nãy",
+    "catalog_topic": {
+      "key": "tshirt",
+      "query": "áo thun",
+      "title": "T-Shirt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Shop ơi, có áo thun không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên hồi nãy là T-Shirt. Mẫu đó còn bao nhiêu cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là T-Shirt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-saigon-cap",
+    "title": "Sài Gòn: Kappe",
+    "locale": "Sài Gòn",
+    "dialect_marker": "hồi nãy",
+    "catalog_topic": {
+      "key": "cap",
+      "query": "mũ",
+      "title": "Kappe",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Shop ơi, có mũ không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên hồi nãy. Mẫu đó còn bao nhiêu cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kappe nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-saigon-balloons",
+    "title": "Sài Gòn: Luftballons",
+    "locale": "Sài Gòn",
+    "dialect_marker": "hồi nãy",
+    "catalog_topic": {
+      "key": "balloons",
+      "query": "Luftballons",
+      "title": "Luftballons",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Shop ơi, có Luftballons không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên hồi nãy. Mẫu đó còn bao nhiêu cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Luftballons nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-saigon-mug",
+    "title": "Sài Gòn: Tasse",
+    "locale": "Sài Gòn",
+    "dialect_marker": "hồi nãy",
+    "catalog_topic": {
+      "key": "mug",
+      "query": "Tasse",
+      "title": "Tasse",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Shop ơi, có Tasse không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên hồi nãy. Mẫu đó còn bao nhiêu cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Tasse nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-saigon-banner",
+    "title": "Sài Gòn: Banner",
+    "locale": "Sài Gòn",
+    "dialect_marker": "hồi nãy",
+    "catalog_topic": {
+      "key": "banner",
+      "query": "Banner",
+      "title": "Banner",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Shop ơi, có Banner không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên hồi nãy là Banner. Mẫu đó còn bao nhiêu cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Banner nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-saigon-flag",
+    "title": "Sài Gòn: Fahne",
+    "locale": "Sài Gòn",
+    "dialect_marker": "hồi nãy",
+    "catalog_topic": {
+      "key": "flag",
+      "query": "Fahne",
+      "title": "Fahne",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Shop ơi, có Fahne không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên hồi nãy. Mẫu đó còn bao nhiêu cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Fahne nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-saigon-hoodie",
+    "title": "Sài Gòn: Kapuzenpulli",
+    "locale": "Sài Gòn",
+    "dialect_marker": "hồi nãy",
+    "catalog_topic": {
+      "key": "hoodie",
+      "query": "Kapuzenpulli",
+      "title": "Kapuzenpulli",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Shop ơi, có Kapuzenpulli không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên hồi nãy là Kapuzenpulli. Mẫu đó còn bao nhiêu cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kapuzenpulli nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-saigon-flyer",
+    "title": "Sài Gòn: Faltblatt",
+    "locale": "Sài Gòn",
+    "dialect_marker": "hồi nãy",
+    "catalog_topic": {
+      "key": "flyer",
+      "query": "Faltblatt",
+      "title": "Faltblatt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Shop ơi, có Faltblatt không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên hồi nãy là Faltblatt. Mẫu đó còn bao nhiêu cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Faltblatt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-saigon-sticker",
+    "title": "Sài Gòn: Aufkleber",
+    "locale": "Sài Gòn",
+    "dialect_marker": "hồi nãy",
+    "catalog_topic": {
+      "key": "sticker",
+      "query": "Aufkleber",
+      "title": "Aufkleber",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Shop ơi, có Aufkleber không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên hồi nãy. Mẫu đó còn bao nhiêu cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Aufkleber nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-cantho-windbreaker",
+    "title": "Cần Thơ: Windbreaker individualisierbar",
+    "locale": "Cần Thơ",
+    "dialect_marker": "hông",
+    "catalog_topic": {
+      "key": "windbreaker",
+      "query": "áo khoác",
+      "title": "Windbreaker individualisierbar",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi có bán áo khoác không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên này nè là Windbreaker individualisierbar. Cái này còn hông?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Windbreaker individualisierbar nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-cantho-tshirt",
+    "title": "Cần Thơ: T-Shirt",
+    "locale": "Cần Thơ",
+    "dialect_marker": "hông",
+    "catalog_topic": {
+      "key": "tshirt",
+      "query": "áo thun",
+      "title": "T-Shirt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi có bán áo thun không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên này nè là T-Shirt. Cái này còn hông?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là T-Shirt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-cantho-cap",
+    "title": "Cần Thơ: Kappe",
+    "locale": "Cần Thơ",
+    "dialect_marker": "hông",
+    "catalog_topic": {
+      "key": "cap",
+      "query": "mũ",
+      "title": "Kappe",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi có bán mũ không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên này nè. Cái này còn hông?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kappe nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-cantho-balloons",
+    "title": "Cần Thơ: Luftballons",
+    "locale": "Cần Thơ",
+    "dialect_marker": "hông",
+    "catalog_topic": {
+      "key": "balloons",
+      "query": "Luftballons",
+      "title": "Luftballons",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi có bán Luftballons không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên này nè. Cái này còn hông?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Luftballons nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-cantho-mug",
+    "title": "Cần Thơ: Tasse",
+    "locale": "Cần Thơ",
+    "dialect_marker": "hông",
+    "catalog_topic": {
+      "key": "mug",
+      "query": "Tasse",
+      "title": "Tasse",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi có bán Tasse không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên này nè. Cái này còn hông?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Tasse nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-cantho-banner",
+    "title": "Cần Thơ: Banner",
+    "locale": "Cần Thơ",
+    "dialect_marker": "hông",
+    "catalog_topic": {
+      "key": "banner",
+      "query": "Banner",
+      "title": "Banner",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi có bán Banner không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên này nè là Banner. Cái này còn hông?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Banner nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-cantho-flag",
+    "title": "Cần Thơ: Fahne",
+    "locale": "Cần Thơ",
+    "dialect_marker": "hông",
+    "catalog_topic": {
+      "key": "flag",
+      "query": "Fahne",
+      "title": "Fahne",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi có bán Fahne không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên này nè. Cái này còn hông?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Fahne nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-cantho-hoodie",
+    "title": "Cần Thơ: Kapuzenpulli",
+    "locale": "Cần Thơ",
+    "dialect_marker": "hông",
+    "catalog_topic": {
+      "key": "hoodie",
+      "query": "Kapuzenpulli",
+      "title": "Kapuzenpulli",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi có bán Kapuzenpulli không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên này nè là Kapuzenpulli. Cái này còn hông?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kapuzenpulli nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-cantho-flyer",
+    "title": "Cần Thơ: Faltblatt",
+    "locale": "Cần Thơ",
+    "dialect_marker": "hông",
+    "catalog_topic": {
+      "key": "flyer",
+      "query": "Faltblatt",
+      "title": "Faltblatt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi có bán Faltblatt không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên này nè là Faltblatt. Cái này còn hông?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Faltblatt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-cantho-sticker",
+    "title": "Cần Thơ: Aufkleber",
+    "locale": "Cần Thơ",
+    "dialect_marker": "hông",
+    "catalog_topic": {
+      "key": "sticker",
+      "query": "Aufkleber",
+      "title": "Aufkleber",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Cho mình hỏi có bán Aufkleber không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên này nè. Cái này còn hông?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Aufkleber nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-taynguyen-windbreaker",
+    "title": "Tây Nguyên: Windbreaker individualisierbar",
+    "locale": "Tây Nguyên",
+    "dialect_marker": "nha",
+    "catalog_topic": {
+      "key": "windbreaker",
+      "query": "áo khoác",
+      "title": "Windbreaker individualisierbar",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có áo khoác không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó nha là Windbreaker individualisierbar. Mẫu đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Windbreaker individualisierbar nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-taynguyen-tshirt",
+    "title": "Tây Nguyên: T-Shirt",
+    "locale": "Tây Nguyên",
+    "dialect_marker": "nha",
+    "catalog_topic": {
+      "key": "tshirt",
+      "query": "áo thun",
+      "title": "T-Shirt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có áo thun không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó nha là T-Shirt. Mẫu đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là T-Shirt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-taynguyen-cap",
+    "title": "Tây Nguyên: Kappe",
+    "locale": "Tây Nguyên",
+    "dialect_marker": "nha",
+    "catalog_topic": {
+      "key": "cap",
+      "query": "mũ",
+      "title": "Kappe",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có mũ không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó nha. Mẫu đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kappe nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-taynguyen-balloons",
+    "title": "Tây Nguyên: Luftballons",
+    "locale": "Tây Nguyên",
+    "dialect_marker": "nha",
+    "catalog_topic": {
+      "key": "balloons",
+      "query": "Luftballons",
+      "title": "Luftballons",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có Luftballons không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó nha. Mẫu đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Luftballons nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-taynguyen-mug",
+    "title": "Tây Nguyên: Tasse",
+    "locale": "Tây Nguyên",
+    "dialect_marker": "nha",
+    "catalog_topic": {
+      "key": "mug",
+      "query": "Tasse",
+      "title": "Tasse",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có Tasse không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó nha. Mẫu đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Tasse nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-taynguyen-banner",
+    "title": "Tây Nguyên: Banner",
+    "locale": "Tây Nguyên",
+    "dialect_marker": "nha",
+    "catalog_topic": {
+      "key": "banner",
+      "query": "Banner",
+      "title": "Banner",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có Banner không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó nha là Banner. Mẫu đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Banner nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-taynguyen-flag",
+    "title": "Tây Nguyên: Fahne",
+    "locale": "Tây Nguyên",
+    "dialect_marker": "nha",
+    "catalog_topic": {
+      "key": "flag",
+      "query": "Fahne",
+      "title": "Fahne",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có Fahne không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó nha. Mẫu đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Fahne nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-taynguyen-hoodie",
+    "title": "Tây Nguyên: Kapuzenpulli",
+    "locale": "Tây Nguyên",
+    "dialect_marker": "nha",
+    "catalog_topic": {
+      "key": "hoodie",
+      "query": "Kapuzenpulli",
+      "title": "Kapuzenpulli",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có Kapuzenpulli không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó nha là Kapuzenpulli. Mẫu đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kapuzenpulli nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-taynguyen-flyer",
+    "title": "Tây Nguyên: Faltblatt",
+    "locale": "Tây Nguyên",
+    "dialect_marker": "nha",
+    "catalog_topic": {
+      "key": "flyer",
+      "query": "Faltblatt",
+      "title": "Faltblatt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có Faltblatt không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó nha là Faltblatt. Mẫu đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Faltblatt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-taynguyen-sticker",
+    "title": "Tây Nguyên: Aufkleber",
+    "locale": "Tây Nguyên",
+    "dialect_marker": "nha",
+    "catalog_topic": {
+      "key": "sticker",
+      "query": "Aufkleber",
+      "title": "Aufkleber",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Bên mình có Aufkleber không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, mẫu đầu tiên đó nha. Mẫu đó còn mấy cái vậy?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Aufkleber nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-khmer-windbreaker",
+    "title": "Nam Bộ: Windbreaker individualisierbar",
+    "locale": "Nam Bộ",
+    "dialect_marker": "hem",
+    "catalog_topic": {
+      "key": "windbreaker",
+      "query": "áo khoác",
+      "title": "Windbreaker individualisierbar",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Tui cần tìm áo khoác không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái đầu tiên lúc nãy là Windbreaker individualisierbar. Cái đó còn hàng hem?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Windbreaker individualisierbar nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-khmer-tshirt",
+    "title": "Nam Bộ: T-Shirt",
+    "locale": "Nam Bộ",
+    "dialect_marker": "hem",
+    "catalog_topic": {
+      "key": "tshirt",
+      "query": "áo thun",
+      "title": "T-Shirt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Tui cần tìm áo thun không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái đầu tiên lúc nãy là T-Shirt. Cái đó còn hàng hem?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là T-Shirt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-khmer-cap",
+    "title": "Nam Bộ: Kappe",
+    "locale": "Nam Bộ",
+    "dialect_marker": "hem",
+    "catalog_topic": {
+      "key": "cap",
+      "query": "mũ",
+      "title": "Kappe",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Tui cần tìm mũ không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái đầu tiên lúc nãy. Cái đó còn hàng hem?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kappe nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-khmer-balloons",
+    "title": "Nam Bộ: Luftballons",
+    "locale": "Nam Bộ",
+    "dialect_marker": "hem",
+    "catalog_topic": {
+      "key": "balloons",
+      "query": "Luftballons",
+      "title": "Luftballons",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Tui cần tìm Luftballons không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái đầu tiên lúc nãy. Cái đó còn hàng hem?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Luftballons nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-khmer-mug",
+    "title": "Nam Bộ: Tasse",
+    "locale": "Nam Bộ",
+    "dialect_marker": "hem",
+    "catalog_topic": {
+      "key": "mug",
+      "query": "Tasse",
+      "title": "Tasse",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Tui cần tìm Tasse không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái đầu tiên lúc nãy. Cái đó còn hàng hem?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Tasse nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-khmer-banner",
+    "title": "Nam Bộ: Banner",
+    "locale": "Nam Bộ",
+    "dialect_marker": "hem",
+    "catalog_topic": {
+      "key": "banner",
+      "query": "Banner",
+      "title": "Banner",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Tui cần tìm Banner không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái đầu tiên lúc nãy là Banner. Cái đó còn hàng hem?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Banner nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-khmer-flag",
+    "title": "Nam Bộ: Fahne",
+    "locale": "Nam Bộ",
+    "dialect_marker": "hem",
+    "catalog_topic": {
+      "key": "flag",
+      "query": "Fahne",
+      "title": "Fahne",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Tui cần tìm Fahne không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái đầu tiên lúc nãy. Cái đó còn hàng hem?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Fahne nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-khmer-hoodie",
+    "title": "Nam Bộ: Kapuzenpulli",
+    "locale": "Nam Bộ",
+    "dialect_marker": "hem",
+    "catalog_topic": {
+      "key": "hoodie",
+      "query": "Kapuzenpulli",
+      "title": "Kapuzenpulli",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Tui cần tìm Kapuzenpulli không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái đầu tiên lúc nãy là Kapuzenpulli. Cái đó còn hàng hem?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Kapuzenpulli nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-khmer-flyer",
+    "title": "Nam Bộ: Faltblatt",
+    "locale": "Nam Bộ",
+    "dialect_marker": "hem",
+    "catalog_topic": {
+      "key": "flyer",
+      "query": "Faltblatt",
+      "title": "Faltblatt",
+      "kind": "configurable"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Tui cần tìm Faltblatt không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái đầu tiên lúc nãy là Faltblatt. Cái đó còn hàng hem?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
+        "expect": [
+          "availability",
+          "memory",
+          "variant_safety"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Faltblatt nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-khmer-sticker",
+    "title": "Nam Bộ: Aufkleber",
+    "locale": "Nam Bộ",
+    "dialect_marker": "hem",
+    "catalog_topic": {
+      "key": "sticker",
+      "query": "Aufkleber",
+      "title": "Aufkleber",
+      "kind": "simple"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_availability_tool": true,
+      "must_not_request_sku_again": true,
+      "must_not_invent_stock": true,
+      "configurable_qty_must_not_be_aggregated": false
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Tui cần tìm Aufkleber không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
+        "expect": [
+          "search"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Trong các kết quả, cái đầu tiên lúc nãy. Cái đó còn hàng hem?",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
+        "expect": [
+          "availability",
+          "memory"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
+        "expect": [
+          "memory",
+          "grounded_summary"
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại giúp mình: đây là Aufkleber nào và mình đã hỏi gì ở lượt trước?",
+        "expect": [
+          "memory",
+          "natural_language"
+        ]
+      }
+    ]
+  }
+]
