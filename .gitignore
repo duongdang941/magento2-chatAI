@@ -1,0 +1,6 @@
+ai-chat-server/.env
+ai-chat-server/.env.gateway
+ai-chat-server/.local/
+ai-chat-server/node_modules/
+ai-chat-server/*.log
+.ua/
