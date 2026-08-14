@@ -90,3 +90,21 @@ test('storefront transports image bytes once and reads selected files sequential
     assert.match(stream, /MAX_WEBSOCKET_PAYLOAD_BYTES/);
     assert.match(stream, /serializedChatPayload/);
 });
+
+test('storefront chat markup never embeds customer session state into an FPC page', () => {
+    const template = read('..', 'view', 'frontend', 'templates', 'chat', 'interface.phtml');
+    assert.match(template, /'customerId'\s*=>\s*null/);
+    assert.match(template, /'isLoggedIn'\s*=>\s*false/);
+    assert.doesNotMatch(template, /'customerId'\s*=>\s*\(int\)\s*\$block->getCustomerId\(\)/);
+    assert.doesNotMatch(template, /'isLoggedIn'\s*=>\s*\$block->isLoggedIn\(\)/);
+});
+
+test('generated-image cleanup uses an indexed reference table instead of message-text scans', () => {
+    const cleaner = read('..', 'Model', 'Maintenance', 'ExpiredDataCleaner.php');
+    const references = read('..', 'Model', 'Maintenance', 'GeneratedImageReferenceRepository.php');
+    const schema = read('..', 'etc', 'db_schema.xml');
+    assert.doesNotMatch(cleaner, /\bLIKE\b|afd_ai_message/);
+    assert.match(references, /where\('filename = \?', \$filename\)/);
+    assert.match(schema, /table name="afd_ai_generated_image_reference"/);
+    assert.match(schema, /AFD_AI_GENERATED_IMAGE_REF_FILENAME/);
+});

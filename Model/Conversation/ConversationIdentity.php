@@ -8,8 +8,10 @@ use Magento\Framework\App\ResourceConnection;
 /** Central ownership checks for browser and gateway conversation actions. */
 class ConversationIdentity
 {
-    public function __construct(private readonly ResourceConnection $resource)
-    {
+    public function __construct(
+        private readonly ResourceConnection $resource,
+        private readonly ConversationStoreScope $conversationStoreScope
+    ) {
     }
 
     public function ownsConversation(int $conversationId, ?int $customerId, ?string $guestId): bool
@@ -23,6 +25,9 @@ class ConversationIdentity
             ->from($this->resource->getTableName('afd_ai_conversation'), ['conversation_id'])
             ->where('conversation_id = ?', $conversationId)
             ->limit(1);
+        $scope = $this->conversationStoreScope->current();
+        $select->where('store_id = ?', $scope['store_id']);
+        $select->where('website_id = ?', $scope['website_id']);
         $this->applyOwnerFilter($select, $customerId, $guestId);
 
         return $connection->fetchOne($select) !== false;

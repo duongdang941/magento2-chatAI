@@ -167,7 +167,7 @@ class CustomerProfileTool
                         'lastname' => $address->getLastname(),
                         'street' => implode(', ', $address->getStreet()),
                         'city' => $address->getCity(),
-                        'region' => $address->getRegion(),
+                        'region' => (string)($address->getRegion()?->getRegion() ?? $address->getRegionId() ?? ''),
                         'postcode' => $address->getPostcode(),
                         'country_id' => $address->getCountryId(),
                         'telephone' => $address->getTelephone(),

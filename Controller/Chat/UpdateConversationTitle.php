@@ -3,7 +3,8 @@ declare(strict_types=1);
 
 namespace Afd\AI\Controller\Chat;
 
-use Afd\AI\Api\ConversationManagementInterface;
+use Afd\AI\Api\ConversationRepositoryInterface;
+use Afd\AI\Model\Conversation\ConversationStoreScope;
 use Magento\Customer\Model\Session as CustomerSession;
 use Magento\Framework\App\Action\HttpPostActionInterface;
 use Magento\Framework\App\CsrfAwareActionInterface;
@@ -19,7 +20,8 @@ class UpdateConversationTitle implements HttpPostActionInterface, CsrfAwareActio
 {
     private HttpRequest $request;
     private ResultFactory $resultFactory;
-    private ConversationManagementInterface $conversationManagement;
+    private ConversationRepositoryInterface $conversationRepository;
+    private ConversationStoreScope $conversationStoreScope;
     private CustomerSession $customerSession;
     private FormKey $formKey;
     private LoggerInterface $logger;
@@ -27,14 +29,16 @@ class UpdateConversationTitle implements HttpPostActionInterface, CsrfAwareActio
     public function __construct(
         HttpRequest $request,
         ResultFactory $resultFactory,
-        ConversationManagementInterface $conversationManagement,
+        ConversationRepositoryInterface $conversationRepository,
+        ConversationStoreScope $conversationStoreScope,
         CustomerSession $customerSession,
         FormKey $formKey,
         LoggerInterface $logger
     ) {
         $this->request = $request;
         $this->resultFactory = $resultFactory;
-        $this->conversationManagement = $conversationManagement;
+        $this->conversationRepository = $conversationRepository;
+        $this->conversationStoreScope = $conversationStoreScope;
         $this->customerSession = $customerSession;
         $this->formKey = $formKey;
         $this->logger = $logger;
@@ -72,18 +76,23 @@ class UpdateConversationTitle implements HttpPostActionInterface, CsrfAwareActio
                 ]);
             }
 
-            $updated = $this->conversationManagement->updateConversationTitle($conversationId, $customerId, $title);
-            if (!$updated) {
+            $conversation = $this->conversationRepository->getById($conversationId);
+            if ((int)$conversation->getCustomerId() !== $customerId
+                || !$this->conversationStoreScope->matches($conversation)) {
                 return $resultJson->setData([
                     'status' => 'error',
                     'message' => 'Unauthorized or conversation not found'
                 ]);
             }
 
+            $title = mb_substr($title, 0, 255);
+            $conversation->setTitle($title);
+            $this->conversationRepository->save($conversation);
+
             return $resultJson->setData([
                 'status' => 'success',
                 'conversation_id' => $conversationId,
-                'title' => mb_substr($title, 0, 255)
+                'title' => $title
             ]);
         } catch (\Exception $e) {
             $this->logger->error('UPDATE CONVERSATION TITLE ERROR: ' . $e->getMessage());

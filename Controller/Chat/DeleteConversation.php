@@ -11,6 +11,8 @@ use Magento\Framework\App\RequestInterface;
 use Magento\Framework\Controller\ResultFactory;
 use Magento\Framework\Controller\Result\Json;
 use Afd\AI\Api\ConversationRepositoryInterface;
+use Afd\AI\Model\ChatAttachmentStorage;
+use Afd\AI\Model\Conversation\ConversationStoreScope;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\Data\Form\FormKey;
 use Magento\Customer\Model\Session as CustomerSession;
@@ -25,6 +27,8 @@ class DeleteConversation implements HttpPostActionInterface, CsrfAwareActionInte
     private $customerSession;
     private $formKey;
     private $logger;
+    private ChatAttachmentStorage $chatAttachmentStorage;
+    private ConversationStoreScope $conversationStoreScope;
 
     public function __construct(
         HttpRequest $request,
@@ -33,6 +37,8 @@ class DeleteConversation implements HttpPostActionInterface, CsrfAwareActionInte
         ResourceConnection $resourceConnection,
         CustomerSession $customerSession,
         FormKey $formKey,
+        ChatAttachmentStorage $chatAttachmentStorage,
+        ConversationStoreScope $conversationStoreScope,
         LoggerInterface $logger
     ) {
         $this->request = $request;
@@ -41,6 +47,8 @@ class DeleteConversation implements HttpPostActionInterface, CsrfAwareActionInte
         $this->resourceConnection = $resourceConnection;
         $this->customerSession = $customerSession;
         $this->formKey = $formKey;
+        $this->chatAttachmentStorage = $chatAttachmentStorage;
+        $this->conversationStoreScope = $conversationStoreScope;
         $this->logger = $logger;
     }
 
@@ -74,7 +82,8 @@ class DeleteConversation implements HttpPostActionInterface, CsrfAwareActionInte
 
             // Verify ownership
             $conversation = $this->conversationRepository->getById($conversationId);
-            if ((int)$conversation->getCustomerId() !== (int)$customerId) {
+            if ((int)$conversation->getCustomerId() !== (int)$customerId
+                || !$this->conversationStoreScope->matches($conversation)) {
                 return $resultJson->setData(['status' => 'error', 'message' => 'Unauthorized']);
             }
 
@@ -114,6 +123,7 @@ class DeleteConversation implements HttpPostActionInterface, CsrfAwareActionInte
 
             // Delete conversation
             $this->conversationRepository->delete($conversation);
+            $this->chatAttachmentStorage->deleteConversationAttachments((int)$customerId, $conversationId);
 
             return $resultJson->setData(['status' => 'success']);
         } catch (\Exception $e) {

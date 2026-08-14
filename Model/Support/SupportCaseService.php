@@ -6,6 +6,7 @@ namespace Afd\AI\Model\Support;
 use Afd\AI\Model\Gateway\SupportMessagePublisher;
 use Afd\AI\Model\Order\GuestOrderVerification;
 use Afd\AI\Model\Security\ActionRateLimiter;
+use Magento\Customer\Api\CustomerRepositoryInterface;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\Encryption\EncryptorInterface;
@@ -27,7 +28,8 @@ class SupportCaseService
         private readonly EncryptorInterface $encryptor,
         private readonly Random $random,
         private readonly SupportCaseNotifier $notifier,
-        private readonly SupportMessagePublisher $publisher
+        private readonly SupportMessagePublisher $publisher,
+        private readonly CustomerRepositoryInterface $customerRepository
     ) {
     }
 
@@ -56,18 +58,14 @@ class SupportCaseService
             return ['status' => 'error', 'reason' => 'conversation_not_owned', 'message' => __('The conversation could not be verified.')->render()];
         }
 
-        $contactEmail = $this->resolveVerifiedContactEmail($guestEmail);
-        if ($contactEmail === '' || !$this->emailVerification->hasAccess(
-            trim($verificationToken),
-            trim($verificationSessionId),
-            $contactEmail
-        )) {
-            return [
-                'status' => 'requires_customer_action',
-                'reason' => 'guest_access_required',
-                'purpose' => 'support',
-                'message' => __('Verify your email before starting human support.')->render(),
-            ];
+        $contactEmail = $this->verifiedContactEmail(
+            $customerId,
+            $guestEmail,
+            $verificationToken,
+            $verificationSessionId
+        );
+        if ($contactEmail === '') {
+            return $this->supportVerificationRequired((int)($customerId ?? 0));
         }
 
         $identity = ($customerId ?? 0) > 0 ? 'customer:' . $customerId : 'guest:' . $guestId;
@@ -184,13 +182,14 @@ class SupportCaseService
         string $verificationToken,
         string $verificationSessionId
     ): array {
-        $contactEmail = $this->resolveVerifiedContactEmail($email);
-        if ($contactEmail === '' || !$this->emailVerification->hasAccess(
-            trim($verificationToken),
-            trim($verificationSessionId),
-            $contactEmail
-        )) {
-            return ['status' => 'requires_customer_action', 'reason' => 'guest_access_required', 'purpose' => 'support'];
+        $contactEmail = $this->verifiedContactEmail(
+            $customerId,
+            $email,
+            $verificationToken,
+            $verificationSessionId
+        );
+        if ($contactEmail === '') {
+            return $this->supportVerificationRequired((int)($customerId ?? 0));
         }
 
         $guestId = strtolower(trim((string)$guestId));
@@ -286,6 +285,50 @@ class SupportCaseService
     {
         $email = strtolower(trim($email));
         return filter_var($email, FILTER_VALIDATE_EMAIL) ? mb_substr($email, 0, 254) : '';
+    }
+
+    private function verifiedContactEmail(
+        ?int $customerId,
+        string $guestEmail,
+        string $verificationToken,
+        string $verificationSessionId
+    ): string {
+        if (($customerId ?? 0) > 0) {
+            try {
+                return $this->resolveVerifiedContactEmail(
+                    (string)$this->customerRepository->getById((int)$customerId)->getEmail()
+                );
+            } catch (\Throwable) {
+                return '';
+            }
+        }
+
+        $contactEmail = $this->resolveVerifiedContactEmail($guestEmail);
+
+        return $contactEmail !== '' && $this->emailVerification->hasAccess(
+            trim($verificationToken),
+            trim($verificationSessionId),
+            $contactEmail
+        ) ? $contactEmail : '';
+    }
+
+    /** @return array<string, mixed> */
+    private function supportVerificationRequired(int $customerId): array
+    {
+        if ($customerId > 0) {
+            return [
+                'status' => 'error',
+                'reason' => 'customer_contact_unavailable',
+                'message' => __('Your account email could not be verified. Please contact support directly.')->render(),
+            ];
+        }
+
+        return [
+            'status' => 'requires_customer_action',
+            'reason' => 'guest_access_required',
+            'purpose' => 'support',
+            'message' => __('Verify your email before starting human support.')->render(),
+        ];
     }
 
     /** @return array{store_id:int,website_id:int} */

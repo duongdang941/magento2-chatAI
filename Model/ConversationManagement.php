@@ -9,6 +9,7 @@ use Afd\AI\Api\Data\ConversationInterfaceFactory;
 use Afd\AI\Api\Data\MessageInterfaceFactory;
 use Afd\AI\Api\MessageRepositoryInterface;
 use Afd\AI\Model\Conversation\MessagePageLoader;
+use Afd\AI\Model\Maintenance\GeneratedImageReferenceRepository;
 use Magento\Framework\Api\SearchCriteriaBuilder;
 use Magento\Framework\Api\SortOrderBuilder;
 use Afd\AI\Model\Security\NodeRequestAuthorizer;
@@ -31,6 +32,7 @@ class ConversationManagement implements ConversationManagementInterface
     private NodeRequestAuthorizer $nodeRequestAuthorizer;
     private SupportInboxService $supportInboxService;
     private StoreManagerInterface $storeManager;
+    private GeneratedImageReferenceRepository $generatedImageReferenceRepository;
     private $logger;
 
     public function __construct(
@@ -46,6 +48,7 @@ class ConversationManagement implements ConversationManagementInterface
         NodeRequestAuthorizer $nodeRequestAuthorizer,
         SupportInboxService $supportInboxService,
         StoreManagerInterface $storeManager,
+        GeneratedImageReferenceRepository $generatedImageReferenceRepository,
         LoggerInterface $logger
     ) {
         $this->conversationRepository = $conversationRepository;
@@ -60,6 +63,7 @@ class ConversationManagement implements ConversationManagementInterface
         $this->nodeRequestAuthorizer = $nodeRequestAuthorizer;
         $this->supportInboxService = $supportInboxService;
         $this->storeManager = $storeManager;
+        $this->generatedImageReferenceRepository = $generatedImageReferenceRepository;
         $this->logger = $logger;
     }
 
@@ -229,6 +233,11 @@ class ConversationManagement implements ConversationManagementInterface
                 );
             }
             $this->messageRepository->save($message);
+            $this->generatedImageReferenceRepository->replaceForMessage(
+                (int)$message->getEntityId(),
+                $role,
+                $content
+            );
 
             if ($role === 'user') {
                 $this->supportInboxService->recordCustomerMessage($conversationId);

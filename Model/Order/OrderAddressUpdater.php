@@ -79,6 +79,14 @@ class OrderAddressUpdater
 
         $this->validateCountryAndPostcode($countryId, $postcode, $street, $storeId);
         [$regionId, $region, $regionCode] = $this->resolveRegion($address, $changes, $countryId, $storeId);
+        $this->assertCommercialLocationUnchanged(
+            $address,
+            $countryId,
+            $regionId,
+            $region,
+            $city,
+            $postcode
+        );
 
         $address
             ->setPrefix($this->stringValue($changes, 'prefix', (string)$address->getPrefix(), 40))
@@ -199,6 +207,44 @@ class OrderAddressUpdater
     {
         $value = array_key_exists($field, $values) ? (string)$values[$field] : $fallback;
         return mb_substr(trim(preg_replace('/\s+/u', ' ', $value) ?? ''), 0, $maxLength);
+    }
+
+    /**
+     * Tax and carrier rates are calculated when the order is placed. Updating
+     * a delivery destination afterward without recollecting totals can leave
+     * the order under- or over-charged, so the self-service flow may edit only
+     * recipient and street-level details. A store employee can recalculate
+     * totals before approving any destination change.
+     */
+    private function assertCommercialLocationUnchanged(
+        mixed $address,
+        string $countryId,
+        int $regionId,
+        string $region,
+        string $city,
+        string $postcode
+    ): void {
+        $currentCountry = strtoupper(trim((string)$address->getCountryId()));
+        $currentRegionId = (int)$address->getRegionId();
+        $currentRegion = $this->normalizeLocationValue((string)$address->getRegion());
+        $nextRegion = $this->normalizeLocationValue($region);
+        $regionChanged = $currentRegionId > 0 || $regionId > 0
+            ? $currentRegionId !== $regionId
+            : $currentRegion !== $nextRegion;
+
+        if ($currentCountry !== $countryId
+            || $regionChanged
+            || $this->normalizeLocationValue((string)$address->getCity()) !== $this->normalizeLocationValue($city)
+            || $this->normalizeLocationValue((string)$address->getPostcode()) !== $this->normalizeLocationValue($postcode)) {
+            throw new LocalizedException(
+                __('Changing country, state/province, city, or postcode may change tax or shipping charges. Please contact support for this change.')
+            );
+        }
+    }
+
+    private function normalizeLocationValue(string $value): string
+    {
+        return mb_strtolower(trim(preg_replace('/\s+/u', ' ', $value) ?? ''));
     }
 
     /** @param array<string, mixed> $values @return string[] */

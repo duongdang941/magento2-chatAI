@@ -75,6 +75,22 @@
                     referenceTable="afd_ai_conversation" referenceColumn="conversation_id"
                     onDelete="SET NULL"/>
     </table>
+
+    <table name="afd_ai_generated_image_reference" resource="default" engine="innodb" comment="Generated Image Message References">
+        <column xsi:type="int" name="message_id" unsigned="true" nullable="false" comment="Owning Message ID"/>
+        <column xsi:type="varchar" name="filename" nullable="false" length="180" comment="Generated Media Filename"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" on_update="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="message_id"/>
+            <column name="filename"/>
+        </constraint>
+        <constraint xsi:type="foreign" referenceId="AFD_AI_GENERATED_IMAGE_REF_MESSAGE_ID"
+                    table="afd_ai_generated_image_reference" column="message_id"
+                    referenceTable="afd_ai_message" referenceColumn="entity_id" onDelete="CASCADE"/>
+        <index referenceId="AFD_AI_GENERATED_IMAGE_REF_FILENAME" indexType="btree">
+            <column name="filename"/>
+        </index>
+    </table>
     <table name="afd_ai_guest_order_access" resource="default" engine="innodb" comment="AI Guest Order Email Verification">
         <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="ID"/>
         <column xsi:type="varchar" name="email_hash" nullable="false" length="64" comment="Normalized Email Hash"/>

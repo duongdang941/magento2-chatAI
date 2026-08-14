@@ -8,6 +8,7 @@ use Magento\Framework\App\Request\Http as HttpRequest;
 use Magento\Framework\Controller\ResultFactory;
 use Magento\Framework\Controller\Result\Json;
 use Afd\AI\Api\ConversationRepositoryInterface;
+use Afd\AI\Model\Conversation\ConversationStoreScope;
 use Afd\AI\Model\Conversation\MessagePageLoader;
 use Magento\Customer\Model\Session as CustomerSession;
 use Psr\Log\LoggerInterface;
@@ -19,6 +20,7 @@ class LoadConversation implements HttpGetActionInterface
     private $conversationRepository;
     private $customerSession;
     private MessagePageLoader $messagePageLoader;
+    private ConversationStoreScope $conversationStoreScope;
     private $logger;
 
     public function __construct(
@@ -27,6 +29,7 @@ class LoadConversation implements HttpGetActionInterface
         ConversationRepositoryInterface $conversationRepository,
         CustomerSession $customerSession,
         MessagePageLoader $messagePageLoader,
+        ConversationStoreScope $conversationStoreScope,
         LoggerInterface $logger
     ) {
         $this->request = $request;
@@ -34,6 +37,7 @@ class LoadConversation implements HttpGetActionInterface
         $this->conversationRepository = $conversationRepository;
         $this->customerSession = $customerSession;
         $this->messagePageLoader = $messagePageLoader;
+        $this->conversationStoreScope = $conversationStoreScope;
         $this->logger = $logger;
     }
 
@@ -52,7 +56,8 @@ class LoadConversation implements HttpGetActionInterface
 
             // Verify the conversation belongs to this customer
             $conversation = $this->conversationRepository->getById($conversationId);
-            if ((int)$conversation->getCustomerId() !== (int)$customerId) {
+            if ((int)$conversation->getCustomerId() !== (int)$customerId
+                || !$this->conversationStoreScope->matches($conversation)) {
                 return $resultJson->setData(['status' => 'error', 'messages' => []]);
             }
 

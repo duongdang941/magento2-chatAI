@@ -8,8 +8,12 @@ if (!$block->isEnabled()) {
 
 $frontendConfig = [
     'chatServerUrl' => $block->getChatServerUrl(),
-    'customerId' => (int) $block->getCustomerId(),
-    'isLoggedIn' => $block->isLoggedIn(),
+    // This HTML is served from the default storefront layout and may be kept
+    // by Magento FPC. Authentication is established dynamically by the
+    // signed session endpoint and WebSocket auth event, never from cached
+    // page markup.
+    'customerId' => null,
+    'isLoggedIn' => false,
     'voiceEnabled' => $block->isVoiceInputEnabled(),
     'voiceMaximumDuration' => $block->getVoiceMaximumDuration(),
     'liveVoiceEnabled' => $block->isLiveVoiceEnabled(),

@@ -6,6 +6,7 @@ namespace Afd\AI\Controller\Chat;
 use Afd\AI\Api\ConversationRepositoryInterface;
 use Afd\AI\Api\MessageRepositoryInterface;
 use Afd\AI\Model\ChatMessagePayload;
+use Afd\AI\Model\Conversation\ConversationStoreScope;
 use Magento\Checkout\Model\Session as CheckoutSession;
 use Magento\Customer\Model\Session as CustomerSession;
 use Magento\Framework\Api\SearchCriteriaBuilder;
@@ -27,6 +28,7 @@ class ReplayConversation implements HttpGetActionInterface
     private CheckoutSession $checkoutSession;
     private CustomerSession $customerSession;
     private ChatMessagePayload $chatMessagePayload;
+    private ConversationStoreScope $conversationStoreScope;
     private LoggerInterface $logger;
 
     public function __construct(
@@ -39,6 +41,7 @@ class ReplayConversation implements HttpGetActionInterface
         CheckoutSession $checkoutSession,
         CustomerSession $customerSession,
         ChatMessagePayload $chatMessagePayload,
+        ConversationStoreScope $conversationStoreScope,
         LoggerInterface $logger
     ) {
         $this->request = $request;
@@ -50,6 +53,7 @@ class ReplayConversation implements HttpGetActionInterface
         $this->checkoutSession = $checkoutSession;
         $this->customerSession = $customerSession;
         $this->chatMessagePayload = $chatMessagePayload;
+        $this->conversationStoreScope = $conversationStoreScope;
         $this->logger = $logger;
     }
 
@@ -78,7 +82,8 @@ class ReplayConversation implements HttpGetActionInterface
                 }
 
                 $conversation = $this->conversationRepository->getById($conversationId);
-                if ((int)$conversation->getCustomerId() !== $customerId) {
+                if ((int)$conversation->getCustomerId() !== $customerId
+                    || !$this->conversationStoreScope->matches($conversation)) {
                     return $resultJson->setData([
                         'status' => 'error',
                         'message' => 'Unauthorized',

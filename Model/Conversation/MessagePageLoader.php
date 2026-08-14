@@ -18,15 +18,18 @@ class MessagePageLoader
     private ConversationRepositoryInterface $conversationRepository;
     private ResourceConnection $resourceConnection;
     private ChatMessagePayload $chatMessagePayload;
+    private ConversationStoreScope $conversationStoreScope;
 
     public function __construct(
         ConversationRepositoryInterface $conversationRepository,
         ResourceConnection $resourceConnection,
-        ChatMessagePayload $chatMessagePayload
+        ChatMessagePayload $chatMessagePayload,
+        ConversationStoreScope $conversationStoreScope
     ) {
         $this->conversationRepository = $conversationRepository;
         $this->resourceConnection = $resourceConnection;
         $this->chatMessagePayload = $chatMessagePayload;
+        $this->conversationStoreScope = $conversationStoreScope;
     }
 
     /**
@@ -48,7 +51,8 @@ class MessagePageLoader
             return null;
         }
 
-        if ((int)$conversation->getCustomerId() !== $customerId) {
+        if ((int)$conversation->getCustomerId() !== $customerId
+            || !$this->conversationStoreScope->matches($conversation)) {
             return null;
         }
 
@@ -144,7 +148,8 @@ class MessagePageLoader
             return null;
         }
 
-        if (!hash_equals((string)$conversation->getData('guest_id'), $guestId)) {
+        if (!hash_equals((string)$conversation->getData('guest_id'), $guestId)
+            || !$this->conversationStoreScope->matches($conversation)) {
             return null;
         }
 
