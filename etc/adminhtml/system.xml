@@ -32,6 +32,40 @@
                     <comment>Optional override for a local or separate gateway. Leave empty in production to use this store's secure Base URL with /ai-gateway/. HTTPS stores automatically use WSS; the configured WebSocket origin is added to Magento CSP automatically.</comment>
                 </field>
             </group>
+            <group id="features" translate="label comment" type="text" sortOrder="25" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Rollout &amp; Experimental Features</label>
+                <comment>Per-store kill switches for new customer-facing capabilities. Leave a feature disabled until its acceptance tests and rollout plan are approved.</comment>
+                <field id="candidate_memory_enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable Candidate Memory</label>
+                    <comment>Allows the Product Advisor rollout to retain verified product references between turns. Disabled until that flow is released.</comment>
+                    <config_path>afd_ai/features/candidate_memory_enabled</config_path>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="product_advisor_enabled" translate="label comment" type="select" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable Product Advisor</label>
+                    <comment>Enables the guided product-finder experience after its release gate has passed.</comment>
+                    <config_path>afd_ai/features/product_advisor_enabled</config_path>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="proactive_suggestions_enabled" translate="label comment" type="select" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable Proactive Suggestions</label>
+                    <comment>Allows contextual suggestions only for this store after shopper-interaction and consent rules have been configured.</comment>
+                    <config_path>afd_ai/features/proactive_suggestions_enabled</config_path>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="analytics_attribution_enabled" translate="label comment" type="select" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable AI Attribution Events</label>
+                    <comment>Enables assisted-conversion event collection after storefront consent and the attribution data model are released.</comment>
+                    <config_path>afd_ai/features/analytics_attribution_enabled</config_path>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="guardrails_enabled" translate="label comment" type="select" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable Commerce Guardrails</label>
+                    <comment>Applies provider-neutral authorization checks for customer, verified-order, destructive and paid actions. Keep enabled in every production store.</comment>
+                    <config_path>afd_ai/features/guardrails_enabled</config_path>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+            </group>
             <group id="attachments" translate="label" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
                 <label>Images &amp; Attachments</label>
                 <comment>Image generation is controlled here. Provider-specific image model credentials remain under AI Provider &amp; Models.</comment>
@@ -125,6 +159,30 @@
                     <config_path>afd_ai/attachments/global_cost_units_per_minute</config_path>
                     <validate>validate-number validate-greater-than-zero</validate>
                 </field>
+                <field id="min_free_bytes" translate="label comment" type="text" sortOrder="140" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Minimum Free Disk Space for Uploads (Bytes)</label>
+                    <comment>Reject new uploads when the Magento var volume would fall below this watermark. Default: 100 MiB.</comment>
+                    <config_path>afd_ai/attachments/min_free_bytes</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="max_owner_storage_bytes" translate="label comment" type="text" sortOrder="150" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Maximum Attachment Storage per Shopper (Bytes)</label>
+                    <comment>Caps all private chat-image files owned by one customer or guest. Default: 64 MiB.</comment>
+                    <config_path>afd_ai/attachments/max_owner_storage_bytes</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="orphan_retention_seconds" translate="label comment" type="text" sortOrder="160" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Orphan Attachment Retention (Seconds)</label>
+                    <comment>Files not referenced by a saved message are deleted by the daily cleanup after this grace period. Default: 7 days.</comment>
+                    <config_path>afd_ai/attachments/orphan_retention_seconds</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
+                <field id="cleanup_dry_run" translate="label comment" type="select" sortOrder="170" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Attachment Cleanup Dry Run</label>
+                    <comment>Logs cleanup candidates without deleting them. Enable before changing retention or when validating legacy data.</comment>
+                    <config_path>afd_ai/attachments/cleanup_dry_run</config_path>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
                 </group>
             </group>
             <group id="providers" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
@@ -150,6 +208,12 @@
                         <label>Gemini Chat Model</label>
                         <comment>Text model used by Gemini chat.</comment>
                         <config_path>afd_ai/general/gemini_model</config_path>
+                        <source_model>Afd\AI\Model\Config\Source\GeminiModel</source_model>
+                    </field>
+                    <field id="gemini_grounding_model" translate="label comment" type="select" sortOrder="25" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Gemini Web Grounding Model</label>
+                        <comment>Gemini model used only when the assistant needs Google Search grounding. It is synchronized from Magento Admin to Node.</comment>
+                        <config_path>afd_ai/general/gemini_grounding_model</config_path>
                         <source_model>Afd\AI\Model\Config\Source\GeminiModel</source_model>
                     </field>
                     <field id="gemini_voice_model" translate="label comment" type="select" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">

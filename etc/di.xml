@@ -13,6 +13,14 @@
     <preference for="Afd\AI\Api\ConversationManagementInterface" type="Afd\AI\Model\ConversationManagement" />
     <preference for="Afd\AI\Api\QuoteCartAdapterInterface" type="Afd\AI\Model\Cart\OptionalQuoteCartAdapter" />
 
+    <type name="Afd\AI\Model\Maintenance\AttachmentDiskGuard">
+        <arguments>
+            <!-- Explicit Proxy injection keeps compiled DI metadata aligned with
+                 the distributed Magento lock backend. -->
+            <argument name="lockManager" xsi:type="object">Magento\Framework\Lock\Proxy</argument>
+        </arguments>
+    </type>
+
     <type name="Afd\AI\Model\Tool\FulltextProductCollectionFactory">
         <arguments>
             <argument name="collectionTypes" xsi:type="array">

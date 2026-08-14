@@ -8,7 +8,7 @@ function product(index) {
         name: `Configurable product ${index}`,
         price: '€49.95',
         in_stock: true,
-        url: `https://afd.test/product-${index}.html`,
+        url: `https://store.example.test/product-${index}.html`,
         direct_addable: false,
         minimum_qty: 1,
         maximum_qty: 1000,
@@ -113,7 +113,7 @@ const stressCases = [
         status: 'success',
         sources: Array.from({ length: 8 }, (_, index) => ({
             title: `Policy ${index}`,
-            url: `https://afd.test/policy-${Math.floor(index / 2)}`,
+            url: `https://store.example.test/policy-${Math.floor(index / 2)}`,
             excerpt: `Authoritative policy excerpt ${index}. `.repeat(180),
             source_type: 'cms_page',
             updated_at: '2026-08-13'

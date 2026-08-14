@@ -8,6 +8,7 @@ use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Filesystem;
 use Magento\Framework\UrlInterface;
 use Afd\AI\Model\Config\Config as AiConfig;
+use Afd\AI\Model\Maintenance\AttachmentDiskGuard;
 
 /**
  * Stores chat image bytes outside the public web root and returns compact metadata for a message row.
@@ -24,7 +25,8 @@ class ChatAttachmentStorage
     public function __construct(
         private readonly Filesystem $filesystem,
         private readonly UrlInterface $urlBuilder,
-        private readonly AiConfig $config
+        private readonly AiConfig $config,
+        private readonly AttachmentDiskGuard $diskGuard
     ) {
     }
 
@@ -43,13 +45,18 @@ class ChatAttachmentStorage
             throw new LocalizedException(__('Invalid image upload payload.'));
         }
 
+        $limits = $this->config->getAttachmentConfig();
+        // A cheap early rejection avoids base64 decoding and image inspection
+        // when the var volume is already below the configured safety floor.
+        // The authoritative capacity check is repeated under a shared lock
+        // immediately before writing below.
+        $this->diskGuard->assertCapacity((int)($limits['min_free_bytes'] ?? 104857600));
         $attachments = $decoded['attachments'] ?? null;
         if (!is_array($attachments)) {
             // Preserve compatibility with messages saved by the first attachment release.
-            return $this->storeFromPayload($decoded, $ownerId, $conversationId);
+            return $this->storeFromPayload($decoded, $ownerId, $conversationId, $limits);
         }
 
-        $limits = $this->config->getAttachmentConfig();
         $maximumAttachments = (int)$limits['max_images_per_message'];
         if ($attachments === [] || count($attachments) > $maximumAttachments) {
             throw new LocalizedException(__(
@@ -86,13 +93,25 @@ class ChatAttachmentStorage
             }
             $validated[] = $item;
         }
-        foreach ($validated as $item) {
-            $items[] = $this->storeValidatedPayload($item, $ownerId, $conversationId);
+        $ownerPath = $this->ownerPath($ownerId);
+        if ($ownerPath === null || $conversationId < 1) {
+            throw new LocalizedException(__('Invalid chat attachment owner.'));
         }
 
-        return (string)json_encode(
-            ['version' => 1, 'items' => $items],
-            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        return $this->diskGuard->reserveAndWrite(
+            $ownerPath,
+            (int)($limits['min_free_bytes'] ?? 104857600),
+            (int)($limits['max_owner_storage_bytes'] ?? 67108864),
+            $totalBytes,
+            function () use (&$items, $validated, $ownerId, $conversationId): string {
+                foreach ($validated as $item) {
+                    $items[] = $this->storeValidatedPayload($item, $ownerId, $conversationId);
+                }
+                return (string)json_encode(
+                    ['version' => 1, 'items' => $items],
+                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+                );
+            }
         );
     }
 
@@ -102,22 +121,31 @@ class ChatAttachmentStorage
      * @param array<string, mixed> $payload
      * @throws LocalizedException
      */
-    public function storeFromPayload(array $payload, int|string $ownerId, int $conversationId): string
+    public function storeFromPayload(
+        array $payload,
+        int|string $ownerId,
+        int $conversationId,
+        ?array $limits = null
+    ): string
     {
-        return (string)json_encode(
-            $this->storeMetadataFromPayload($payload, $ownerId, $conversationId),
-            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
-        );
-    }
+        $limits ??= $this->config->getAttachmentConfig();
+        $this->diskGuard->assertCapacity((int)($limits['min_free_bytes'] ?? 104857600));
+        $validated = $this->validatePayload($payload);
+        $ownerPath = $this->ownerPath($ownerId);
+        if ($ownerPath === null || $conversationId < 1) {
+            throw new LocalizedException(__('Invalid chat attachment owner.'));
+        }
 
-    /**
-     * @param array<string, mixed> $payload
-     * @return array{name:string,mime_type:string,size:int,url:string,storage:string}
-     * @throws LocalizedException
-     */
-    private function storeMetadataFromPayload(array $payload, int|string $ownerId, int $conversationId): array
-    {
-        return $this->storeValidatedPayload($this->validatePayload($payload), $ownerId, $conversationId);
+        return $this->diskGuard->reserveAndWrite(
+            $ownerPath,
+            (int)($limits['min_free_bytes'] ?? 104857600),
+            (int)($limits['max_owner_storage_bytes'] ?? 67108864),
+            (int)$validated['size'],
+            fn (): string => (string)json_encode(
+                $this->storeValidatedPayload($validated, $ownerId, $conversationId),
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+            )
+        );
     }
 
     /** @return array{name:string,mime_type:string,size:int,pixels:int,binary:string} */

@@ -14,6 +14,8 @@ import { responseLanguageInstruction } from '../conversation/response-language-g
 import { generateImage } from '../media/image-generation.js';
 import { acquireImageGenerationAdmission } from '../media/image-generation-guard.js';
 import { searchWebWithAi } from '../media/native-web-search.js';
+import { getProviderCapabilities } from '../providers/provider-capabilities.js';
+import { authorizeCommerceTool } from '../policy/commerce-guardrail.js';
 import { executeRegisteredMagentoTool } from '../tools/magento-tool-executor.js';
 import { createToolActivityId, emitToolActivity } from './tool-activity.js';
 import { reduceToolResultForModel } from './tool-context-reducer.js';
@@ -122,6 +124,30 @@ export function createProviderNeutralToolFlow({
                 args && typeof args === 'object' ? args : {}
             );
             catalogRetrievalPolicy.observeToolCall(toolName);
+            const guardrail = authorizeCommerceTool({
+                name: toolName,
+                args: normalizedArgs,
+                config,
+                options
+            });
+            options.onGuardrailDecision?.({ toolName, ...guardrail });
+            if (!guardrail.allowed) {
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: normalizedArgs,
+                    content: {
+                        status: 'blocked',
+                        reason: guardrail.reason,
+                        message: 'This action requires additional verified authorization or confirmation before it can continue.'
+                    },
+                    blocked: true,
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
+            }
 
             if (state.catalogIdentityResolved && CATALOG_TOOLS.has(toolName)) {
                 return saveResult(registerResult({
@@ -244,7 +270,8 @@ async function executeTool({
     shopperMessage
 }) {
     if (name === 'generateImage') {
-        if (!['openai', 'openrouter', '9router', 'cockpit', 'gemini'].includes(String(provider).toLowerCase())) {
+        const capabilities = getProviderCapabilities(config);
+        if (!capabilities.image_generation.supported) {
             return {
                 status: 'unavailable',
                 reason: 'provider_image_generation_unavailable',

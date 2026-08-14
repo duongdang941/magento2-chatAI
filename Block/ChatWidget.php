@@ -100,6 +100,12 @@ class ChatWidget extends Template
         ];
     }
 
+    /** Expose only non-sensitive customer-experience rollout flags. */
+    public function getFeatureConfig(): array
+    {
+        return $this->aiConfig->getFeatureConfig();
+    }
+
     /**
      * Deprecated: do not mint or expose OAuth customer tokens from template rendering.
      */

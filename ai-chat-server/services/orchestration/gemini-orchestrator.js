@@ -28,7 +28,6 @@ const tools = geminiToolDefinitions();
 // Gemini now receives the same canonical tool surface as every
 // OpenAI-compatible adapter. Provider-specific capabilities still report a
 // clear unavailable result at execution time when needed.
-const systemInstruction = buildAgentSystemInstruction({ extendedTools: true });
 const PROVISIONAL_TEXT_HOLD_MS = 900;
 
 // ==================== ORCHESTRATOR ====================
@@ -43,6 +42,10 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         const apiKey = config.api_key || process.env.GEMINI_API_KEY;
         const modelName = config.model || "gemini-1.5-flash";
         const agentConfig = config.agent || {};
+        const systemInstruction = buildAgentSystemInstruction({
+            extendedTools: true,
+            productAdvisorEnabled: config.features?.product_advisor_enabled === true
+        });
         const maxToolRounds = Math.max(1, Math.min(Number(agentConfig.max_tool_rounds) || MAX_CATALOG_TOOL_ROUNDS, 12));
         const maxOutputTokens = Math.max(256, Math.min(Number(agentConfig.max_output_tokens) || 2048, 8192));
         const providerTimeoutMs = Math.max(10000, Math.min(Number(agentConfig.provider_stream_timeout_ms) || 120000, 300000));

@@ -9,7 +9,7 @@ use Magento\Framework\Filesystem;
 use Magento\Framework\Filesystem\Directory\WriteInterface;
 use Psr\Log\LoggerInterface;
 
-/** Removes expired verification rows and unreferenced generated images. */
+/** Removes expired verification rows and unreferenced generated/attachment files. */
 class ExpiredDataCleaner
 {
     private const GENERATED_IMAGE_PATH = 'afd-ai/generated';
@@ -23,12 +23,13 @@ class ExpiredDataCleaner
         Filesystem $filesystem,
         private readonly GuestOrderAccessRepository $guestOrderAccessRepository,
         private readonly GeneratedImageReferenceRepository $generatedImageReferenceRepository,
+        private readonly ChatAttachmentCleaner $chatAttachmentCleaner,
         private readonly LoggerInterface $logger
     ) {
         $this->mediaDirectory = $filesystem->getDirectoryWrite(DirectoryList::MEDIA);
     }
 
-    /** @return array{guest_access_rows:int,generated_images:int} */
+    /** @return array{guest_access_rows:int,generated_images:int,chat_attachments:int} */
     public function execute(?int $now = null): array
     {
         $now ??= time();
@@ -39,6 +40,7 @@ class ExpiredDataCleaner
         return [
             'guest_access_rows' => $deletedRows,
             'generated_images' => $this->deleteUnreferencedGeneratedImages($now),
+            'chat_attachments' => $this->chatAttachmentCleaner->execute($now),
         ];
     }
 

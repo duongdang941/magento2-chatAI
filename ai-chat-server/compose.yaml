@@ -7,6 +7,9 @@ x-gateway-environment: &gateway-environment
   ALLOW_IN_MEMORY_STATE: "false"
   MAGENTO_API_URL: ${MAGENTO_API_URL}
   MAGENTO_HOST: ${MAGENTO_HOST}
+  # The bundled Nginx edge is trusted to rewrite X-Forwarded-For. Do not set
+  # this to 1 when exposing a gateway directly to untrusted clients.
+  TRUST_PROXY: ${TRUST_PROXY:-1}
   AI_NODE_SYNC_SECRET: ${AI_NODE_SYNC_SECRET}
   AI_WS_TICKET_SECRET: ${AI_WS_TICKET_SECRET}
   AI_METRICS_TOKEN: ${AI_METRICS_TOKEN}

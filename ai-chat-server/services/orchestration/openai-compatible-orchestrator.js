@@ -40,8 +40,6 @@ const PROVIDER_STREAM_TIMEOUT_MS = Number.isFinite(configuredProviderStreamTimeo
     : 120000;
 const PROVISIONAL_TEXT_HOLD_MS = 900;
 
-const systemInstruction = buildAgentSystemInstruction({ extendedTools: true });
-
 const tools = openAiToolDefinitions();
 
 export const streamChatResponse = async (userMessage, ws, history = [], customerToken = null, config = {}, options = {}) => {
@@ -51,6 +49,10 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
     const providerConfig = resolveProviderConfig(provider, config);
     const { apiKey, model, candidates, label } = providerConfig;
     const agentConfig = config.agent || {};
+    const systemInstruction = buildAgentSystemInstruction({
+        extendedTools: true,
+        productAdvisorEnabled: config.features?.product_advisor_enabled === true
+    });
     const maxToolRounds = Math.max(1, Math.min(Number(agentConfig.max_tool_rounds) || MAX_CATALOG_TOOL_ROUNDS, 12));
     const maxOutputTokens = Math.max(256, Math.min(Number(agentConfig.max_output_tokens) || MAX_OUTPUT_TOKENS, 8192));
     const providerStreamTimeoutMs = Math.max(

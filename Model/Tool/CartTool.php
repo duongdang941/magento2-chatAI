@@ -157,6 +157,9 @@ class CartTool
                 'selected_options' => $selectedOptions,
                 'cart_qty' => (float)$cart->getQuote()->getItemsQty(),
                 'cart_type' => $isQuoteCart ? 'request_quote' : 'checkout',
+                // Returned to the trusted browser controller for analytics
+                // correlation, then removed before the response reaches Node.
+                'quote_id' => (int)$cart->getQuote()->getId(),
             ];
         } catch (LocalizedException $exception) {
             // Extensions may require a design, upload, engraving, or another

@@ -19,6 +19,7 @@ class Config
     
     const XML_PATH_GEMINI_API_KEY = 'afd_ai/general/gemini_api_key';
     const XML_PATH_GEMINI_MODEL = 'afd_ai/general/gemini_model';
+    const XML_PATH_GEMINI_GROUNDING_MODEL = 'afd_ai/general/gemini_grounding_model';
     
     const XML_PATH_OPENAI_API_KEY = 'afd_ai/general/openai_api_key';
     const XML_PATH_OPENAI_MODEL = 'afd_ai/general/openai_model';
@@ -45,6 +46,12 @@ class Config
     const XML_PATH_IMAGE_GUEST_PER_DAY = 'afd_ai/image_generation/guest_per_day';
     const XML_PATH_IMAGE_COOLDOWN_SECONDS = 'afd_ai/image_generation/cooldown_seconds';
     const XML_PATH_IMAGE_MAX_CONCURRENT = 'afd_ai/image_generation/max_concurrent_per_identity';
+
+    const XML_PATH_FEATURE_CANDIDATE_MEMORY = 'afd_ai/features/candidate_memory_enabled';
+    const XML_PATH_FEATURE_PRODUCT_ADVISOR = 'afd_ai/features/product_advisor_enabled';
+    const XML_PATH_FEATURE_PROACTIVE_SUGGESTIONS = 'afd_ai/features/proactive_suggestions_enabled';
+    const XML_PATH_FEATURE_ANALYTICS_ATTRIBUTION = 'afd_ai/features/analytics_attribution_enabled';
+    const XML_PATH_FEATURE_GUARDRAILS = 'afd_ai/features/guardrails_enabled';
 
     const XML_PATH_AGENT_MAX_TOOL_ROUNDS = 'afd_ai/agent/max_tool_rounds';
     const XML_PATH_AGENT_MAX_TOOL_EXECUTIONS = 'afd_ai/agent/max_tool_executions';
@@ -75,6 +82,10 @@ class Config
     const XML_PATH_ATTACHMENT_COST_UNITS = 'afd_ai/attachments/cost_units_per_minute';
     const XML_PATH_ATTACHMENT_NETWORK_COST_UNITS = 'afd_ai/attachments/network_cost_units_per_minute';
     const XML_PATH_ATTACHMENT_GLOBAL_COST_UNITS = 'afd_ai/attachments/global_cost_units_per_minute';
+    const XML_PATH_ATTACHMENT_MIN_FREE_BYTES = 'afd_ai/attachments/min_free_bytes';
+    const XML_PATH_ATTACHMENT_MAX_OWNER_STORAGE_BYTES = 'afd_ai/attachments/max_owner_storage_bytes';
+    const XML_PATH_ATTACHMENT_ORPHAN_RETENTION_SECONDS = 'afd_ai/attachments/orphan_retention_seconds';
+    const XML_PATH_ATTACHMENT_CLEANUP_DRY_RUN = 'afd_ai/attachments/cleanup_dry_run';
 
     const XML_PATH_VOICE_ENABLED = 'afd_ai/voice/enabled';
     const XML_PATH_VOICE_TRANSCRIPTION_MODEL = 'afd_ai/voice/transcription_model';
@@ -217,6 +228,25 @@ class Config
         return $this->scopeConfig->getValue(self::XML_PATH_PROVIDER, ScopeInterface::SCOPE_STORE, $storeId);
     }
 
+    /**
+     * Gemini grounding is a provider-only model setting. It is synchronized to
+     * Node so the gateway never needs a deployment-specific environment value.
+     */
+    public function getGroundingModel($storeId = null): string
+    {
+        if ($this->getProvider($storeId) !== 'gemini') {
+            return '';
+        }
+
+        $model = trim((string)$this->scopeConfig->getValue(
+            self::XML_PATH_GEMINI_GROUNDING_MODEL,
+            ScopeInterface::SCOPE_STORE,
+            $storeId
+        ));
+
+        return $model !== '' ? $model : trim((string)$this->getModel($storeId));
+    }
+
     public function getApiKey($storeId = null)
     {
         $provider = $this->getProvider($storeId);
@@ -344,6 +374,42 @@ class Config
     }
 
     /**
+     * Rollout controls for customer-facing features. The feature contract is
+     * synchronized as one snapshot so every Node replica evaluates the same
+     * store-level state.
+     */
+    public function getFeatureConfig($storeId = null): array
+    {
+        return [
+            'candidate_memory_enabled' => $this->scopeConfig->isSetFlag(
+                self::XML_PATH_FEATURE_CANDIDATE_MEMORY,
+                ScopeInterface::SCOPE_STORE,
+                $storeId
+            ),
+            'product_advisor_enabled' => $this->scopeConfig->isSetFlag(
+                self::XML_PATH_FEATURE_PRODUCT_ADVISOR,
+                ScopeInterface::SCOPE_STORE,
+                $storeId
+            ),
+            'proactive_suggestions_enabled' => $this->scopeConfig->isSetFlag(
+                self::XML_PATH_FEATURE_PROACTIVE_SUGGESTIONS,
+                ScopeInterface::SCOPE_STORE,
+                $storeId
+            ),
+            'analytics_attribution_enabled' => $this->scopeConfig->isSetFlag(
+                self::XML_PATH_FEATURE_ANALYTICS_ATTRIBUTION,
+                ScopeInterface::SCOPE_STORE,
+                $storeId
+            ),
+            'guardrails_enabled' => $this->scopeConfig->isSetFlag(
+                self::XML_PATH_FEATURE_GUARDRAILS,
+                ScopeInterface::SCOPE_STORE,
+                $storeId
+            ),
+        ];
+    }
+
+    /**
      * Provider reasoning and tool-use settings synced to the Node gateway.
      */
     public function getAgentConfig($storeId = null): array
@@ -458,6 +524,34 @@ class Config
                 1200,
                 100,
                 10000,
+                $storeId
+            ),
+            // Keep a filesystem watermark so an attachment burst cannot fill
+            // the Magento var volume and take unrelated requests down.
+            'min_free_bytes' => $this->getIntValue(
+                self::XML_PATH_ATTACHMENT_MIN_FREE_BYTES,
+                104857600,
+                1048576,
+                10737418240,
+                $storeId
+            ),
+            'max_owner_storage_bytes' => $this->getIntValue(
+                self::XML_PATH_ATTACHMENT_MAX_OWNER_STORAGE_BYTES,
+                67108864,
+                4194304,
+                1073741824,
+                $storeId
+            ),
+            'orphan_retention_seconds' => $this->getIntValue(
+                self::XML_PATH_ATTACHMENT_ORPHAN_RETENTION_SECONDS,
+                604800,
+                3600,
+                31536000,
+                $storeId
+            ),
+            'cleanup_dry_run' => $this->scopeConfig->isSetFlag(
+                self::XML_PATH_ATTACHMENT_CLEANUP_DRY_RUN,
+                ScopeInterface::SCOPE_STORE,
                 $storeId
             ),
         ];

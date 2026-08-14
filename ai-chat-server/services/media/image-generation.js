@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { getProviderCapabilities } from '../providers/provider-capabilities.js';
 
 const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
 const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image';
@@ -20,7 +21,8 @@ function normalizeBaseUrl(value) {
 
 function resolveImageProviderConfig(config = {}) {
     const provider = readString(config.provider, 'cockpit');
-    if (!['cockpit', 'openai', 'openrouter', '9router', 'gemini'].includes(provider)) {
+    const capabilities = getProviderCapabilities(config);
+    if (!capabilities.image_generation.supported) {
         throw new Error('Image generation is not available through the selected provider.');
     }
 

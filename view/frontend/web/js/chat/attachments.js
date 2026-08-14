@@ -524,7 +524,8 @@ const {
                                     }))
                                     .filter(Boolean)
                                 : [];
-                            const catalogContext = catalogProducts.length
+                            const catalogMemoryEnabled = config.features?.candidate_memory_enabled !== false;
+                            const catalogContext = catalogMemoryEnabled && catalogProducts.length
                                 ? `[CATALOG_CONTEXT:v2]\n${JSON.stringify({
                                     instruction: 'Resolve unambiguous product references by product_ref or SKU. Check live stock with getProductAvailability before making an availability claim.',
                                     products: catalogProducts

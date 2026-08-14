@@ -2,6 +2,7 @@ import { getAiConfig } from '../configuration/config-service.js';
 import { transcribeVoice } from '../media/voice-transcription.js';
 import { acquireVoiceTranscriptionAdmission } from '../media/voice-transcription-guard.js';
 import { summarizeError } from '../gateway/error-summary.js';
+import { getProviderCapabilities } from '../providers/provider-capabilities.js';
 
 function formatVoiceError(error) {
     switch (String(error?.code || '')) {
@@ -45,6 +46,17 @@ export async function handleVoiceTranscription({ ws, data, client, runtime, metr
 
     if (config.voice?.enabled !== true) {
         send({ type: 'voice_error', code: 'VOICE_DISABLED', content: 'Voice dictation is disabled for this store.' });
+        return;
+    }
+
+    const voiceCapability = getProviderCapabilities(config).voice_dictation;
+    if (!voiceCapability.available) {
+        metrics.increment('voice_rejected', { reason: voiceCapability.reason || 'provider_unavailable' });
+        send({
+            type: 'voice_error',
+            code: 'VOICE_PROVIDER_UNAVAILABLE',
+            content: 'Voice dictation is not configured for the selected AI provider. Check the provider key and transcription model.'
+        });
         return;
     }
 

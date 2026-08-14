@@ -87,7 +87,9 @@ test('bounds and releases scoped image-generation capacity', async () => {
 
     assert.ok(first);
     assert.equal(blocked, null);
+    assert.equal(await first.renew(), true);
     await first.release();
+    assert.equal(await first.renew(), false);
     assert.ok(await runtime.acquireScopedCapacity('image-generation', 'customer:7', {
         concurrency: 1,
         leaseMs: 10000

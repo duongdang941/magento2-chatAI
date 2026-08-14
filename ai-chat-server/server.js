@@ -5,10 +5,12 @@ import { WebSocketServer } from 'ws';
 import { guardWebSocketAction } from './services/security/websocket-action-guard.js';
 import {
     addConfiguredWebSocketOrigins,
+    admitDistributedWebSocketConnection,
+    admitLocalWebSocketConnection,
     configuredWebSocketOrigins,
+    createDistributedWebSocketConnectionAdmission,
     createWebSocketConnectionAdmission,
-    installWebSocketHeartbeat,
-    isAllowedWebSocketOrigin
+    installWebSocketHeartbeat
 } from './services/security/websocket-security.js';
 import {
     acceptsClientContract,
@@ -23,6 +25,7 @@ import { getAiConfig, getAiConfigSnapshot } from './services/configuration/confi
 import { getOrchestrator } from './services/orchestration/orchestrator-factory.js';
 import { summarizeError } from './services/gateway/error-summary.js';
 import { getGatewayRuntime } from './services/gateway/gateway-runtime.js';
+import { getGatewayRuntimeLimits } from './services/gateway/runtime-limits.js';
 import { GatewayMetrics } from './services/gateway/gateway-metrics.js';
 import { verifyWebSocketTicket } from './services/security/ws-ticket.js';
 import { loadCatalogPage } from './services/catalog/catalog-page-loader.js';
@@ -76,45 +79,29 @@ import { stopGateway } from './services/gateway/graceful-shutdown.js';
 import { createConnectionLifecycle } from './services/gateway/connection-lifecycle.js';
 import { createGatewayServer } from './services/gateway/gateway-server.js';
 import { admitImageRequest } from './services/media/image-admission.js';
+import { reportAssistantCompletion } from './services/analytics/commerce-events.js';
+import { reportGuardrailDecision } from './services/policy/guardrail-audit.js';
 const app = express();
 const port = process.env.PORT || 3001;
 const runtime = getGatewayRuntime();
 const metrics = new GatewayMetrics();
 const guestSessionHistory = new GuestSessionHistory(runtime);
-
-function readPositiveInt(value, fallback, max = Number.MAX_SAFE_INTEGER) {
-    const parsed = Number(value);
-    if (!Number.isFinite(parsed)) {
-        return fallback;
-    }
-    return Math.max(1, Math.min(Math.trunc(parsed), max));
-}
-
-const MAX_MESSAGES_PER_MINUTE = readPositiveInt(process.env.MAX_MESSAGES_PER_MINUTE, 15, 120);
-const MAX_PRODUCT_PAGE_REQUESTS_PER_MINUTE = readPositiveInt(process.env.MAX_PRODUCT_PAGE_REQUESTS_PER_MINUTE, 30, 120);
-const MAX_ADDRESS_UPDATES_PER_MINUTE = readPositiveInt(process.env.MAX_ADDRESS_UPDATES_PER_MINUTE, 5, 30);
-const MAX_ADDRESS_UPDATES_PER_HOUR = readPositiveInt(process.env.MAX_ADDRESS_UPDATES_PER_HOUR, 20, 200);
-const MAX_MODEL_HISTORY_MESSAGES = readPositiveInt(process.env.MAX_MODEL_HISTORY_MESSAGES, 16, 40);
-const MAX_IMAGE_BYTES = readPositiveInt(process.env.MAX_IMAGE_BYTES, 4 * 1024 * 1024, 16 * 1024 * 1024);
-const MAX_IMAGES_PER_MESSAGE = readPositiveInt(process.env.MAX_IMAGES_PER_MESSAGE, 4, 4);
-const MAX_WS_PAYLOAD_BYTES = readPositiveInt(
-    process.env.MAX_WS_PAYLOAD_BYTES,
-    8 * 1024 * 1024,
-    12 * 1024 * 1024
-);
-// Reserve room in the WebSocket frame for text, history, guest history and
-// JSON metadata. The browser applies the same conservative image budget and
-// additionally checks the fully serialized frame before sending it.
-const MAX_WS_IMAGE_RESERVE_BYTES = 2 * 1024 * 1024;
-const MAX_WS_ENCODED_IMAGE_BYTES = Math.max(
-    512 * 1024,
-    MAX_WS_PAYLOAD_BYTES - MAX_WS_IMAGE_RESERVE_BYTES
-);
-const MAX_CONCURRENT_MODEL_REQUESTS = readPositiveInt(process.env.MAX_CONCURRENT_MODEL_REQUESTS, 32, 1000);
-const MAX_QUEUE_DEPTH = readPositiveInt(process.env.MAX_QUEUE_DEPTH, 200, 10000);
-const MAX_QUEUE_WAIT_MS = readPositiveInt(process.env.MAX_QUEUE_WAIT_MS, 30000, 300000);
-const MODEL_LEASE_MS = readPositiveInt(process.env.MODEL_LEASE_MS, 90000, 600000);
-const ADDRESS_UPDATE_LOCK_MS = readPositiveInt(process.env.ADDRESS_UPDATE_LOCK_MS, 20000, 60000);
+const {
+    maxMessagesPerMinute: MAX_MESSAGES_PER_MINUTE,
+    maxProductPageRequestsPerMinute: MAX_PRODUCT_PAGE_REQUESTS_PER_MINUTE,
+    maxAddressUpdatesPerMinute: MAX_ADDRESS_UPDATES_PER_MINUTE,
+    maxAddressUpdatesPerHour: MAX_ADDRESS_UPDATES_PER_HOUR,
+    maxModelHistoryMessages: MAX_MODEL_HISTORY_MESSAGES,
+    maxImageBytes: MAX_IMAGE_BYTES,
+    maxImagesPerMessage: MAX_IMAGES_PER_MESSAGE,
+    maxWebSocketPayloadBytes: MAX_WS_PAYLOAD_BYTES,
+    maxWebSocketEncodedImageBytes: MAX_WS_ENCODED_IMAGE_BYTES,
+    maxConcurrentModelRequests: MAX_CONCURRENT_MODEL_REQUESTS,
+    maxQueueDepth: MAX_QUEUE_DEPTH,
+    maxQueueWaitMs: MAX_QUEUE_WAIT_MS,
+    modelLeaseMs: MODEL_LEASE_MS,
+    addressUpdateLockMs: ADDRESS_UPDATE_LOCK_MS
+} = getGatewayRuntimeLimits();
 const GUEST_ORDER_ACCESS_MAX_TTL_MS = 24 * 60 * 60 * 1000;
 const SUPPORT_EMAIL_VERIFICATION_TTL_MS = 30 * 60 * 1000;
 const PENDING_VERIFICATION_ACTION_TTL_MS = 15 * 60 * 1000;
@@ -135,6 +122,7 @@ const wss = new WebSocketServer({ server, maxPayload: MAX_WS_PAYLOAD_BYTES });
 const allowedWebSocketOrigins = configuredWebSocketOrigins();
 installWebSocketHeartbeat(wss, process.env.WS_HEARTBEAT_INTERVAL_MS);
 const websocketAdmission = createWebSocketConnectionAdmission();
+const distributedWebsocketAdmission = createDistributedWebSocketConnectionAdmission({ runtime });
 
 // Connection tracking
 const clientData = new Map(); // ws → { customerId, customerName, sessionId }
@@ -461,18 +449,12 @@ async function notifyGuestOrderAccessReset(origin, client) {
 }
 
 wss.on('connection', async (ws, req) => {
-    const connectionAdmission = websocketAdmission.admit(req, wss.clients.size - 1);
-    if (!connectionAdmission.allowed) {
-        metrics.increment('websocket_rejected', { reason: connectionAdmission.reason });
-        ws.close(1013, 'Chat connection capacity is temporarily full');
-        return;
-    }
-    ws.once('close', connectionAdmission.release);
-    if (!isAllowedWebSocketOrigin(req.headers.origin, { allowedOrigins: allowedWebSocketOrigins })) {
-        metrics.increment('websocket_rejected', { reason: 'invalid_origin' });
-        ws.close(1008, 'Origin is not allowed');
-        return;
-    }
+    if (!admitLocalWebSocketConnection(ws, req, {
+        admission: websocketAdmission,
+        currentConnections: wss.clients.size - 1,
+        allowedOrigins: allowedWebSocketOrigins,
+        metrics
+    })) return;
 
     ws.isAlive = true;
     installGatewayEventContract(ws);
@@ -496,6 +478,8 @@ wss.on('connection', async (ws, req) => {
         ws.close(1008, 'Invalid connection ticket');
         return;
     }
+
+    if (!await admitDistributedWebSocketConnection(ws, req, distributedWebsocketAdmission, metrics)) return;
 
     const customerId = auth.customerId || null;
     const supportAdmin = auth.role === 'support_admin';
@@ -1541,6 +1525,14 @@ async function handleChat(ws, data, client, requestConfig = null) {
                 ws.send(JSON.stringify({ type: 'refresh_conversations' }));
             }
             ws.send(attachRequestId({ type: 'message_saved', role: 'assistant', entity_id: savedMessageId, persistent }, run.requestId));
+            void reportAssistantCompletion({
+                config: aiConfig,
+                client: { ...client, guestId: guestHistoryIdentity(client) },
+                conversationId,
+                messageId: savedMessageId,
+                parts,
+                durationMs: Date.now() - processingStartedAt
+            });
             return true;
         }
 
@@ -1557,6 +1549,14 @@ async function handleChat(ws, data, client, requestConfig = null) {
         }
 
         ws.send(attachRequestId({ type: 'message_saved', role: 'assistant', entity_id: savedMessageId, persistent }, run.requestId));
+        void reportAssistantCompletion({
+            config: aiConfig,
+            client: { ...client, guestId: guestHistoryIdentity(client) },
+            conversationId,
+            messageId: savedMessageId,
+            parts,
+            durationMs: Date.now() - processingStartedAt
+        });
         await broadcastGuestConversation(ws, client, guestMode, conversationId);
         ws.send(JSON.stringify({ type: 'refresh_conversations' }));
         return true;
@@ -1791,6 +1791,7 @@ async function handleChat(ws, data, client, requestConfig = null) {
             requestBrowserCart: (cart) => browserCartBridge.request(ws, {
                 requestId: run.requestId,
                 cart,
+                conversationId,
                 signal: run.controller.signal
             }),
             onContextReduction: (stats) => {
@@ -1800,6 +1801,19 @@ async function handleChat(ws, data, client, requestConfig = null) {
                 });
                 metrics.observeBytes('tool_context_raw', stats.rawBytes, { tool: stats.toolName });
                 metrics.observeBytes('tool_context_model', stats.modelBytes, { tool: stats.toolName });
+            },
+            onGuardrailDecision: (decision) => {
+                metrics.increment('guardrail_decision', {
+                    tool: String(decision?.toolName || '').slice(0, 80),
+                    decision: decision?.allowed === true ? 'allowed' : 'blocked',
+                    reason: String(decision?.reason || 'unknown').slice(0, 80)
+                });
+                void reportGuardrailDecision({
+                    config: aiConfig,
+                    client: { ...client, guestId: guestHistoryIdentity(client) },
+                    conversationId,
+                    decision
+                });
             }
         });
 

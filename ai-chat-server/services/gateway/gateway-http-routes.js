@@ -133,11 +133,13 @@ export function registerGatewayHttpRoutes({
                 sync_id: syncId,
                 provider: config.provider,
                 model: config.model,
+                capabilities: config.capabilities,
+                warnings: snapshot.validation?.warnings || [],
                 store_count: Object.keys(snapshot.stores || {}).length,
                 applied_at: new Date().toISOString()
             });
         } catch (error) {
-            res.status(500).json({
+            res.status(Number(error?.status) || 500).json({
                 status: 'error',
                 message: error.message || 'Could not apply configuration.'
             });

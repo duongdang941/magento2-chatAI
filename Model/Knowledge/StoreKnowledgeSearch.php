@@ -7,6 +7,7 @@ use Magento\Cms\Model\ResourceModel\Block\CollectionFactory as BlockCollectionFa
 use Magento\Cms\Model\ResourceModel\Page\CollectionFactory as PageCollectionFactory;
 use Magento\Cms\Model\Template\FilterProvider;
 use Magento\Framework\App\Config\ScopeConfigInterface;
+use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\UrlInterface;
 use Magento\Store\Model\ScopeInterface;
 use Magento\Store\Model\StoreManagerInterface;
@@ -35,12 +36,13 @@ class StoreKnowledgeSearch
         private readonly FilterProvider $filterProvider,
         private readonly StoreManagerInterface $storeManager,
         private readonly ScopeConfigInterface $scopeConfig,
-        private readonly UrlInterface $urlBuilder
+        private readonly UrlInterface $urlBuilder,
+        private readonly ResourceConnection $resource
     ) {
     }
 
     /** @return array<string, mixed> */
-    public function search(string $query, int $limit = 5): array
+    public function search(string $query, int $limit = 5, int $customerGroupId = 0): array
     {
         if (!$this->scopeConfig->isSetFlag('afd_ai/knowledge/enabled', ScopeInterface::SCOPE_STORE)) {
             return ['status' => 'unavailable', 'reason' => 'knowledge_disabled', 'message' => __('Store knowledge search is disabled.')->render()];
@@ -54,6 +56,7 @@ class StoreKnowledgeSearch
         $terms = $this->terms($query);
         $limit = max(1, min($limit, self::MAX_RESULTS));
         $storeId = (int)$this->storeManager->getStore()->getId();
+        $websiteId = (int)$this->storeManager->getStore()->getWebsiteId();
         $candidates = [];
 
         $pages = $this->pageCollectionFactory->create()
@@ -106,6 +109,10 @@ class StoreKnowledgeSearch
             ];
         }
 
+        foreach ($this->managedDocumentCandidates($terms, $storeId, $websiteId, max(0, $customerGroupId)) as $candidate) {
+            $candidates[] = $candidate;
+        }
+
         usort($candidates, static fn (array $left, array $right): int => $right['score'] <=> $left['score']);
         $results = [];
         foreach (array_slice($candidates, 0, $limit) as $candidate) {
@@ -121,8 +128,58 @@ class StoreKnowledgeSearch
             'store_id' => $storeId,
             'count' => count($results),
             'results' => $results,
-            'source_notice' => __('Information retrieved from this store\'s CMS content.')->render(),
+            'source_notice' => __('Information retrieved from this store\'s CMS content and approved Knowledge Base documents.')->render(),
         ];
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function managedDocumentCandidates(array $terms, int $storeId, int $websiteId, int $customerGroupId): array
+    {
+        try {
+            $connection = $this->resource->getConnection();
+            $table = $this->resource->getTableName('afd_ai_knowledge_document');
+            $select = $connection->select()
+                ->from($table)
+                ->where('status = ?', 'published')
+                ->where('(store_id = ? OR store_id = 0)', $storeId)
+                ->where('(website_id = ? OR website_id = 0)', $websiteId)
+                ->where('(customer_group_id IS NULL OR customer_group_id = ?)', $customerGroupId)
+                ->where('(effective_at IS NULL OR effective_at <= UTC_TIMESTAMP())')
+                ->where('(expires_at IS NULL OR expires_at > UTC_TIMESTAMP())')
+                ->order('updated_at DESC')
+                ->limit(50);
+            $conditions = [];
+            foreach ($terms as $term) {
+                $like = '%' . $term . '%';
+                $conditions[] = $connection->quoteInto('LOWER(title) LIKE ?', $like);
+                $conditions[] = $connection->quoteInto('LOWER(content) LIKE ?', $like);
+            }
+            if ($conditions !== []) $select->where(implode(' OR ', $conditions));
+
+            $candidates = [];
+            foreach ($connection->fetchAll($select) as $document) {
+                $title = (string)($document['title'] ?? '');
+                $identifier = (string)($document['identifier'] ?? '');
+                $text = $this->plainText((string)($document['content'] ?? ''));
+                if (!$this->isRelevant($title, $identifier, $text, $terms, false)) continue;
+                $candidates[] = [
+                    'source_type' => 'knowledge_document',
+                    'source_id' => (int)($document['entity_id'] ?? 0),
+                    'title' => $title,
+                    'identifier' => $identifier,
+                    'url' => (string)($document['source_url'] ?? ''),
+                    'text' => $text,
+                    'updated_at' => (string)($document['updated_at'] ?? ''),
+                    'source_version' => sprintf('%s:%d', $identifier, (int)($document['version'] ?? 1)),
+                    'score' => $this->score($title . ' ' . $identifier, $text, $terms) + 3,
+                ];
+            }
+            return $candidates;
+        } catch (\Throwable) {
+            // A rolling deploy can temporarily see code before the declarative
+            // schema is installed. CMS retrieval remains usable in that case.
+            return [];
+        }
     }
 
     private function terms(string $query): array

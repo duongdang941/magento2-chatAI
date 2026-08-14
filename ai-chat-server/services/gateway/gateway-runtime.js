@@ -339,7 +339,8 @@ export class GatewayRuntime {
             if (Number(acquired) !== 1) return null;
             return {
                 token,
-                release: () => this.redis.zrem(key, token).catch(() => 0)
+                release: () => this.redis.zrem(key, token).catch(() => 0),
+                renew: () => this.renewScopedCapacity(key, token, leaseMs)
             };
         }
 
@@ -356,8 +357,28 @@ export class GatewayRuntime {
                 const entries = this.memoryScopedSemaphore.get(key);
                 entries?.delete(token);
                 if (entries?.size === 0) this.memoryScopedSemaphore.delete(key);
-            }
+            },
+            renew: () => this.renewScopedCapacity(key, token, leaseMs)
         };
+    }
+
+    async renewScopedCapacity(key, token, leaseMs) {
+        const safeLease = numberFromEnv(leaseMs, 180000, 1000, 600000);
+        if (this.mode === 'redis') {
+            const result = await this.redis.eval(
+                SEMAPHORE_RENEW_SCRIPT,
+                1,
+                key,
+                Date.now() + safeLease,
+                token,
+                safeLease
+            );
+            return Number(result) === 1;
+        }
+        const entries = this.memoryScopedSemaphore.get(key);
+        if (!entries?.has(token)) return false;
+        entries.set(token, Date.now() + safeLease);
+        return true;
     }
 
     async acquireCapacity(requestId, options = {}) {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Afd\AI\Test\Unit\Model\Maintenance;
 
 use Afd\AI\Model\Maintenance\ExpiredDataCleaner;
+use Afd\AI\Model\Maintenance\ChatAttachmentCleaner;
 use Afd\AI\Model\Maintenance\GeneratedImageReferenceRepository;
 use Afd\AI\Model\Order\GuestOrderAccessRepository;
 use Magento\Framework\Filesystem;
@@ -42,15 +43,19 @@ class ExpiredDataCleanerTest extends TestCase
                 ['orphan.webp', false],
             ]);
 
+        $attachments = $this->createMock(ChatAttachmentCleaner::class);
+        $attachments->expects(self::once())->method('execute')->with($now)->willReturn(0);
+
         $cleaner = new ExpiredDataCleaner(
             $filesystem,
             $repository,
             $imageReferences,
+            $attachments,
             $this->createMock(LoggerInterface::class)
         );
 
         self::assertSame(
-            ['guest_access_rows' => 3, 'generated_images' => 1],
+            ['guest_access_rows' => 3, 'generated_images' => 1, 'chat_attachments' => 0],
             $cleaner->execute($now)
         );
     }

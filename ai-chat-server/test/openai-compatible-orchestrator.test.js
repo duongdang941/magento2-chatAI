@@ -209,6 +209,16 @@ test('uses a bounded, language-neutral catalogue retrieval protocol', () => {
     assert.match(RESPONSE_LANGUAGE_AGENT_GUIDANCE, /product name.*must never change/i);
 });
 
+test('adds Product Advisor guidance only when its store feature flag is enabled', async () => {
+    const { buildAgentSystemInstruction } = await import('../services/orchestration/agent-system-guidance.js');
+    const disabled = buildAgentSystemInstruction({ extendedTools: true });
+    const enabled = buildAgentSystemInstruction({ extendedTools: true, productAdvisorEnabled: true });
+
+    assert.doesNotMatch(disabled, /PRODUCT ADVISOR MODE/);
+    assert.match(enabled, /PRODUCT ADVISOR MODE/);
+    assert.match(enabled, /SKU\/product_ref/);
+});
+
 test('keeps structured price and configurable options out of language-specific query parsing', () => {
     assert.deepEqual(
         normalizeSearchArguments({ query: 'flags', maxPrice: 25 }, 6),

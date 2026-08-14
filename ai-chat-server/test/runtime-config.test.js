@@ -153,6 +153,35 @@ test('disables OpenAI Live Voice when a different chat provider is selected', ()
     assert.equal(config.voice.live.enabled, false);
 });
 
+test('normalizes Magento-owned Gemini grounding and rollout flags into a capability snapshot', () => {
+    const config = normalizeConfig({
+        provider: 'gemini',
+        api_key: 'gemini-key',
+        model: 'gemini-3.1-flash-lite',
+        grounding_model: 'gemini-2.5-flash',
+        image_generation: { enabled: true, model: 'gemini-3.1-flash-image' },
+        voice: { enabled: true, transcription_model: 'gemini-3.1-flash-lite' },
+        features: {
+            candidate_memory_enabled: true,
+            product_advisor_enabled: true,
+            proactive_suggestions_enabled: false,
+            analytics_attribution_enabled: true,
+            guardrails_enabled: false
+        }
+    });
+
+    assert.equal(config.grounding_model, 'gemini-2.5-flash');
+    assert.deepEqual(config.features, {
+        candidate_memory_enabled: true,
+        product_advisor_enabled: true,
+        proactive_suggestions_enabled: false,
+        analytics_attribution_enabled: true,
+        guardrails_enabled: false
+    });
+    assert.equal(config.capabilities.native_web_grounding.available, true);
+    assert.equal(config.capabilities.image_generation.available, true);
+});
+
 test('falls back to the gateway provider secret when copied Magento ciphertext is unusable', () => {
     const previous = process.env.GEMINI_API_KEY;
     process.env.GEMINI_API_KEY = 'gateway-gemini-key';

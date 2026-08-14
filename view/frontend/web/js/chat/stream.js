@@ -982,13 +982,10 @@ const {
                     this.pendingProductParts = [];
                     this.pendingOrderAddressFormParts = [];
                     this.pendingGuestOrderAccessParts = [];
-                    this.statusMessage = '';
-                    this.toolActivities = [];
                     this.clearResponseWatchdog();
                     this.userInput = cleanText;
                     this.imageAttachments = outgoingAttachments;
                     this.uploadError = 'This message is too large for the secure chat connection. Remove an image or shorten the message/history and try again.';
-                    this.scheduleGuestSessionSnapshot();
                     this.$nextTick(() => this.resizeComposerInput?.());
                     return;
                 }
@@ -1162,6 +1159,8 @@ const {
             async mutateBrowserCart(data) {
                 const cartRequestId = String(data?.cart_request_id || '');
                 const requestId = String(data?.request_id || '');
+                const conversationId = Math.max(0, Number(data?.conversation_id) || 0);
+                const analyticsEventId = String(data?.analytics_event_id || '');
                 const cart = data?.cart && typeof data.cart === 'object' ? data.cart : {};
                 let result;
 
@@ -1181,6 +1180,8 @@ const {
                             qty: Number(cart.qty) || 1,
                             useDefaultQty: cart.useDefaultQty === true,
                             cartTarget: String(cart.cartTarget || '') === 'quote' ? 'quote' : 'checkout',
+                            conversationId,
+                            analyticsEventId,
                             selectedOptions: cart.selectedOptions && typeof cart.selectedOptions === 'object'
                                 ? cart.selectedOptions
                                 : {}

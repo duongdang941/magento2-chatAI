@@ -1,0 +1,41 @@
+name: Afd AI Gateway Tests
+
+on:
+  push:
+    paths:
+      - '**'
+      - '.github/workflows/afd-ai-test.yml'
+  pull_request:
+    paths:
+      - '**'
+      - '.github/workflows/afd-ai-test.yml'
+  workflow_dispatch:
+
+jobs:
+  node-gateway:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: ai-chat-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v22
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ai-chat-server/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run test:integration:redis
+        env:
+          REDIS_URL: redis://127.0.0.1:6379/15

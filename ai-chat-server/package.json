@@ -11,6 +11,7 @@
     "test": "node --test test/*.test.js",
     "quality:gate": "node scripts/quality-gate.mjs",
     "benchmark:health-redis": "node scripts/benchmark-health-and-redis.mjs",
+    "test:integration:redis": "node scripts/test-redis-integration.mjs",
     "benchmark:context": "node scripts/benchmark-context-reduction.mjs",
     "test:manual:voice": "node test/manual-voice-ws-contract.mjs",
     "test:integration": "node scripts/integration-smoke.mjs",

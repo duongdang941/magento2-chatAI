@@ -99,6 +99,20 @@ test('storefront chat markup never embeds customer session state into an FPC pag
     assert.doesNotMatch(template, /'isLoggedIn'\s*=>\s*\$block->isLoggedIn\(\)/);
 });
 
+test('production edge examples enforce a replica-independent per-network connection limit', () => {
+    const upstream = read('infra', 'nginx', 'production-upstream.conf.example');
+    const websocket = read('infra', 'nginx', 'production-wss.conf.example');
+    const localGateway = read('infra', 'nginx', 'gateway.conf');
+    for (const source of [upstream, localGateway]) {
+        assert.match(source, /limit_conn_zone\s+\$binary_remote_addr/);
+    }
+    for (const source of [websocket, localGateway]) {
+        assert.match(source, /limit_conn\s+afd_ai_connection_limit\s+\d+/);
+        assert.match(source, /limit_req\s+zone=afd_ai_connection_rate/);
+    }
+    assert.match(read('compose.yaml'), /TRUST_PROXY:\s+\$\{TRUST_PROXY:-1\}/);
+});
+
 test('generated-image cleanup uses an indexed reference table instead of message-text scans', () => {
     const cleaner = read('..', 'Model', 'Maintenance', 'ExpiredDataCleaner.php');
     const references = read('..', 'Model', 'Maintenance', 'GeneratedImageReferenceRepository.php');
@@ -107,4 +121,27 @@ test('generated-image cleanup uses an indexed reference table instead of message
     assert.match(references, /where\('filename = \?', \$filename\)/);
     assert.match(schema, /table name="afd_ai_generated_image_reference"/);
     assert.match(schema, /AFD_AI_GENERATED_IMAGE_REF_FILENAME/);
+});
+
+test('attachment cleanup scans both customer and guest private storage layouts', () => {
+    const cleaner = read('..', 'Model', 'Maintenance', 'ChatAttachmentCleaner.php');
+    assert.match(cleaner, /search\('\*\/\*\/\*', self::BASE_PATH\)/);
+    assert.match(cleaner, /search\('\*\/\*\/\*\/\*', self::BASE_PATH\)/);
+    assert.match(cleaner, /loadReferencedFiles/);
+    assert.match(cleaner, /orphan_retention_seconds/);
+    assert.match(cleaner, /usort\(\$candidates/);
+    assert.match(cleaner, /cleanup_dry_run/);
+    assert.match(cleaner, /protected_conversations/);
+});
+
+test('attachment writes reserve disk capacity before the final file write', () => {
+    const storage = read('..', 'Model', 'ChatAttachmentStorage.php');
+    const guard = read('..', 'Model', 'Maintenance', 'AttachmentDiskGuard.php');
+    assert.ok(
+        storage.indexOf('$this->diskGuard->assertCapacity') < storage.indexOf('base64_decode'),
+        'the low-disk fast path must run before image decoding'
+    );
+    assert.match(storage, /reserveAndWrite\(/);
+    assert.match(guard, /LockManagerInterface/);
+    assert.match(guard, /assertOwnerQuota/);
 });

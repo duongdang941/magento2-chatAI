@@ -52,3 +52,27 @@ test('catalog context preserves configurable attribute machine codes', () => {
     assert.match(context, /"code":"grosse","label":"Größe","values":\["S","M","L"\]/);
     assert.match(context, /"code":"gender","label":"Geschlecht","values":\["Damen","Herren"\]/);
 });
+
+test('candidate memory can be killed per store without removing the visible product card', () => {
+    const methods = sandbox.window.AfdAiChat.attachmentMethods({
+        config: { features: { candidate_memory_enabled: false } },
+        urls: {},
+        helpers: { MAX_MODEL_HISTORY_MESSAGES: 16 }
+    });
+    const history = methods.buildModelHistory.call({
+        messages: [
+            {
+                role: 'assistant',
+                parts: [{ type: 'text', raw: 'Here is the product.' }, {
+                    type: 'products',
+                    payload: { items: [{ id: 890, sku: 'N012.A0', name: 'T-Shirt' }] }
+                }]
+            },
+            { role: 'user', content: 'Is it available?' }
+        ],
+        htmlToText: () => ''
+    });
+
+    assert.match(history[0].parts[0].text, /Here is the product/);
+    assert.doesNotMatch(history[0].parts[0].text, /CATALOG_CONTEXT/);
+});

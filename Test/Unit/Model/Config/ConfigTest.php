@@ -71,6 +71,7 @@ class ConfigTest extends TestCase
             Config::XML_PATH_ATTACHMENT_MAX_TOTAL_ENCODED_BYTES => '1',
             Config::XML_PATH_ATTACHMENT_MAX_TOTAL_PIXELS => '999999999',
             Config::XML_PATH_ATTACHMENT_VISION_CONCURRENCY => '0',
+            Config::XML_PATH_ATTACHMENT_MAX_OWNER_STORAGE_BYTES => '100',
         ];
         $scopeConfig = $this->createMock(ScopeConfigInterface::class);
         $scopeConfig->method('getValue')->willReturnCallback(
@@ -103,5 +104,41 @@ class ConfigTest extends TestCase
         self::assertSame(524288, $config->getAttachmentConfig()['max_total_encoded_bytes']);
         self::assertSame(50000000, $config->getAttachmentConfig()['max_total_pixels']);
         self::assertSame(1, $config->getAttachmentConfig()['vision_concurrency']);
+        self::assertSame(104857600, $config->getAttachmentConfig()['min_free_bytes']);
+        self::assertSame(4194304, $config->getAttachmentConfig()['max_owner_storage_bytes']);
+        self::assertSame(604800, $config->getAttachmentConfig()['orphan_retention_seconds']);
+        self::assertFalse($config->getAttachmentConfig()['cleanup_dry_run']);
+    }
+
+    public function testBuildsGeminiGroundingAndStoreFeatureConfiguration(): void
+    {
+        $values = [
+            Config::XML_PATH_PROVIDER => 'gemini',
+            Config::XML_PATH_GEMINI_MODEL => 'gemini-3.1-flash-lite',
+            Config::XML_PATH_GEMINI_GROUNDING_MODEL => 'gemini-2.5-flash',
+        ];
+        $enabledFlags = [
+            Config::XML_PATH_FEATURE_CANDIDATE_MEMORY,
+            Config::XML_PATH_FEATURE_PRODUCT_ADVISOR,
+            Config::XML_PATH_FEATURE_ANALYTICS_ATTRIBUTION,
+            Config::XML_PATH_FEATURE_GUARDRAILS,
+        ];
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturnCallback(
+            static fn (string $path) => $values[$path] ?? ''
+        );
+        $scopeConfig->method('isSetFlag')->willReturnCallback(
+            static fn (string $path): bool => in_array($path, $enabledFlags, true)
+        );
+        $config = new Config($scopeConfig, $this->createMock(EncryptorInterface::class));
+
+        self::assertSame('gemini-2.5-flash', $config->getGroundingModel());
+        self::assertSame([
+            'candidate_memory_enabled' => true,
+            'product_advisor_enabled' => true,
+            'proactive_suggestions_enabled' => false,
+            'analytics_attribution_enabled' => true,
+            'guardrails_enabled' => true,
+        ], $config->getFeatureConfig());
     }
 }

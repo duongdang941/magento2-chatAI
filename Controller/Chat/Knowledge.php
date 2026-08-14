@@ -40,7 +40,8 @@ class Knowledge implements HttpPostActionInterface, CsrfAwareActionInterface
                 (string)($payload['storeCode'] ?? ''),
                 fn (): array => $this->knowledgeSearch->search(
                     (string)($payload['query'] ?? ''),
-                    (int)($payload['limit'] ?? 5)
+                    (int)($payload['limit'] ?? 5),
+                    max(0, (int)($payload['customerGroupId'] ?? 0))
                 )
             ));
         } catch (AuthorizationException) {

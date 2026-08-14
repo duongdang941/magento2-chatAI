@@ -7,7 +7,11 @@
              parent="Afd_AI::store_assistant" action="afd_ai/supportcase/index" resource="Afd_AI::support_cases"/>
         <add id="Afd_AI::quality" title="Quality" module="Afd_AI" sortOrder="20"
              parent="Afd_AI::store_assistant" action="afd_ai/quality/index" resource="Afd_AI::quality"/>
-        <add id="Afd_AI::configuration" title="Configuration" module="Afd_AI" sortOrder="30"
+        <add id="Afd_AI::knowledge" title="Knowledge Base" module="Afd_AI" sortOrder="25"
+             parent="Afd_AI::store_assistant" action="afd_ai/knowledge/index" resource="Afd_AI::knowledge"/>
+        <add id="Afd_AI::analytics" title="Analytics" module="Afd_AI" sortOrder="30"
+             parent="Afd_AI::store_assistant" action="afd_ai/analytics/index" resource="Afd_AI::analytics"/>
+        <add id="Afd_AI::configuration" title="Configuration" module="Afd_AI" sortOrder="40"
              parent="Afd_AI::store_assistant" action="adminhtml/system_config/edit/section/afd_ai" resource="Afd_AI::config"/>
     </menu>
 </config>

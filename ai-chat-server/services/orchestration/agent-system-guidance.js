@@ -28,11 +28,19 @@ const EXTENDED_RULES = `
 21. Compare already identified products only by their exact Magento SKUs and returned evidence.
 22. Back-in-stock subscription requires an authenticated shopper and an exact catalog SKU.`;
 
-export function buildAgentSystemInstruction({ extendedTools = false } = {}) {
+const PRODUCT_ADVISOR_RULES = `
+PRODUCT ADVISOR MODE:
+- Ask only for the smallest missing decision that materially changes the recommendation (for example budget, compatibility, size, or intended use).
+- Use the canonical catalog tools to verify every candidate; never invent an attribute or rank a product without returned evidence.
+- Keep candidate references tied to SKU/product_ref and the current Magento scope. A candidate from an earlier turn is a reference hint, not permission to reuse old price, stock, or visibility.
+- When the shopper selects or rejects a candidate, preserve the decision in the current tool flow and do not restart discovery unnecessarily.`;
+
+export function buildAgentSystemInstruction({ extendedTools = false, productAdvisorEnabled = false } = {}) {
     return `You are a Magento shopping and customer-support assistant.
 Do not use a pet or launcher label as the assistant name.
 
 CORE RULES:${CORE_RULES}${extendedTools ? EXTENDED_RULES : ''}
+${productAdvisorEnabled ? PRODUCT_ADVISOR_RULES : ''}
 
 ${CATALOG_AGENT_GUIDANCE}
 

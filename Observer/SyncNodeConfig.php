@@ -89,8 +89,15 @@ class SyncNodeConfig implements ObserverInterface
             $this->curl->post($reloadUrl, $body);
 
             $status = $this->curl->getStatus();
+            $response = $this->decodeResponse($this->curl->getBody());
             if ($status < 200 || $status >= 300) {
-                $this->saveStatus('failed', sprintf('Node returned HTTP %d.', $status), $syncId, $status);
+                $message = trim((string)($response['message'] ?? ''));
+                $this->saveStatus(
+                    'failed',
+                    $message !== '' ? $message : sprintf('Node returned HTTP %d.', $status),
+                    $syncId,
+                    $status
+                );
                 $this->logger->warning(sprintf(
                     'Afd AI config push returned HTTP %d for %s',
                     $status,
@@ -99,7 +106,6 @@ class SyncNodeConfig implements ObserverInterface
                 return;
             }
 
-            $response = $this->decodeResponse($this->curl->getBody());
             if (($response['sync_id'] ?? null) !== $syncId) {
                 $this->saveStatus('failed', 'Node returned an invalid synchronization response.', $syncId, $status);
                 $this->logger->warning('Afd AI config push returned a response with an unexpected sync ID.');
@@ -149,11 +155,13 @@ class SyncNodeConfig implements ObserverInterface
             'persist_guest_history' => $this->aiConfig->isGuestHistoryPersistenceEnabled($storeId),
             'provider' => (string)$this->aiConfig->getProvider($storeId),
             'model' => (string)$this->aiConfig->getModel($storeId),
+            'grounding_model' => $this->aiConfig->getGroundingModel($storeId),
             'api_key' => $this->aiConfig->getApiKey($storeId),
             'base_url' => (string)$this->aiConfig->getBaseUrl($storeId),
             'magento_base_url' => $this->aiConfig->getMagentoBaseUrl($storeId),
             'agent' => $this->aiConfig->getAgentConfig($storeId),
             'image_generation' => $this->aiConfig->getImageGenerationConfig($storeId),
+            'features' => $this->aiConfig->getFeatureConfig($storeId),
             'rate_limits' => $this->aiConfig->getRateLimitConfig($storeId),
             'capacity' => $this->aiConfig->getCapacityConfig($storeId),
             'attachments' => $this->aiConfig->getAttachmentConfig($storeId),

@@ -6,6 +6,7 @@
                 <enabled>0</enabled>
                 <persist_guest_history>1</persist_guest_history>
                 <provider>cockpit</provider>
+                <gemini_grounding_model>gemini-2.5-flash</gemini_grounding_model>
                 <cockpit_base_url>http://127.0.0.1:49998/v1</cockpit_base_url>
                 <cockpit_model>gpt-5.6-luna</cockpit_model>
                 <image_generation_enabled>1</image_generation_enabled>
@@ -34,6 +35,13 @@
                 <cooldown_seconds>60</cooldown_seconds>
                 <max_concurrent_per_identity>1</max_concurrent_per_identity>
             </image_generation>
+            <features>
+                <candidate_memory_enabled>1</candidate_memory_enabled>
+                <product_advisor_enabled>0</product_advisor_enabled>
+                <proactive_suggestions_enabled>0</proactive_suggestions_enabled>
+                <analytics_attribution_enabled>0</analytics_attribution_enabled>
+                <guardrails_enabled>1</guardrails_enabled>
+            </features>
             <rate_limits>
                 <messages_per_minute>15</messages_per_minute>
                 <product_pages_per_minute>30</product_pages_per_minute>
@@ -56,6 +64,10 @@
                 <cost_units_per_minute>30</cost_units_per_minute>
                 <network_cost_units_per_minute>120</network_cost_units_per_minute>
                 <global_cost_units_per_minute>1200</global_cost_units_per_minute>
+                <min_free_bytes>104857600</min_free_bytes>
+                <max_owner_storage_bytes>67108864</max_owner_storage_bytes>
+                <orphan_retention_seconds>604800</orphan_retention_seconds>
+                <cleanup_dry_run>0</cleanup_dry_run>
             </attachments>
             <voice>
                 <enabled>1</enabled>

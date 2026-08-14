@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { sealConfig, unsealConfig } from './config-seal.js';
+import { getProviderCapabilities, validateProviderConfiguration } from '../providers/provider-capabilities.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // `__dirname` is `services/configuration`; configuration is operational state
@@ -97,14 +98,17 @@ function normalizeMagentoOauth(value) {
     );
 }
 
-function normalizeImageGeneration(value) {
+function normalizeImageGeneration(value, provider) {
     const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
     const size = readString(source.size, process.env.COCKPIT_IMAGE_SIZE || '1024x1024');
     const quality = readString(source.quality, process.env.COCKPIT_IMAGE_QUALITY || 'medium');
+    const defaultModel = provider === 'gemini'
+        ? process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image'
+        : process.env.COCKPIT_IMAGE_MODEL || 'gpt-image-2';
 
     return {
         enabled: hasOwn(source, 'enabled') ? Boolean(source.enabled) : process.env.IMAGE_GENERATION_ENABLED !== '0',
-        model: readString(source.model, process.env.COCKPIT_IMAGE_MODEL || 'gpt-image-2'),
+        model: readString(source.model, defaultModel),
         size: IMAGE_SIZES.has(size) ? size : '1024x1024',
         quality: IMAGE_QUALITIES.has(quality) ? quality : 'medium',
         timeout_ms: clampInteger(source.timeout_ms, 180000, 30000, 300000),
@@ -171,7 +175,7 @@ function normalizeAttachments(value) {
     };
 }
 
-function normalizeVoice(value, provider) {
+function normalizeVoice(value, provider, fallbackModel = '') {
     const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
     const liveSource = source.live && typeof source.live === 'object' && !Array.isArray(source.live)
         ? source.live
@@ -179,7 +183,12 @@ function normalizeVoice(value, provider) {
 
     return {
         enabled: hasOwn(source, 'enabled') ? Boolean(source.enabled) : true,
-        transcription_model: readString(source.transcription_model, 'gpt-4o-mini-transcribe'),
+        transcription_model: readString(
+            source.transcription_model,
+            provider === 'gemini'
+                ? readString(process.env.GEMINI_VOICE_MODEL, fallbackModel || 'gemini-3.1-flash-lite')
+                : 'gpt-4o-mini-transcribe'
+        ),
         max_duration_seconds: clampInteger(source.max_duration_seconds, 120, 5, 300),
         max_audio_bytes: clampInteger(source.max_audio_bytes, 4 * 1024 * 1024, 256 * 1024, 4 * 1024 * 1024),
         requests_per_minute: clampInteger(source.requests_per_minute, 6, 1, 30),
@@ -200,29 +209,55 @@ function normalizeVoice(value, provider) {
     };
 }
 
+function normalizeFeatures(value) {
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+
+    return {
+        // Candidate references already exist in the storefront history
+        // contract, so keep that established behaviour on during migration.
+        // New guided/proactive/attribution flows remain opt-in until their
+        // release gates documented in the Evolution Plan have passed.
+        candidate_memory_enabled: normalizeBoolean(source.candidate_memory_enabled, true),
+        product_advisor_enabled: normalizeBoolean(source.product_advisor_enabled, false),
+        proactive_suggestions_enabled: normalizeBoolean(source.proactive_suggestions_enabled, false),
+        analytics_attribution_enabled: normalizeBoolean(source.analytics_attribution_enabled, false),
+        guardrails_enabled: normalizeBoolean(source.guardrails_enabled, true)
+    };
+}
+
 export function normalizeConfig(config = {}) {
     const requestedProvider = readString(config.provider, process.env.AI_PROVIDER || 'cockpit');
     const provider = VALID_PROVIDERS.has(requestedProvider) ? requestedProvider : 'cockpit';
     const configuredApiKey = readString(config.api_key) || getProviderApiKey(provider);
 
-    return {
+    const model = readString(config.model, defaultModelForProvider(provider));
+    const normalized = {
         enabled: hasOwn(config, 'enabled') ? Boolean(config.enabled) : true,
         persist_guest_history: hasOwn(config, 'persist_guest_history') ? Boolean(config.persist_guest_history) : false,
         provider,
-        model: readString(config.model, defaultModelForProvider(provider)),
+        model,
         api_key: configuredApiKey,
         base_url: configuredBaseUrlForProvider(provider, readString(config.base_url)),
+        grounding_model: provider === 'gemini'
+            ? readString(config.grounding_model, process.env.GEMINI_MODEL_GROUNDING || model)
+            : '',
         // Magento is the source of truth for the storefront URL.  The
         // environment value remains only as a backwards-compatible local
         // bootstrap when no Admin snapshot has been synchronized yet.
         magento_base_url: readString(config.magento_base_url, process.env.MAGENTO_API_URL || ''),
         agent: normalizeAgent(config.agent),
-        image_generation: normalizeImageGeneration(config.image_generation),
+        image_generation: normalizeImageGeneration(config.image_generation, provider),
         rate_limits: normalizeRateLimits(config.rate_limits),
         capacity: normalizeCapacity(config.capacity),
         attachments: normalizeAttachments(config.attachments),
-        voice: normalizeVoice(config.voice, provider),
+        voice: normalizeVoice(config.voice, provider, model),
+        features: normalizeFeatures(config.features),
         magento_oauth: normalizeMagentoOauth(config.magento_oauth)
+    };
+
+    return {
+        ...normalized,
+        capabilities: getProviderCapabilities(normalized)
     };
 }
 
@@ -238,7 +273,7 @@ function normalizeConfigSnapshot(config = {}) {
     }
 
     return {
-        version: 2,
+        version: 3,
         default: normalizeConfig(source.default && typeof source.default === 'object' ? source.default : source),
         stores
     };
@@ -343,6 +378,22 @@ export const applyPushedConfig = async (config, runtime = null) => {
         default: rawDefault,
         stores: rawStores
     });
+    const validation = [
+        validateProviderConfiguration(normalized.default, 'default'),
+        ...Object.entries(normalized.stores).map(([storeCode, storeConfig]) => (
+            validateProviderConfiguration(storeConfig, `store:${storeCode}`)
+        ))
+    ];
+    const errors = validation.flatMap((result) => result.errors);
+    if (errors.length) {
+        const error = new Error(errors.map((item) => `[${item.scope}] ${item.message}`).join(' '));
+        error.code = 'CONFIG_VALIDATION_FAILED';
+        error.status = 422;
+        throw error;
+    }
+    normalized.validation = {
+        warnings: validation.flatMap((result) => result.warnings)
+    };
 
     persistConfigSnapshot(normalized);
     if (runtime) {

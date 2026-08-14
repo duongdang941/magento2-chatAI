@@ -15,6 +15,28 @@ use Magento\Store\Api\Data\StoreInterface;
 use Magento\Store\Model\StoreManagerInterface;
 use PHPUnit\Framework\TestCase;
 
+if (!class_exists(\Magento\Directory\Model\CountryFactory::class)) {
+    class CountryFactoryStub
+    {
+        public function create(): \Magento\Directory\Model\Country
+        {
+            throw new \BadMethodCallException();
+        }
+    }
+    class_alias(CountryFactoryStub::class, \Magento\Directory\Model\CountryFactory::class);
+}
+
+if (!class_exists(\Magento\Directory\Model\RegionFactory::class)) {
+    class RegionFactoryStub
+    {
+        public function create(): \Magento\Directory\Model\Region
+        {
+            throw new \BadMethodCallException();
+        }
+    }
+    class_alias(RegionFactoryStub::class, \Magento\Directory\Model\RegionFactory::class);
+}
+
 class OrderAddressUpdaterTest extends TestCase
 {
     public function testEligibilityRejectsShippedOrder(): void

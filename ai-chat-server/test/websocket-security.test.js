@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
     addConfiguredWebSocketOrigins,
     configuredWebSocketOrigins,
+    createDistributedWebSocketConnectionAdmission,
     createWebSocketConnectionAdmission,
     isAllowedWebSocketOrigin
 } from '../services/security/websocket-security.js';
@@ -37,6 +38,52 @@ test('caps WebSocket connections per network and globally', () => {
     first.release();
     assert.equal(admission.admit(requestA, 1).allowed, true);
     second.release();
+});
+
+test('uses renewable shared capacity leases across WebSocket replicas', async () => {
+    const calls = [];
+    let released = 0;
+    const runtime = {
+        async acquireScopedCapacity(namespace, identity, options) {
+            calls.push({ namespace, identity, options });
+            return {
+                async renew() { return true; },
+                async release() { released++; }
+            };
+        }
+    };
+    const admission = createDistributedWebSocketConnectionAdmission({
+        runtime,
+        globalLimit: 3,
+        networkLimit: 2,
+        leaseMs: 30000
+    });
+    const result = await admission.admit({ headers: {}, socket: { remoteAddress: '127.0.0.1' } });
+
+    assert.equal(result.allowed, true);
+    assert.equal(await result.renew(), true);
+    await result.release();
+    assert.equal(released, 2);
+    assert.deepEqual(calls, [
+        { namespace: 'websocket-global', identity: 'all', options: { concurrency: 3, leaseMs: 30000 } },
+        { namespace: 'websocket-network', identity: '127.0.0.1', options: { concurrency: 2, leaseMs: 30000 } }
+    ]);
+});
+
+test('releases the global shared lease when the network lease is unavailable', async () => {
+    let releases = 0;
+    const runtime = {
+        async acquireScopedCapacity(namespace) {
+            if (namespace === 'websocket-network') return null;
+            return { async release() { releases++; }, async renew() { return true; } };
+        }
+    };
+    const admission = createDistributedWebSocketConnectionAdmission({ runtime, globalLimit: 2, networkLimit: 1 });
+    assert.deepEqual(
+        await admission.admit({ headers: {}, socket: { remoteAddress: '127.0.0.1' } }),
+        { allowed: false, reason: 'network_cap' }
+    );
+    assert.equal(releases, 1);
 });
 
 test('permits originless local smoke clients outside production', () => {

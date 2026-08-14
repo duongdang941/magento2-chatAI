@@ -1,14 +1,32 @@
 import 'dotenv/config';
 import assert from 'node:assert/strict';
 import axios from 'axios';
+import https from 'node:https';
 import { createInternalMagentoRequestConfig } from '../services/gateway/magento-auth.js';
 
-const gatewayUrl = String(process.env.AI_GATEWAY_URL || 'http://127.0.0.1:3001').replace(/\/+$/, '');
-const magentoInternalUrl = String(process.env.MAGENTO_API_URL || 'http://127.0.0.1').replace(/\/+$/, '');
-const magentoPublicUrl = String(process.env.MAGENTO_PUBLIC_BASE_URL || 'http://afd.test').replace(/\/+$/, '');
+const magentoInternalUrl = requiredUrl('MAGENTO_API_URL');
+const gatewayUrl = String(process.env.AI_GATEWAY_URL || `${magentoInternalUrl}/ai-gateway`).replace(/\/+$/, '');
+const magentoPublicUrl = String(process.env.MAGENTO_PUBLIC_BASE_URL || magentoInternalUrl).replace(/\/+$/, '');
+
+function requiredUrl(name) {
+    const value = String(process.env[name] || '').trim().replace(/\/+$/, '');
+    if (!/^https?:\/\//i.test(value)) {
+        throw new Error(`${name} must be an HTTP(S) URL supplied by the target environment.`);
+    }
+    return value;
+}
 
 async function request(config) {
-    return axios({ timeout: 10000, validateStatus: () => true, ...config });
+    return axios({
+        timeout: 10000,
+        validateStatus: () => true,
+        // Local Valet certificates may not be in Node's CA store. This is an
+        // opt-in test-only switch; production verification stays enabled.
+        ...(process.env.AI_TEST_INSECURE_TLS === '1'
+            ? { httpsAgent: new https.Agent({ rejectUnauthorized: false }) }
+            : {}),
+        ...config
+    });
 }
 
 async function main() {
