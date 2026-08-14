@@ -1,0 +1,35 @@
+    <!-- Notification Bubble -->
+    <div x-show="shouldShowBubble()"
+         x-transition
+         x-cloak
+         class="afd-ai-chat__bubble afd-bounce-subtle"
+         @click="openChat()">
+        <div class="afd-ai-chat__bubble-copy">
+            <p class="afd-ai-chat__bubble-title">Shopping assistant</p>
+            <p class="afd-ai-chat__bubble-text">Need help finding a product?</p>
+        </div>
+        <button type="button" @click.stop="showBubble = false" class="afd-ai-chat__bubble-close">
+            <span class="material-symbols-outlined">close</span>
+        </button>
+        <div class="afd-ai-chat__bubble-tail"></div>
+    </div>
+
+    <!-- Draggable Pet Launcher -->
+    <button type="button"
+            @pointerdown="startLauncherDrag($event)"
+            @click="handleLauncherClick($event)"
+            class="afd-ai-chat__fab afd-ai-chat__pet"
+            @pointerenter="petHovering = true"
+            @pointerleave="petHovering = false"
+            :aria-label="isOpen ? 'Close AI assistant' : 'Open AI assistant'"
+            :aria-pressed="isOpen.toString()"
+            title="Drag to move">
+        <span class="afd-ai-chat__pet-shadow" aria-hidden="true"></span>
+        <span x-ref="petSprite"
+              class="afd-ai-chat__pet-sprite"
+              :style="petSpriteStyle()"
+              :data-pet-state="petState"
+              aria-hidden="true"></span>
+        <span class="material-symbols-outlined afd-ai-chat__pet-close" x-show="isOpen" x-cloak>close</span>
+        <div x-show="shouldShowBadge()" class="afd-ai-chat__fab-badge"></div>
+    </button>

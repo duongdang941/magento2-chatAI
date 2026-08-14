@@ -1,0 +1,103 @@
+                <button type="button"
+                        x-show="isMobileSidebarOpen"
+                        x-cloak
+                        class="afd-ai-chat__mobile-sidebar-backdrop"
+                        @click="closeMobileSidebar()"
+                        aria-label="Close chat history"></button>
+
+                <!-- Conversation search stays inside the chat window so it does not block the storefront. -->
+                <div x-show="isHistorySearchOpen"
+                     x-transition:enter="transition ease-out duration-150"
+                     x-transition:enter-start="opacity-0"
+                     x-transition:enter-end="opacity-100"
+                     x-transition:leave="transition ease-in duration-100"
+                     x-transition:leave-start="opacity-100"
+                     x-transition:leave-end="opacity-0"
+                     x-cloak
+                     class="afd-ai-chat__history-search-overlay"
+                     @click.self="closeHistorySearch()">
+                    <section class="afd-ai-chat__history-search-dialog"
+                             role="dialog"
+                             aria-modal="true"
+                             aria-labelledby="afd-ai-chat-history-search-title">
+                        <h3 id="afd-ai-chat-history-search-title"
+                            class="afd-ai-chat__history-search-dialog-title">Search chat history</h3>
+                        <div class="afd-ai-chat__history-search-header">
+                            <div class="afd-ai-chat__history-search-field">
+                                <input type="search"
+                                       x-ref="historySearchInput"
+                                       x-model="historySearchQuery"
+                                       class="afd-ai-chat__history-search-input"
+                                       aria-label="Search chat history"
+                                       placeholder="Search conversations..."
+                                       autocomplete="off"
+                                       spellcheck="false">
+                                <span class="afd-ai-chat__history-search-icon material-symbols-outlined" aria-hidden="true">search</span>
+                            </div>
+                            <button type="button"
+                                    x-show="historySearchQuery.trim()"
+                                    x-cloak
+                                    class="afd-ai-chat__history-search-clear"
+                                    @click="clearHistorySearch()">
+                                Clear
+                            </button>
+                            <span x-show="historySearchQuery.trim()"
+                                  x-cloak
+                                  class="afd-ai-chat__history-search-divider"
+                                  aria-hidden="true"></span>
+                            <button type="button"
+                                    class="afd-ai-chat__history-search-close"
+                                    @click="closeHistorySearch()"
+                                    aria-label="Close chat search">
+                                <span class="material-symbols-outlined">close</span>
+                            </button>
+                        </div>
+                        <div class="afd-ai-chat__history-search-results custom-scrollbar"
+                             :class="{ 'afd-ai-chat__history-search-results--searching': historySearchQuery.trim() }"
+                             @scroll.passive="handleConversationHistoryScroll($event)">
+                            <p class="afd-ai-chat__history-search-kicker"
+                               x-show="!historySearchQuery.trim()">Recent conversations</p>
+                            <div class="afd-ai-chat__history-search-filters"
+                                 x-show="historySearchQuery.trim()"
+                                 x-cloak
+                                 aria-label="Search filters">
+                                <button type="button"
+                                        class="afd-ai-chat__history-search-filter"
+                                        :class="{ 'afd-ai-chat__history-search-filter--active': historySearchFilter === 'all' }"
+                                        :aria-pressed="(historySearchFilter === 'all').toString()"
+                                        @click="setHistorySearchFilter('all')">All</button>
+                                <button type="button"
+                                        class="afd-ai-chat__history-search-filter"
+                                        :class="{ 'afd-ai-chat__history-search-filter--active': historySearchFilter === 'chats' }"
+                                        :aria-pressed="(historySearchFilter === 'chats').toString()"
+                                        @click="setHistorySearchFilter('chats')">Chats</button>
+                                <button type="button"
+                                        class="afd-ai-chat__history-search-filter"
+                                        :class="{ 'afd-ai-chat__history-search-filter--active': historySearchFilter === 'images' }"
+                                        :aria-pressed="(historySearchFilter === 'images').toString()"
+                                        @click="setHistorySearchFilter('images')">Images</button>
+                            </div>
+                            <template x-if="hasConversationHistory && shouldShowHistorySearchConversations() && getHistorySearchResults().length">
+                                <div class="afd-ai-chat__history-search-list">
+                                    <template x-for="conversation in getHistorySearchResults()" :key="conversation.id">
+                                        <button type="button"
+                                                class="afd-ai-chat__history-search-result"
+                                                :class="{ 'afd-ai-chat__history-search-result--active': Number(activeConversationId) === Number(conversation.id) }"
+                                                @click="selectHistorySearchConversation(conversation.id)">
+                                            <span class="material-symbols-outlined" aria-hidden="true">chat_bubble_outline</span>
+                                            <span class="afd-ai-chat__history-search-result-title" x-text="conversation.title || 'Untitled conversation'"></span>
+                                        </button>
+                                    </template>
+                                </div>
+                            </template>
+                            <template x-if="!hasConversationHistory || !shouldShowHistorySearchConversations() || getHistorySearchResults().length === 0">
+                                <p class="afd-ai-chat__history-search-empty">
+                                    <span class="material-symbols-outlined"
+                                          x-show="historySearchQuery.trim()"
+                                          aria-hidden="true">search</span>
+                                    <span x-text="historySearchQuery.trim() ? 'No results' : (hasConversationHistory ? 'No conversations yet.' : 'Chat history is unavailable.')"></span>
+                                </p>
+                            </template>
+                        </div>
+                    </section>
+                </div>

@@ -1,0 +1,38 @@
+                    <!-- Header -->
+                    <header class="afd-ai-chat__header"
+                            :class="{ 'afd-ai-chat__header--dragging': isWindowDragging }"
+                            @pointerdown="startChatWindowDrag($event)"
+                            title="Drag to move">
+                        <button type="button"
+                                class="afd-ai-chat__mobile-sidebar-toggle"
+                                @click.stop="toggleMobileSidebar()"
+                                :aria-expanded="isMobileSidebarOpen.toString()"
+                            aria-controls="afd-ai-chat-history"
+                            :aria-label="isMobileSidebarOpen ? 'Close chat history' : 'Open chat history'">
+                            <span class="material-symbols-outlined"
+                                  x-text="isMobileSidebarOpen ? 'close' : 'menu_open'"></span>
+                        </button>
+                        <div class="afd-ai-chat__header-left">
+                            <h2 class="afd-ai-chat__title">Store Assistant</h2>
+                            <span class="afd-ai-chat__connection"
+                                  :class="{ 'afd-ai-chat__connection--online': wsConnected, 'afd-ai-chat__connection--standard': !wsConnected }"
+                                  x-text="getConnectionStatusText()">
+                                Ready
+                            </span>
+                        </div>
+                        <div class="afd-ai-chat__header-actions">
+                            <button type="button"
+                                    x-ref="historySearchTrigger"
+                                    class="afd-ai-chat__header-btn"
+                                    @click.stop="openHistorySearch()"
+                                    :aria-expanded="isHistorySearchOpen.toString()"
+                                    aria-controls="afd-ai-chat-history-search-title"
+                                    aria-label="Search chat history"
+                                    title="Search chat history">
+                                <span class="material-symbols-outlined">search</span>
+                            </button>
+                            <button type="button" @click="closeChat()" class="afd-ai-chat__header-btn afd-ai-chat__header-btn--close">
+                                <span class="material-symbols-outlined">close</span>
+                            </button>
+                        </div>
+                    </header>

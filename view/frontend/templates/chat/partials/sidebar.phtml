@@ -1,0 +1,157 @@
+                <!-- ==================== SIDEBAR ==================== -->
+                <aside id="afd-ai-chat-history"
+                       class="afd-ai-chat__sidebar">
+                    <button type="button"
+                            x-show="isMobileLayout() && isMobileSidebarOpen"
+                            x-cloak
+                            class="afd-ai-chat__sidebar-drawer-close"
+                            @click.stop="closeMobileSidebar()"
+                            aria-label="Close chat history"
+                            title="Close chat history">
+                        <span class="material-symbols-outlined" aria-hidden="true">close</span>
+                    </button>
+                    <div id="afd-ai-chat-sidebar-content"
+                         class="afd-ai-chat__sidebar-content"
+                         :aria-hidden="(isCompactViewport() && !isMobileSidebarOpen).toString()">
+                    <div class="afd-ai-chat__sidebar-top">
+                        <!-- Brand Identity -->
+                        <div class="afd-ai-chat__brand">
+                            <div class="afd-ai-chat__brand-icon afd-ai-chat__brand-icon--pet" aria-hidden="true">
+                                <span class="afd-ai-chat__brand-pet-sprite"
+                                      style="--afd-pet-choice-image: url('<?= $escaper->escapeUrl($block->getViewFileUrl('Afd_AI::images/shadow-wolf-pet-spritesheet.webp')) ?>');"></span>
+                            </div>
+                            <div class="afd-ai-chat__sidebar-text">
+                                <p class="afd-ai-chat__brand-name">AfD Fanshop</p>
+                                <p class="afd-ai-chat__brand-sub">Your shopping assistant</p>
+                            </div>
+                        </div>
+                        <!-- New Chat Button -->
+                        <button type="button" @click="startNewChat()" class="afd-ai-chat__new-chat-btn">
+                            <span class="material-symbols-outlined">add</span>
+                            <span class="afd-ai-chat__sidebar-text">New Chat</span>
+                        </button>
+                    </div>
+
+            <!-- Activity Label -->
+            <div class="afd-ai-chat__sidebar-label afd-ai-chat__sidebar-text">
+                <h3>Your Activity</h3>
+            </div>
+
+            <!-- Chat History / Conversations List -->
+            <div x-ref="conversationHistoryList"
+                 class="afd-ai-chat__sidebar-list custom-scrollbar sidebar-history"
+                 @scroll.passive="handleConversationHistoryScroll($event)">
+                <!-- Conversations list for logged-in users -->
+                <template x-if="shouldShowHistory()">
+                    <div>
+                        <template x-for="conv in conversations" :key="conv.id">
+                            <div class="afd-ai-chat__sidebar-item-wrap"
+                                 :class="{ 'afd-ai-chat__sidebar-item-wrap--active': activeConversationId === conv.id }"
+                                 @mouseenter="prepareConversationTitleMarquee($event)"
+                                 @focusin="prepareConversationTitleMarquee($event)">
+                                <div class="afd-ai-chat__sidebar-item"
+                                     role="button"
+                                     tabindex="0"
+                                     :class="{ 'afd-ai-chat__sidebar-item--active': activeConversationId === conv.id }"
+                                     :aria-disabled="(editingConversationId === conv.id).toString()"
+                                     @click="editingConversationId === conv.id ? null : switchConversation(conv.id)"
+                                     @keydown.enter.prevent="editingConversationId === conv.id ? null : switchConversation(conv.id)"
+                                     @keydown.space.prevent="editingConversationId === conv.id ? null : switchConversation(conv.id)">
+                                    <span class="material-symbols-outlined">chat_bubble</span>
+                                    <div class="afd-ai-chat__sidebar-item-copy">
+                                        <template x-if="editingConversationId === conv.id">
+                                            <form class="afd-ai-chat__sidebar-rename"
+                                                  @click.stop
+                                                  @keydown.stop
+                                                  @submit.prevent="submitConversationRename(conv.id)">
+                                                <input x-ref="renameConversationInput"
+                                                       class="afd-ai-chat__sidebar-rename-input"
+                                                       x-model="editingConversationDraft"
+                                                       @keydown.escape.prevent="cancelConversationRename()"
+                                                       aria-label="Rename conversation"
+                                                       maxlength="255">
+                                                <div class="afd-ai-chat__sidebar-rename-actions">
+                                                    <button type="button"
+                                                            class="afd-ai-chat__sidebar-rename-btn"
+                                                            @click="cancelConversationRename()"
+                                                            aria-label="Cancel rename">
+                                                        <span class="material-symbols-outlined">close</span>
+                                                    </button>
+                                                    <button type="submit"
+                                                            class="afd-ai-chat__sidebar-rename-btn afd-ai-chat__sidebar-rename-btn--primary"
+                                                            :disabled="!editingConversationDraft.trim()"
+                                                            aria-label="Save title">
+                                                        <span class="material-symbols-outlined">check</span>
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </template>
+                                        <template x-if="editingConversationId !== conv.id">
+                                            <div>
+                                                <p class="afd-ai-chat__sidebar-item-title">
+                                                    <span class="afd-ai-chat__sidebar-item-title-track" x-text="conv.title"></span>
+                                                </p>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                                <div class="afd-ai-chat__sidebar-item-actions"
+                                     x-show="editingConversationId !== conv.id"
+                                     @click.stop>
+                                    <button x-show="conv.type !== 'support'"
+                                            type="button" class="afd-ai-chat__sidebar-item-action"
+                                            @click="beginConversationRename(conv)"
+                                            aria-label="Rename conversation">
+                                        <span class="material-symbols-outlined afd-ai-chat__sidebar-item-action-icon">edit</span>
+                                    </button>
+                                    <button type="button" class="afd-ai-chat__sidebar-item-action afd-ai-chat__sidebar-item-action--delete"
+                                            @click="openConversationDeleteDialog(conv, $event)"
+                                            :aria-label="conv.type === 'support' ? 'Close support ticket' : 'Delete conversation'">
+                                        <span class="material-symbols-outlined afd-ai-chat__sidebar-item-action-icon"
+                                              x-text="conv.type === 'support' ? 'lock' : 'delete'"></span>
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
+                <!-- Current session for non-logged-in or when actively chatting without saved convos -->
+                <template x-if="shouldShowCurrentSession()">
+                    <button type="button" class="afd-ai-chat__sidebar-item afd-ai-chat__sidebar-item--active">
+                        <span class="material-symbols-outlined">chat_bubble</span>
+                        <div class="afd-ai-chat__sidebar-item-copy">
+                            <p class="afd-ai-chat__sidebar-item-title">Current Session</p>
+                        </div>
+                    </button>
+                </template>
+
+                <!-- Empty state when no conversation -->
+                <template x-if="!hasStartedChat && conversations.length === 0">
+                    <div class="afd-ai-chat__empty-activity afd-ai-chat__sidebar-text">
+                        <div class="afd-ai-chat__empty-icon">
+                            <span class="material-symbols-outlined">forum</span>
+                        </div>
+                        <p class="afd-ai-chat__empty-text">No recent conversations yet. Start a new chat to begin.</p>
+                    </div>
+                </template>
+                <template x-if="hasMoreConversations || isLoadingMoreConversations">
+                    <div class="afd-ai-chat__conversation-load-status" role="status">
+                        <span class="material-symbols-outlined" aria-hidden="true"
+                              :class="{ 'afd-ai-chat__conversation-load-status-icon--spinning': isLoadingMoreConversations }">progress_activity</span>
+                        <span x-text="isLoadingMoreConversations ? 'Loading conversations…' : 'Scroll for more'">Scroll for more</span>
+                    </div>
+                </template>
+            </div>
+
+            <!-- Settings -->
+            <div class="afd-ai-chat__sidebar-footer afd-ai-chat__sidebar-text">
+                <div class="afd-ai-chat__sidebar-links">
+                    <button type="button" class="afd-ai-chat__sidebar-link" @click="openSettings()">
+                        <span class="material-symbols-outlined">settings</span>
+                        <span>Settings</span>
+                    </button>
+                </div>
+            </div>
+                    </div>
+                </aside>

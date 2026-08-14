@@ -1,0 +1,20 @@
+# Add this location inside the existing HTTPS virtual host for Magento when
+# the gateway shares the store hostname. The browser then connects to
+# wss://shop.example.com/ai-gateway/ and no broad CSP exception is needed.
+location /ai-gateway/ {
+    limit_req zone=afd_ai_connection_rate burst=12 nodelay;
+    limit_conn afd_ai_connection_limit 12;
+
+    # Preserve the URI so Node receives the public /ai-gateway/ prefix.
+    proxy_pass http://afd_ai_gateway_replicas;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_buffering off;
+    proxy_request_buffering off;
+    proxy_read_timeout 3600s;
+}
