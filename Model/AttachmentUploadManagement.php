@@ -227,7 +227,9 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
                 $foundFile,
                 $ownerPath,
                 $fileSize,
-                $resId ?: null
+                $resId ?: null,
+                null,
+                $expectedOwner
             );
         } else {
             // Fallback for standalone / unit mock environment

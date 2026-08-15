@@ -137,6 +137,43 @@ class AttachmentQuotaReconciler
                     }
                 }
 
+                // Reconcile finalizing attachments whose lease has expired (> 60s)
+                if ($connection->isTableExists($attTable)) {
+                    $staleFinalizing = $connection->fetchAll(
+                        $connection->select()->from($attTable)
+                            ->where('state = ?', 'finalizing')
+                            ->where('updated_at < ?', gmdate('Y-m-d H:i:s', time() - 60))
+                    );
+                    foreach ($staleFinalizing as $staleAtt) {
+                        $attId = (string)$staleAtt['attachment_id'];
+                        $finalPath = (string)($staleAtt['final_path'] ?? '');
+                        $stagedPath = (string)($staleAtt['staged_path'] ?? '');
+                        
+                        $finalExists = $finalPath !== '' && $directory->isFile($finalPath);
+                        $stagedExists = $stagedPath !== '' && $directory->isFile($stagedPath);
+
+                        if ($finalExists) {
+                            $connection->update($attTable, [
+                                'state' => 'committed',
+                                'updated_at' => gmdate('Y-m-d H:i:s')
+                            ], ['attachment_id = ?' => $attId, 'state = ?' => 'finalizing']);
+                            $corrected++;
+                        } elseif ($stagedExists) {
+                            $connection->update($attTable, [
+                                'state' => 'staged',
+                                'updated_at' => gmdate('Y-m-d H:i:s')
+                            ], ['attachment_id = ?' => $attId, 'state = ?' => 'finalizing']);
+                            $corrected++;
+                        } else {
+                            $connection->update($attTable, [
+                                'state' => 'failed',
+                                'updated_at' => gmdate('Y-m-d H:i:s')
+                            ], ['attachment_id = ?' => $attId, 'state = ?' => 'finalizing']);
+                            $corrected++;
+                        }
+                    }
+                }
+
                 $connection->commit();
             } catch (\Throwable $exception) {
                 $connection->rollBack();

@@ -170,6 +170,7 @@ class AttachmentRepository
 
     /**
      * Atomically commits attachment, releases reservation, and commits quota in a single DB transaction.
+     * Enforces strict state predicate, owner binding, reservation authority, and exact delta quota settlement.
      */
     public function commitFinalAttachmentAtomic(
         string $attachmentId,
@@ -177,7 +178,8 @@ class AttachmentRepository
         string $ownerPath,
         int $fileSize,
         ?string $reservationId = null,
-        ?int $conversationId = null
+        ?int $conversationId = null,
+        string $ownerKey = ''
     ): void {
         $connection = $this->resource->getConnection();
         $tableAtt = $this->resource->getTableName(self::TABLE_ATTACHMENT);
@@ -186,27 +188,67 @@ class AttachmentRepository
 
         $connection->beginTransaction();
         try {
-            // 1. Update attachment state to committed
+            $now = gmdate('Y-m-d H:i:s');
+            $releaseReserved = $fileSize;
+
+            // 1. Validate & Lock Reservation if provided
+            if ($reservationId !== null && $reservationId !== '' && $connection->isTableExists($tableRes)) {
+                $resSelect = $connection->select()->from($tableRes)
+                    ->where('reservation_id = ?', $reservationId)
+                    ->where('attachment_id = ?', $attachmentId)
+                    ->where('owner_path = ?', $ownerPath)
+                    ->where('state = ?', 'active')
+                    ->where('expires_at >= ?', $now)
+                    ->forUpdate(true);
+
+                $resRow = $connection->fetchRow($resSelect);
+                if ($resRow) {
+                    $releaseReserved = (int)($resRow['reserved_bytes'] ?? $fileSize);
+                    $affectedRes = $connection->update($tableRes, [
+                        'state' => 'committed',
+                        'updated_at' => $now
+                    ], [
+                        'reservation_id = ?' => $reservationId,
+                        'state = ?' => 'active'
+                    ]);
+                    if ($affectedRes === 0) {
+                        throw new \Magento\Framework\Exception\LocalizedException(
+                            __('Attachment reservation conflict or already processed.')
+                        );
+                    }
+                }
+            }
+
+            // 2. Update attachment state from finalizing -> committed
             $attData = [
                 'state' => 'committed',
                 'final_path' => $finalPath,
                 'bytes' => $fileSize,
-                'updated_at' => gmdate('Y-m-d H:i:s')
+                'updated_at' => $now
             ];
             if ($conversationId !== null && $conversationId > 0) {
                 $attData['conversation_id'] = $conversationId;
             }
-            $connection->update($tableAtt, $attData, ['attachment_id = ?' => $attachmentId]);
 
-            // 2. Update reservation to committed
-            if ($reservationId !== null && $reservationId !== '') {
-                $connection->update($tableRes, [
-                    'state' => 'committed',
-                    'updated_at' => gmdate('Y-m-d H:i:s')
-                ], ['reservation_id = ?' => $reservationId]);
+            $attWhere = ['attachment_id = ?' => $attachmentId, 'state = ?' => 'finalizing'];
+            if ($ownerKey !== '') {
+                $attWhere['owner_key = ?'] = $ownerKey;
             }
 
-            // 3. Update quota counters atomically
+            $affectedAtt = $connection->update($tableAtt, $attData, $attWhere);
+            if ($affectedAtt === 0) {
+                // Check if already committed by concurrent idempotent complete
+                $existing = $this->getAttachment($attachmentId);
+                if ($existing && ($existing['state'] ?? '') === 'committed') {
+                    $connection->commit();
+                    return;
+                }
+                throw new \Magento\Framework\Exception\LocalizedException(
+                    __('Attachment state conflict during finalization.')
+                );
+            }
+
+            // 3. Update quota counters atomically with exact reservation delta
             if ($connection->isTableExists($tableQuota)) {
                 $ownerRow = $connection->fetchRow(
                     $connection->select()->from($tableQuota)
@@ -215,13 +257,14 @@ class AttachmentRepository
                         ->forUpdate(true)
                 );
                 if ($ownerRow) {
-                    $reservedBytes = (int)$ownerRow['reserved_bytes'];
-                    $newReserved = max(0, $reservedBytes - $fileSize);
-                    $newUsed = (int)$ownerRow['used_bytes'] + $fileSize;
+                    $currentReserved = (int)$ownerRow['reserved_bytes'];
+                    $currentUsed = (int)$ownerRow['used_bytes'];
+                    $newReserved = max(0, $currentReserved - $releaseReserved);
+                    $newUsed = $currentUsed + $fileSize;
                     $connection->update($tableQuota, [
                         'used_bytes' => $newUsed,
                         'reserved_bytes' => $newReserved,
-                        'updated_at' => gmdate('Y-m-d H:i:s')
+                        'updated_at' => $now
                     ], ['scope_id = ?' => (int)$ownerRow['scope_id']]);
                 }
 
@@ -232,13 +275,14 @@ class AttachmentRepository
                         ->forUpdate(true)
                 );
                 if ($globalRow) {
-                    $reservedBytes = (int)$globalRow['reserved_bytes'];
-                    $newReserved = max(0, $reservedBytes - $fileSize);
-                    $newUsed = (int)$globalRow['used_bytes'] + $fileSize;
+                    $currentReserved = (int)$globalRow['reserved_bytes'];
+                    $currentUsed = (int)$globalRow['used_bytes'];
+                    $newReserved = max(0, $currentReserved - $releaseReserved);
+                    $newUsed = $currentUsed + $fileSize;
                     $connection->update($tableQuota, [
                         'used_bytes' => $newUsed,
                         'reserved_bytes' => $newReserved,
-                        'updated_at' => gmdate('Y-m-d H:i:s')
+                        'updated_at' => $now
                     ], ['scope_id = ?' => (int)$globalRow['scope_id']]);
                 }
             }
