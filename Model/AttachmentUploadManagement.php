@@ -165,14 +165,32 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
             }
         }
 
-        // Check if file exists in staged folder
+        // Check if file exists in staged or final folder
         $foundFile = null;
+        $fileExt = 'jpg';
         $fileSize = 0;
+        $finalDir = 'afd_ai/chat/' . $ownerPath . '/final';
+        $varDir->create($finalDir);
+
         foreach (['jpg', 'png', 'webp'] as $ext) {
-            $checkPath = $stagedDir . '/' . $attachmentId . '.' . $ext;
-            if ($varDir->isFile($checkPath)) {
-                $foundFile = $checkPath;
-                $fileSize = (int)$varDir->stat($checkPath)['size'];
+            $finalPath = $finalDir . '/' . $attachmentId . '.' . $ext;
+            if ($varDir->isFile($finalPath)) {
+                $foundFile = $finalPath;
+                $fileExt = $ext;
+                $fileSize = (int)$varDir->stat($finalPath)['size'];
+                break;
+            }
+            $stagedPath = $stagedDir . '/' . $attachmentId . '.' . $ext;
+            if ($varDir->isFile($stagedPath)) {
+                $foundFile = $stagedPath;
+                $fileExt = $ext;
+                $fileSize = (int)$varDir->stat($stagedPath)['size'];
+                // Move from staged to final path atomically
+                $finalAbs = $varDir->getAbsolutePath($finalPath);
+                $stagedAbs = $varDir->getAbsolutePath($stagedPath);
+                if (@rename($stagedAbs, $finalAbs)) {
+                    $foundFile = $finalPath;
+                }
                 break;
             }
         }

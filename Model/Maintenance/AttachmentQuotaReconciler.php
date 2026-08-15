@@ -93,6 +93,7 @@ class AttachmentQuotaReconciler
 
                 // Reconcile and release stale/expired reservations (> 10 minutes)
                 $resTable = $this->resource->getTableName('afd_ai_attachment_reservation');
+                $attTable = $this->resource->getTableName('afd_ai_attachment');
                 if ($connection->isTableExists($resTable)) {
                     $expiredReservations = $connection->fetchAll(
                         $connection->select()->from($resTable)
@@ -100,17 +101,39 @@ class AttachmentQuotaReconciler
                             ->where('expires_at < ?', gmdate('Y-m-d H:i:s', time() - 600))
                     );
                     foreach ($expiredReservations as $expiredRes) {
+                        $reservationId = (string)$expiredRes['reservation_id'];
                         $owner = (string)$expiredRes['owner_path'];
                         $resBytes = (int)$expiredRes['reserved_bytes'];
-                        $connection->update($table, [
-                            'reserved_bytes' => new \Zend_Db_Expr('GREATEST(0, CAST(reserved_bytes AS SIGNED) - ' . $resBytes . ')'),
-                            'updated_at' => gmdate('Y-m-d H:i:s')
-                        ], ['scope_type = ?' => 'owner', 'scope_key = ?' => $owner]);
-                        $connection->update($resTable, [
-                            'state' => 'expired',
-                            'updated_at' => gmdate('Y-m-d H:i:s')
-                        ], ['reservation_id = ?' => (string)$expiredRes['reservation_id']]);
-                        $corrected++;
+                        $attachmentId = (string)($expiredRes['attachment_id'] ?? '');
+
+                        // Atomic conditional transition from active -> expired
+                        $affected = $connection->update(
+                            $resTable,
+                            ['state' => 'expired', 'updated_at' => gmdate('Y-m-d H:i:s')],
+                            ['reservation_id = ?' => $reservationId, 'state = ?' => 'active']
+                        );
+
+                        if ($affected > 0) {
+                            // Release owner reserved quota
+                            $connection->update($table, [
+                                'reserved_bytes' => new \Zend_Db_Expr('GREATEST(0, CAST(reserved_bytes AS SIGNED) - ' . $resBytes . ')'),
+                                'updated_at' => gmdate('Y-m-d H:i:s')
+                            ], ['scope_type = ?' => 'owner', 'scope_key = ?' => $owner]);
+
+                            // Release global reserved quota
+                            $connection->update($table, [
+                                'reserved_bytes' => new \Zend_Db_Expr('GREATEST(0, CAST(reserved_bytes AS SIGNED) - ' . $resBytes . ')'),
+                                'updated_at' => gmdate('Y-m-d H:i:s')
+                            ], ['scope_type = ?' => 'global', 'scope_key = ?' => 'module']);
+
+                            if ($attachmentId !== '' && $connection->isTableExists($attTable)) {
+                                $connection->update($attTable, [
+                                    'state' => 'expired',
+                                    'updated_at' => gmdate('Y-m-d H:i:s')
+                                ], ['attachment_id = ?' => $attachmentId, 'state IN (?)' => ['issued', 'staged']]);
+                            }
+                            $corrected++;
+                        }
                     }
                 }
 

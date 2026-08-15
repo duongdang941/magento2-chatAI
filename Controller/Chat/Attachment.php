@@ -53,11 +53,18 @@ class Attachment implements HttpGetActionInterface
         $extension = null;
 
         if ($attachmentId !== '' && preg_match('/^att_[a-f0-9]{32}$/', $attachmentId)) {
+            $finalDir = 'afd_ai/chat/' . $ownerPath . '/final';
             $stagedDir = 'afd_ai/chat/' . $ownerPath . '/staged';
             foreach (['jpg', 'png', 'webp'] as $ext) {
-                $checkPath = $stagedDir . '/' . $attachmentId . '.' . $ext;
-                if ($directory->isFile($checkPath)) {
-                    $relativeFile = $checkPath;
+                $checkFinal = $finalDir . '/' . $attachmentId . '.' . $ext;
+                if ($directory->isFile($checkFinal)) {
+                    $relativeFile = $checkFinal;
+                    $extension = $ext;
+                    break;
+                }
+                $checkStaged = $stagedDir . '/' . $attachmentId . '.' . $ext;
+                if ($directory->isFile($checkStaged)) {
+                    $relativeFile = $checkStaged;
                     $extension = $ext;
                     break;
                 }
