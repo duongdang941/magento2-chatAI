@@ -93,3 +93,27 @@ test('validateImageParts rejects unsupported or oversized image payloads', () =>
         { inline_data: { mime_type: 'image/png', data: RED_PIXEL_PNG } }
     ], { maxTotalBytes: 10 }), 'The combined image upload is too large. Remove an image or choose smaller files.');
 });
+
+test('buildUserMessageDescriptor supports attachment_ref contract', () => {
+    const message = buildUserMessageDescriptor({
+        text: 'Kiểm tra sản phẩm này',
+        parts: [
+            { text: 'Kiểm tra sản phẩm này' },
+            {
+                type: 'attachment_ref',
+                attachment_id: 'att_abc123',
+                kind: 'image',
+                mime_type: 'image/jpeg',
+                bytes: 1024,
+                url: 'https://example.com/media/chat/att_abc123.jpg'
+            }
+        ]
+    });
+
+    assert.equal(message.hasImage, true);
+    assert.equal(message.displayText, 'Kiểm tra sản phẩm này');
+    assert.equal(validateImageParts(message.parts), '');
+
+    const openAiContent = toOpenAiContent(message.parts, message.text);
+    assert.equal(openAiContent.some((p) => p.type === 'image_url' && p.image_url?.url === 'https://example.com/media/chat/att_abc123.jpg'), true);
+});

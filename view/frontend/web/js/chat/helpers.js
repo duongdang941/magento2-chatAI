@@ -506,6 +506,7 @@
         sanitizeStreamingHtml,
         normalizeMarkdownForCopy,
         sanitizeCustomerResponseText,
+        escapeHtml,
         stabilizeStreamingMarkdown,
         hydrateProductGridHtml,
         getBrowserFormKey,

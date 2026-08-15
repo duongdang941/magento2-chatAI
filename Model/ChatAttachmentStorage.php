@@ -111,7 +111,8 @@ class ChatAttachmentStorage
                     ['version' => 1, 'items' => $items],
                     JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
                 );
-            }
+            },
+            (int)($limits['max_total_storage_bytes'] ?? 1073741824)
         );
     }
 
@@ -144,7 +145,8 @@ class ChatAttachmentStorage
             fn (): string => (string)json_encode(
                 $this->storeValidatedPayload($validated, $ownerId, $conversationId),
                 JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
-            )
+            ),
+            (int)($limits['max_total_storage_bytes'] ?? 1073741824)
         );
     }
 
@@ -237,12 +239,27 @@ class ChatAttachmentStorage
         }
 
         $relativeDirectory = self::BASE_PATH . '/' . $ownerPath . '/' . $conversationId;
+        $varDirectory = $this->filesystem->getDirectoryWrite(DirectoryList::VAR_DIR);
+        $deletedBytes = 0;
+        foreach ($varDirectory->search('*', $relativeDirectory) as $relativePath) {
+            $stat = $varDirectory->stat($relativePath);
+            $deletedBytes += max(0, (int)($stat['size'] ?? 0));
+        }
+        $varDeleted = false;
         foreach ([DirectoryList::VAR_DIR, DirectoryList::MEDIA] as $directoryCode) {
             try {
                 // MEDIA is retained here only to clean files written by older releases.
                 $this->filesystem->getDirectoryWrite($directoryCode)->delete($relativeDirectory);
+                $varDeleted = $varDeleted || $directoryCode === DirectoryList::VAR_DIR;
             } catch (\Throwable $exception) {
                 // Database deletion must not fail because a stale file cannot be removed.
+            }
+        }
+        if ($varDeleted && $deletedBytes > 0) {
+            try {
+                $this->diskGuard->releaseUsedBytes($ownerPath, $deletedBytes);
+            } catch (\Throwable $exception) {
+                // A later reconciliation run can repair a stale counter.
             }
         }
     }

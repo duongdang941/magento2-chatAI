@@ -6,6 +6,7 @@
 const { config, urls } = context;
 const {
     sanitizeHtml,
+    escapeHtml,
     sanitizeStreamingHtml,
     hydrateProductGridHtml,
     getBrowserFormKey,

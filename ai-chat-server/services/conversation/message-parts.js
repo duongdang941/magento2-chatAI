@@ -39,6 +39,12 @@ export function normalizeIncomingUserParts(payload = {}, options = {}) {
             normalized.push({ text });
         }
 
+        const attachmentRef = extractAttachmentRef(part);
+        if (attachmentRef) {
+            normalized.push(attachmentRef);
+            continue;
+        }
+
         const inlineData = extractInlineData(part);
         if (inlineData) {
             normalized.push({ inline_data: inlineData });
@@ -46,15 +52,20 @@ export function normalizeIncomingUserParts(payload = {}, options = {}) {
     }
 
     if (!hasImageParts(normalized)) {
-        const imageInlineData = extractInlineData(payload.image);
-        if (imageInlineData) {
-            normalized.push({ inline_data: imageInlineData });
+        const payloadAttachmentRef = extractAttachmentRef(payload.attachment || payload.attachment_ref || payload);
+        if (payloadAttachmentRef) {
+            normalized.push(payloadAttachmentRef);
+        } else {
+            const imageInlineData = extractInlineData(payload.image);
+            if (imageInlineData) {
+                normalized.push({ inline_data: imageInlineData });
+            }
         }
     }
 
     const rawText = normalizeText(payload.text ?? payload.content ?? '');
     if (hasImageParts(normalized)) {
-        const imageParts = normalized.filter((part) => !!extractInlineData(part));
+        const imageParts = normalized.filter((part) => !!extractInlineData(part) || !!extractAttachmentRef(part));
         const usefulTextParts = normalized
             .map((part) => normalizeText(part.text ?? part.raw ?? ''))
             .filter((text) => text && !isImagePlaceholderText(text));
@@ -104,7 +115,7 @@ export function hasImageParts(parts = []) {
         return false;
     }
 
-    return parts.some((part) => !!extractInlineData(part));
+    return parts.some((part) => !!extractInlineData(part) || !!extractAttachmentRef(part));
 }
 
 export function validateImageParts(parts = [], options = {}) {
@@ -128,6 +139,25 @@ export function validateImageParts(parts = [], options = {}) {
     let totalEncodedBytes = 0;
 
     for (const part of parts) {
+        const attachmentRef = extractAttachmentRef(part);
+        if (attachmentRef) {
+            imageCount++;
+            if (imageCount > maxCount) {
+                return `A message can contain up to ${maxCount} images.`;
+            }
+            if (attachmentRef.mime_type && !allowedMimeTypes.has(attachmentRef.mime_type)) {
+                return 'Only JPG, PNG, or WebP images are supported.';
+            }
+            if (attachmentRef.bytes > maxBytes) {
+                return 'Image must be 4MB or smaller.';
+            }
+            totalBytes += attachmentRef.bytes;
+            if (totalBytes > maxTotalBytes) {
+                return 'The combined image upload is too large. Remove an image or choose smaller files.';
+            }
+            continue;
+        }
+
         const inlineData = extractInlineData(part);
         if (!inlineData) {
             continue;
@@ -181,6 +211,25 @@ export function toOpenAiContent(parts = [], fallbackText = '') {
             });
         }
 
+        const attachmentRef = extractAttachmentRef(part);
+        if (attachmentRef) {
+            hasImage = true;
+            if (attachmentRef.url) {
+                normalizedParts.push({
+                    type: 'image_url',
+                    image_url: { url: attachmentRef.url }
+                });
+            } else if (attachmentRef.data) {
+                normalizedParts.push({
+                    type: 'image_url',
+                    image_url: {
+                        url: `data:${attachmentRef.mime_type};base64,${attachmentRef.data}`
+                    }
+                });
+            }
+            continue;
+        }
+
         const inlineData = extractInlineData(part);
         if (inlineData) {
             hasImage = true;
@@ -224,6 +273,18 @@ export function toGeminiParts(parts = [], fallbackText = '') {
             normalizedParts.push({ text });
         }
 
+        const attachmentRef = extractAttachmentRef(part);
+        if (attachmentRef && attachmentRef.data) {
+            hasImage = true;
+            normalizedParts.push({
+                inlineData: {
+                    mimeType: attachmentRef.mime_type,
+                    data: attachmentRef.data
+                }
+            });
+            continue;
+        }
+
         const inlineData = extractInlineData(part);
         if (inlineData) {
             hasImage = true;
@@ -248,6 +309,40 @@ export function toGeminiParts(parts = [], fallbackText = '') {
     }
 
     return normalizedParts;
+}
+
+export function extractAttachmentRef(part) {
+    if (!part || typeof part !== 'object') {
+        return null;
+    }
+
+    if (part.type === 'attachment_ref' && (part.attachment_id || part.attachmentId)) {
+        return {
+            type: 'attachment_ref',
+            attachment_id: String(part.attachment_id || part.attachmentId),
+            kind: part.kind || 'image',
+            purpose: part.purpose || 'vision',
+            mime_type: part.mime_type || part.mimeType || 'image/jpeg',
+            bytes: Number(part.bytes || part.size) || 0,
+            url: typeof part.url === 'string' ? part.url : '',
+            data: typeof part.data === 'string' ? part.data : ''
+        };
+    }
+
+    if ((part.attachment_id || part.attachmentId) && !extractInlineData(part)) {
+        return {
+            type: 'attachment_ref',
+            attachment_id: String(part.attachment_id || part.attachmentId),
+            kind: part.kind || 'image',
+            purpose: part.purpose || 'vision',
+            mime_type: part.mime_type || part.mimeType || 'image/jpeg',
+            bytes: Number(part.bytes || part.size) || 0,
+            url: typeof part.url === 'string' ? part.url : '',
+            data: typeof part.data === 'string' ? part.data : ''
+        };
+    }
+
+    return null;
 }
 
 function extractInlineData(part) {

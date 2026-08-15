@@ -6,6 +6,7 @@ namespace Afd\AI\Model\Maintenance;
 use Afd\AI\Model\Config\Config as AiConfig;
 use Magento\Framework\App\Filesystem\DirectoryList;
 use Magento\Framework\App\ResourceConnection;
+use Afd\AI\Model\Maintenance\AttachmentQuotaCounter;
 use Magento\Framework\Filesystem;
 use Magento\Framework\Filesystem\Directory\WriteInterface;
 use Psr\Log\LoggerInterface;
@@ -22,7 +23,8 @@ class ChatAttachmentCleaner
         Filesystem $filesystem,
         private readonly ResourceConnection $resource,
         private readonly AiConfig $config,
-        private readonly LoggerInterface $logger
+        private readonly LoggerInterface $logger,
+        private readonly ?AttachmentQuotaCounter $quotaCounter = null
     ) {
         $this->varDirectory = $filesystem->getDirectoryWrite(DirectoryList::VAR_DIR);
     }
@@ -100,7 +102,15 @@ class ChatAttachmentCleaner
                 if ($dryRun) {
                     continue;
                 }
-                $deleted += $this->varDirectory->delete($relativePath) ? 1 : 0;
+                $stat = $this->varDirectory->stat($relativePath);
+                $size = max(0, (int)($stat['size'] ?? 0));
+                if ($this->varDirectory->delete($relativePath)) {
+                    $deleted++;
+                    $ownerPath = $this->ownerPathFromPath($relativePath);
+                    if ($ownerPath !== null && $size > 0) {
+                        $this->quotaCounter?->releaseUsed($ownerPath, $size);
+                    }
+                }
             } catch (\Throwable $exception) {
                 $this->logger->warning('Afd AI attachment cleanup skipped a file.', [
                     'path' => $relativePath,
@@ -198,6 +208,14 @@ class ChatAttachmentCleaner
     private function isAttachmentFile(string $relativePath): bool
     {
         return $this->conversationIdFromPath($relativePath) !== null;
+    }
+
+    private function ownerPathFromPath(string $relativePath): ?string
+    {
+        if (preg_match('#^' . preg_quote(self::BASE_PATH, '#') . '/(\d+|guest/[a-f0-9]{64})/\d+/#D', $relativePath, $matches) !== 1) {
+            return null;
+        }
+        return $matches[1];
     }
 
     private function conversationIdFromPath(string $relativePath): ?int

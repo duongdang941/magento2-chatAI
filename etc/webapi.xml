@@ -201,4 +201,13 @@
         <service class="Afd\AI\Api\ConversationManagementInterface" method="updateGuestConversationTitle"/>
         <resources><resource ref="anonymous"/></resources>
     </route>
+    <!-- Attachment Upload APIs -->
+    <route url="/V1/afd-ai/attachments/init" method="POST">
+        <service class="Afd\AI\Api\AttachmentUploadManagementInterface" method="initiate"/>
+        <resources><resource ref="anonymous"/></resources>
+    </route>
+    <route url="/V1/afd-ai/attachments/complete" method="POST">
+        <service class="Afd\AI\Api\AttachmentUploadManagementInterface" method="complete"/>
+        <resources><resource ref="anonymous"/></resources>
+    </route>
 </routes>

@@ -253,4 +253,15 @@
         <index referenceId="AFD_AI_GUARDRAIL_STORE_CREATED"><column name="store_id"/><column name="created_at"/></index>
         <index referenceId="AFD_AI_GUARDRAIL_CONVERSATION"><column name="conversation_id"/><column name="created_at"/></index>
     </table>
+    <table name="afd_ai_attachment_quota" resource="default" engine="innodb" comment="AI Chat Attachment Byte Quotas">
+        <column xsi:type="int" name="scope_id" unsigned="true" nullable="false" identity="true" comment="Scope ID"/>
+        <column xsi:type="varchar" name="scope_type" nullable="false" length="16" comment="Quota Scope Type"/>
+        <column xsi:type="varchar" name="scope_key" nullable="false" length="128" comment="Quota Scope Key"/>
+        <column xsi:type="bigint" name="used_bytes" unsigned="true" nullable="false" default="0" comment="Committed Bytes"/>
+        <column xsi:type="bigint" name="reserved_bytes" unsigned="true" nullable="false" default="0" comment="Reserved Bytes"/>
+        <column xsi:type="timestamp" name="updated_at" nullable="false" on_update="true" default="CURRENT_TIMESTAMP" comment="Last Update"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY"><column name="scope_id"/></constraint>
+        <constraint xsi:type="unique" referenceId="AFD_AI_ATTACHMENT_QUOTA_SCOPE"><column name="scope_type"/><column name="scope_key"/></constraint>
+        <index referenceId="AFD_AI_ATTACHMENT_QUOTA_UPDATED"><column name="updated_at"/></index>
+    </table>
 </schema>

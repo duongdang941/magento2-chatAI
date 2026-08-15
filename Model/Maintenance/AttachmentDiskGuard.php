@@ -8,11 +8,7 @@ use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Filesystem;
 use Magento\Framework\Lock\LockManagerInterface;
 
-/**
- * Rejects new attachment writes when the var volume is below its safety
- * watermark. The check intentionally uses the volume containing Magento's
- * private var directory, not a deployment-specific absolute path.
- */
+/** Serializes attachment writes and enforces free-space plus owner quota. */
 class AttachmentDiskGuard
 {
     private const ATTACHMENT_PATH = 'afd_ai/chat';
@@ -21,45 +17,56 @@ class AttachmentDiskGuard
 
     public function __construct(
         private readonly Filesystem $filesystem,
-        private readonly LockManagerInterface $lockManager
-    )
-    {
+        private readonly LockManagerInterface $lockManager,
+        private readonly ?AttachmentQuotaCounter $quotaCounter = null
+    ) {
     }
 
-    /**
-     * @throws LocalizedException when free space cannot be measured or is too low
-     */
     public function assertCapacity(int $minimumFreeBytes, int $additionalBytes = 0): void
     {
         $this->assertCapacityUnlocked($minimumFreeBytes, $additionalBytes);
     }
 
-    /**
-     * Atomically reserve module-owned disk capacity and write while the shared
-     * Magento lock is held. This closes the check-then-write race between
-     * concurrent PHP workers (and between hosts when the lock backend is DB or
-     * shared cache based).
-     *
-     * @template T
-     * @param callable():T $write
-     * @return T
-     * @throws LocalizedException
-     */
+    /** @template T @param callable():T $write @return T */
     public function reserveAndWrite(
         string $ownerPath,
         int $minimumFreeBytes,
         int $maximumOwnerBytes,
         int $additionalBytes,
-        callable $write
+        callable $write,
+        ?int $maximumGlobalBytes = null
     ): mixed {
         if (!$this->lockManager->lock(self::WRITE_LOCK, self::WRITE_LOCK_TIMEOUT_SECONDS)) {
             throw new LocalizedException(__('Image uploads are busy. Please try again shortly.'));
         }
 
+        $reserved = false;
         try {
             $this->assertCapacityUnlocked($minimumFreeBytes, $additionalBytes);
-            $this->assertOwnerQuota($ownerPath, $maximumOwnerBytes, $additionalBytes);
-            return $write();
+            if ($this->quotaCounter !== null) {
+                if (!$this->quotaCounter->isInitialized($ownerPath)) {
+                    $this->quotaCounter->initializeOwner($ownerPath, $this->scanOwnerBytes($ownerPath));
+                }
+                if ($maximumGlobalBytes !== null && !$this->quotaCounter->isGlobalInitialized()) {
+                    $this->quotaCounter->initializeGlobal($this->scanAllBytes());
+                }
+                $this->quotaCounter->reserve($ownerPath, $maximumOwnerBytes, $additionalBytes, $maximumGlobalBytes);
+                $reserved = true;
+            } else {
+                $this->assertOwnerQuotaByScan($ownerPath, $maximumOwnerBytes, $additionalBytes);
+            }
+            try {
+                $result = $write();
+                if ($reserved) {
+                    $this->quotaCounter?->commit($ownerPath, $additionalBytes);
+                }
+                return $result;
+            } catch (\Throwable $exception) {
+                if ($reserved) {
+                    $this->quotaCounter?->releaseReservation($ownerPath, $additionalBytes);
+                }
+                throw $exception;
+            }
         } finally {
             $this->lockManager->unlock(self::WRITE_LOCK);
         }
@@ -67,35 +74,31 @@ class AttachmentDiskGuard
 
     private function assertCapacityUnlocked(int $minimumFreeBytes, int $additionalBytes): void
     {
-        $minimumFreeBytes = max(0, $minimumFreeBytes);
-        $additionalBytes = max(0, $additionalBytes);
         $directory = $this->filesystem->getDirectoryWrite(DirectoryList::VAR_DIR);
         $path = $directory->getAbsolutePath(self::ATTACHMENT_PATH);
         $freeBytes = @disk_free_space($path);
         if ($freeBytes === false) {
             $freeBytes = @disk_free_space($directory->getAbsolutePath());
         }
-
-        if ($freeBytes === false || $freeBytes < ($minimumFreeBytes + $additionalBytes)) {
+        if ($freeBytes === false || $freeBytes < max(0, $minimumFreeBytes) + max(0, $additionalBytes)) {
             throw new LocalizedException(__('Image uploads are temporarily unavailable because storage is low.'));
         }
     }
 
-    private function assertOwnerQuota(string $ownerPath, int $maximumOwnerBytes, int $additionalBytes): void
+    private function assertOwnerQuotaByScan(string $ownerPath, int $maximumOwnerBytes, int $additionalBytes): void
     {
-        $maximumOwnerBytes = max(0, $maximumOwnerBytes);
-        $additionalBytes = max(0, $additionalBytes);
-        if ($maximumOwnerBytes < $additionalBytes) {
+        if ($maximumOwnerBytes < $additionalBytes || $this->scanOwnerBytes($ownerPath) + max(0, $additionalBytes) > max(0, $maximumOwnerBytes)) {
             throw new LocalizedException(__('This shopper has reached the chat attachment storage limit.'));
         }
+    }
 
+    private function scanOwnerBytes(string $ownerPath): int
+    {
         $directory = $this->filesystem->getDirectoryWrite(DirectoryList::VAR_DIR);
         $relativeOwnerPath = self::ATTACHMENT_PATH . '/' . trim($ownerPath, '/');
         if (!$directory->isExist($relativeOwnerPath)) {
-            return;
+            return 0;
         }
-
-        $maximumExistingBytes = $maximumOwnerBytes - $additionalBytes;
         $usedBytes = 0;
         foreach ($directory->search('*/*', $relativeOwnerPath) as $relativePath) {
             if (!preg_match('/\/\d+\/[a-f0-9]{40}\.(?:jpg|png|webp)$/D', $relativePath)) {
@@ -103,10 +106,25 @@ class AttachmentDiskGuard
             }
             $stat = $directory->stat($relativePath);
             $usedBytes += max(0, (int)($stat['size'] ?? 0));
-            if ($usedBytes > $maximumExistingBytes) {
-                throw new LocalizedException(__('This shopper has reached the chat attachment storage limit.'));
-            }
         }
+        return $usedBytes;
+    }
+
+    private function scanAllBytes(): int
+    {
+        $directory = $this->filesystem->getDirectoryWrite(DirectoryList::VAR_DIR);
+        $usedBytes = 0;
+        foreach ($directory->search('*', self::ATTACHMENT_PATH) as $relativePath) {
+            if (!preg_match('#^' . preg_quote(self::ATTACHMENT_PATH, '#') . '/(?:\d+|guest/[a-f0-9]{64})/\d+/[a-f0-9]{40}\.(?:jpg|png|webp)$#D', $relativePath)) continue;
+            $stat = $directory->stat($relativePath);
+            $usedBytes += max(0, (int)($stat['size'] ?? 0));
+        }
+        return $usedBytes;
+    }
+
+    public function releaseUsedBytes(string $ownerPath, int $bytes): void
+    {
+        $this->quotaCounter?->releaseUsed($ownerPath, $bytes);
     }
 
     /** @return int|false */

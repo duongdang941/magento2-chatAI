@@ -12,6 +12,8 @@
     <preference for="Afd\AI\Api\ConversationRepositoryInterface" type="Afd\AI\Model\ConversationRepository" />
     <preference for="Afd\AI\Api\ConversationManagementInterface" type="Afd\AI\Model\ConversationManagement" />
     <preference for="Afd\AI\Api\QuoteCartAdapterInterface" type="Afd\AI\Model\Cart\OptionalQuoteCartAdapter" />
+    <preference for="Afd\AI\Api\AttachmentUploadManagementInterface" type="Afd\AI\Model\AttachmentUploadManagement" />
+    <preference for="Afd\AI\Api\Data\AttachmentUploadTicketInterface" type="Afd\AI\Model\Data\AttachmentUploadTicket" />
 
     <type name="Afd\AI\Model\Maintenance\AttachmentDiskGuard">
         <arguments>

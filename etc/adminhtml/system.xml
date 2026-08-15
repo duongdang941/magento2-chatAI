@@ -171,6 +171,12 @@
                     <config_path>afd_ai/attachments/max_owner_storage_bytes</config_path>
                     <validate>validate-number validate-greater-than-zero</validate>
                 </field>
+                <field id="max_total_storage_bytes" translate="label comment" type="text" sortOrder="155" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Maximum Total Attachment Storage (Bytes)</label>
+                    <comment>Caps all private chat attachment files across customers and guests. Default: 1 GiB.</comment>
+                    <config_path>afd_ai/attachments/max_total_storage_bytes</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                </field>
                 <field id="orphan_retention_seconds" translate="label comment" type="text" sortOrder="160" showInDefault="1" showInWebsite="1" showInStore="1">
                     <label>Orphan Attachment Retention (Seconds)</label>
                     <comment>Files not referenced by a saved message are deleted by the daily cleanup after this grace period. Default: 7 days.</comment>

@@ -66,6 +66,7 @@
                 <global_cost_units_per_minute>1200</global_cost_units_per_minute>
                 <min_free_bytes>104857600</min_free_bytes>
                 <max_owner_storage_bytes>67108864</max_owner_storage_bytes>
+                <max_total_storage_bytes>1073741824</max_total_storage_bytes>
                 <orphan_retention_seconds>604800</orphan_retention_seconds>
                 <cleanup_dry_run>0</cleanup_dry_run>
             </attachments>

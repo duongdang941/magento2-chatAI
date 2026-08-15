@@ -84,6 +84,7 @@ class Config
     const XML_PATH_ATTACHMENT_GLOBAL_COST_UNITS = 'afd_ai/attachments/global_cost_units_per_minute';
     const XML_PATH_ATTACHMENT_MIN_FREE_BYTES = 'afd_ai/attachments/min_free_bytes';
     const XML_PATH_ATTACHMENT_MAX_OWNER_STORAGE_BYTES = 'afd_ai/attachments/max_owner_storage_bytes';
+    const XML_PATH_ATTACHMENT_MAX_TOTAL_STORAGE_BYTES = 'afd_ai/attachments/max_total_storage_bytes';
     const XML_PATH_ATTACHMENT_ORPHAN_RETENTION_SECONDS = 'afd_ai/attachments/orphan_retention_seconds';
     const XML_PATH_ATTACHMENT_CLEANUP_DRY_RUN = 'afd_ai/attachments/cleanup_dry_run';
 
@@ -540,6 +541,13 @@ class Config
                 67108864,
                 4194304,
                 1073741824,
+                $storeId
+            ),
+            'max_total_storage_bytes' => $this->getIntValue(
+                self::XML_PATH_ATTACHMENT_MAX_TOTAL_STORAGE_BYTES,
+                1073741824,
+                67108864,
+                10737418240,
                 $storeId
             ),
             'orphan_retention_seconds' => $this->getIntValue(

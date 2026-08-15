@@ -7,5 +7,10 @@
              method="execute">
             <schedule>17 3 * * *</schedule>
         </job>
+        <job name="afd_ai_reconcile_attachment_quota"
+             instance="Afd\AI\Cron\ReconcileAttachmentQuota"
+             method="execute">
+            <schedule>*/15 * * * *</schedule>
+        </job>
     </group>
 </config>
