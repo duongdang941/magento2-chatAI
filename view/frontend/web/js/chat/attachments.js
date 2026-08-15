@@ -364,41 +364,52 @@
 
             readImageAttachmentFile(file) {
                 return new Promise(resolve => {
-                    const reader = new FileReader();
-                    reader.onload = async () => {
-                        const previewUrl = String(reader.result || '');
-                        const base64 = previewUrl.includes(',') ? previewUrl.split(',')[1] : '';
-                        if (!base64) {
-                            resolve(null);
-                            return;
-                        }
-                        const dimensions = await this.readImageDimensions(previewUrl);
+                    const objectUrl = typeof URL !== 'undefined'
+                        && typeof URL.createObjectURL === 'function'
+                        ? URL.createObjectURL(file)
+                        : '';
+                    if (!objectUrl) {
+                        const reader = new FileReader();
+                        reader.onload = async () => {
+                            const dataUrl = String(reader.result || '');
+                            const dimensions = await this.readImageDimensions(dataUrl);
+                            if (!dimensions || dimensions.width * dimensions.height > IMAGE_UPLOAD_MAX_TOTAL_PIXELS) {
+                                this.uploadError = 'Image dimensions are too large.';
+                                resolve(null);
+                                return;
+                            }
+                            resolve({
+                                name: this.cleanFileName(file.name),
+                                type: file.type,
+                                size: file.size,
+                                previewUrl: dataUrl,
+                                file,
+                                width: dimensions.width,
+                                height: dimensions.height
+                            });
+                        };
+                        reader.onerror = () => resolve(null);
+                        reader.readAsDataURL(file);
+                        return;
+                    }
+
+                    this.readImageDimensions(objectUrl).then(dimensions => {
                         if (!dimensions || dimensions.width * dimensions.height > IMAGE_UPLOAD_MAX_TOTAL_PIXELS) {
                             this.uploadError = 'Image dimensions are too large.';
+                            this.revokeAttachmentPreview({ previewUrl: objectUrl });
                             resolve(null);
                             return;
                         }
-                        const objectUrl = typeof URL !== 'undefined'
-                            && typeof URL.createObjectURL === 'function'
-                            ? URL.createObjectURL(file)
-                            : '';
                         resolve({
                             name: this.cleanFileName(file.name),
                             type: file.type,
                             size: file.size,
-                            // Keep the preview independent from the base64
-                            // transport string. The latter is released after
-                            // the request; the object URL remains usable for
-                            // the visible message and can be fetched again
-                            // when an edit/resend is requested.
-                            previewUrl: objectUrl || previewUrl,
-                            base64,
+                            previewUrl: objectUrl,
+                            file,
                             width: dimensions.width,
                             height: dimensions.height
                         });
-                    };
-                    reader.onerror = () => resolve(null);
-                    reader.readAsDataURL(file);
+                    }).catch(() => resolve(null));
                 });
             },
 
@@ -413,16 +424,11 @@
 
             validateOutgoingAttachmentBudget(attachments = []) {
                 const totalBytes = attachments.reduce((sum, item) => sum + (Number(item.size) || 0), 0);
-                const encodedBytes = attachments.reduce(
-                    (sum, item) => sum + String(item.base64 || '').length,
-                    0
-                );
                 const totalPixels = attachments.reduce(
                     (sum, item) => sum + ((Number(item.width) || 0) * (Number(item.height) || 0)),
                     0
                 );
                 if (totalBytes > IMAGE_UPLOAD_MAX_TOTAL_BYTES
-                    || encodedBytes > IMAGE_UPLOAD_MAX_ENCODED_BYTES
                     || totalPixels > IMAGE_UPLOAD_MAX_TOTAL_PIXELS) {
                     this.uploadError = 'The combined image upload is too large. Remove an image or choose smaller files.';
                     return false;
@@ -466,17 +472,129 @@
                 return (bytes / 1024 / 1024).toFixed(1) + ' MB';
             },
 
+            async uploadAttachment(attachment) {
+                if (attachment.attachment_id) {
+                    return {
+                        type: 'attachment_ref',
+                        attachment_id: attachment.attachment_id,
+                        kind: 'image',
+                        purpose: 'vision'
+                    };
+                }
+
+                if (!attachment.file) {
+                    return null;
+                }
+
+                try {
+                    // Step 1: Initiate upload session and acquire ticket
+                    const initResponse = await fetch('/rest/V1/afd-ai/attachments/init', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body: JSON.stringify({
+                            purpose: 'vision',
+                            declaredBytes: attachment.size,
+                            declaredMimeType: attachment.type
+                        })
+                    });
+
+                    if (!initResponse.ok) {
+                        return null;
+                    }
+
+                    const initData = await initResponse.json();
+                    const ticket = initData.ticket;
+                    const uploadUrl = initData.upload_url;
+                    const attachmentId = initData.attachment_id;
+
+                    // Step 2: Stream binary file to upload endpoint
+                    const uploadResponse = await fetch(uploadUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${ticket}`,
+                            'Content-Type': attachment.type
+                        },
+                        body: attachment.file
+                    });
+
+                    if (!uploadResponse.ok) {
+                        return null;
+                    }
+
+                    // Step 3: Complete upload
+                    const completeResponse = await fetch('/rest/V1/afd-ai/attachments/complete', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body: JSON.stringify({
+                            attachmentId,
+                            ticket
+                        })
+                    });
+
+                    if (!completeResponse.ok) {
+                        return null;
+                    }
+
+                    attachment.attachment_id = attachmentId;
+                    return {
+                        type: 'attachment_ref',
+                        attachment_id: attachmentId,
+                        kind: 'image',
+                        purpose: 'vision'
+                    };
+                } catch (error) {
+                    console.warn('[AFD-AI-CHAT] Attachment upload error:', error);
+                    return null;
+                }
+            },
+
+            async prepareOutgoingUserParts(text, attachments = []) {
+                const parts = [];
+                const cleanText = (text || '').trim();
+                parts.push({ text: cleanText || 'Mô tả nội dung hình ảnh này và nếu phù hợp hãy tìm sản phẩm tương ứng trong cửa hàng.' });
+
+                for (const attachment of attachments) {
+                    const uploadedRef = await this.uploadAttachment(attachment);
+                    if (uploadedRef) {
+                        parts.push(uploadedRef);
+                    } else if (attachment.base64) {
+                        parts.push({
+                            inline_data: {
+                                mime_type: attachment.type,
+                                data: attachment.base64
+                            }
+                        });
+                    }
+                }
+                return parts;
+            },
+
             buildOutgoingUserParts(text, attachments = []) {
                 const parts = [];
                 const cleanText = (text || '').trim();
                 parts.push({ text: cleanText || 'Mô tả nội dung hình ảnh này và nếu phù hợp hãy tìm sản phẩm tương ứng trong cửa hàng.' });
                 attachments.forEach((attachment) => {
-                    parts.push({
-                        inline_data: {
-                            mime_type: attachment.type,
-                            data: attachment.base64
-                        }
-                    });
+                    if (attachment.attachment_id) {
+                        parts.push({
+                            type: 'attachment_ref',
+                            attachment_id: attachment.attachment_id,
+                            kind: 'image',
+                            purpose: 'vision'
+                        });
+                    } else if (attachment.base64) {
+                        parts.push({
+                            inline_data: {
+                                mime_type: attachment.type,
+                                data: attachment.base64
+                            }
+                        });
+                    }
                 });
                 return parts;
             },

@@ -978,7 +978,9 @@ const {
                 this.toolActivities = [];
                 this.armResponseWatchdog();
                 this.$nextTick(() => this.scrollToBottom(true));
-                const outgoingUserParts = this.buildOutgoingUserParts(cleanText, outgoingAttachments);
+                const outgoingUserParts = typeof this.prepareOutgoingUserParts === 'function'
+                    ? await this.prepareOutgoingUserParts(cleanText, outgoingAttachments)
+                    : this.buildOutgoingUserParts(cleanText, outgoingAttachments);
                 const history = this.buildModelHistory();
                 const guestHistory = this.isLoggedIn ? [] : this.buildGuestHistorySnapshot();
                 const chatPayload = {

@@ -8,27 +8,33 @@ use Afd\AI\Api\Data\AttachmentUploadTicketInterface;
 use Afd\AI\Api\Data\AttachmentUploadTicketInterfaceFactory;
 use Afd\AI\Model\Config\Config as AiConfig;
 use Afd\AI\Model\Maintenance\AttachmentDiskGuard;
+use Afd\AI\Model\Maintenance\AttachmentQuotaCounter;
 use Afd\AI\Model\Security\GuestChatIdentity;
 use Magento\Customer\Model\Session as CustomerSession;
 use Magento\Framework\App\Config\ScopeConfigInterface;
+use Magento\Framework\App\Filesystem\DirectoryList;
 use Magento\Framework\Encryption\EncryptorInterface;
 use Magento\Framework\Exception\LocalizedException;
+use Magento\Framework\Filesystem;
 use Magento\Framework\UrlInterface;
 
 class AttachmentUploadManagement implements AttachmentUploadManagementInterface
 {
     private const TICKET_TTL_SECONDS = 300; // 5 minutes
     private const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+    private const ALLOWED_PURPOSES = ['vision', 'support_attachment', 'message_attachment'];
 
     public function __construct(
         private readonly AiConfig $config,
         private readonly CustomerSession $customerSession,
         private readonly GuestChatIdentity $guestChatIdentity,
         private readonly AttachmentDiskGuard $diskGuard,
+        private readonly AttachmentQuotaCounter $quotaCounter,
         private readonly AttachmentUploadTicketInterfaceFactory $ticketFactory,
         private readonly UrlInterface $urlBuilder,
         private readonly ScopeConfigInterface $scopeConfig,
-        private readonly EncryptorInterface $encryptor
+        private readonly EncryptorInterface $encryptor,
+        private readonly Filesystem $filesystem
     ) {
     }
 
@@ -42,6 +48,10 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
     ): AttachmentUploadTicketInterface {
         if (!$this->config->isEnabled()) {
             throw new LocalizedException(__('AI Assistant is currently disabled.'));
+        }
+
+        if (!in_array($purpose, self::ALLOWED_PURPOSES, true)) {
+            throw new LocalizedException(__('Invalid attachment upload purpose.'));
         }
 
         $limits = $this->config->getAttachmentConfig();
@@ -58,6 +68,17 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
         }
 
         $ownerId = $this->resolveOwnerId();
+        $ownerPath = $this->resolveOwnerPath();
+        $reserveBytes = $declaredBytes > 0 ? $declaredBytes : $maxBytes;
+
+        // Reserve quota for upload session
+        $this->quotaCounter->reserve(
+            $ownerPath,
+            (int)($limits['max_owner_storage_bytes'] ?? 67108864),
+            $reserveBytes,
+            (int)($limits['max_total_storage_bytes'] ?? 1073741824)
+        );
+
         $attachmentId = 'att_' . bin2hex(random_bytes(16));
         $expiresAt = time() + self::TICKET_TTL_SECONDS;
         $nonce = bin2hex(random_bytes(8));
@@ -67,6 +88,7 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
             'owner' => hash('sha256', (string)$ownerId),
             'purpose' => $purpose,
             'max_bytes' => $maxBytes,
+            'reserved_bytes' => $reserveBytes,
             'mime' => $normalizedMime,
             'exp' => $expiresAt,
             'nonce' => $nonce,
@@ -95,46 +117,50 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
      */
     public function complete(string $attachmentId, string $ticket): bool
     {
-        $payload = $this->verifyTicket($ticket);
+        $payload = $this->verifyTicketPayload($ticket);
         if (!$payload || ($payload['aid'] ?? '') !== $attachmentId) {
             throw new LocalizedException(__('Invalid or expired attachment upload ticket.'));
         }
 
-        $expectedOwner = hash('sha256', (string)$this->resolveOwnerId());
+        $ownerId = $this->resolveOwnerId();
+        $expectedOwner = hash('sha256', (string)$ownerId);
         if (($payload['owner'] ?? '') !== $expectedOwner) {
             throw new LocalizedException(__('Attachment owner verification failed.'));
+        }
+
+        $ownerPath = $this->resolveOwnerPath();
+        $varDir = $this->filesystem->getDirectoryRead(DirectoryList::VAR_DIR);
+        $stagedDir = 'afd_ai/chat/' . $ownerPath . '/staged';
+
+        // Check if file exists in staged folder
+        $foundFile = null;
+        $fileSize = 0;
+        foreach (['jpg', 'png', 'webp'] as $ext) {
+            $checkPath = $stagedDir . '/' . $attachmentId . '.' . $ext;
+            if ($varDir->isFile($checkPath)) {
+                $foundFile = $checkPath;
+                $fileSize = (int)$varDir->stat($checkPath)['size'];
+                break;
+            }
+        }
+
+        if (!$foundFile) {
+            throw new LocalizedException(__('Uploaded attachment file not found.'));
+        }
+
+        // Commit quota
+        $reservedBytes = (int)($payload['reserved_bytes'] ?? $fileSize);
+        if ($fileSize !== $reservedBytes) {
+            $this->quotaCounter->releaseReservation($ownerPath, $reservedBytes);
+            $this->quotaCounter->commit($ownerPath, $fileSize);
+        } else {
+            $this->quotaCounter->commit($ownerPath, $fileSize);
         }
 
         return true;
     }
 
-    private function resolveOwnerId(): string|int
-    {
-        $customerId = (int)$this->customerSession->getCustomerId();
-        if ($customerId > 0) {
-            return $customerId;
-        }
-
-        $guestIdentity = $this->guestChatIdentity->resolve();
-        if ($guestIdentity !== null && $guestIdentity !== '') {
-            return $guestIdentity;
-        }
-
-        return $this->customerSession->getSessionId() ?: 'guest_' . bin2hex(random_bytes(8));
-    }
-
-    private function signTicket(array $data): string
-    {
-        $json = (string)json_encode($data, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-        $b64 = rtrim(strtr(base64_encode($json), '+/', '-_'), '=');
-        $secret = $this->getSecret();
-        $signature = hash_hmac('sha256', $b64, $secret, true);
-        $sigB64 = rtrim(strtr(base64_encode($signature), '+/', '-_'), '=');
-
-        return $b64 . '.' . $sigB64;
-    }
-
-    private function verifyTicket(string $token): ?array
+    public function verifyTicketPayload(string $token): ?array
     {
         $parts = explode('.', $token);
         if (count($parts) !== 2) {
@@ -168,6 +194,47 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
         return $data;
     }
 
+    private function resolveOwnerId(): string|int
+    {
+        $customerId = (int)$this->customerSession->getCustomerId();
+        if ($customerId > 0) {
+            return $customerId;
+        }
+
+        $guestIdentity = $this->guestChatIdentity->resolve();
+        if ($guestIdentity !== null && $guestIdentity !== '') {
+            return $guestIdentity;
+        }
+
+        return $this->customerSession->getSessionId() ?: 'guest';
+    }
+
+    private function resolveOwnerPath(): string
+    {
+        $customerId = (int)$this->customerSession->getCustomerId();
+        if ($customerId > 0) {
+            return (string)$customerId;
+        }
+
+        $guestIdentity = $this->guestChatIdentity->resolve();
+        if ($guestIdentity !== null && $guestIdentity !== '') {
+            return 'guest/' . $guestIdentity;
+        }
+
+        return 'guest/' . ($this->customerSession->getSessionId() ?: 'unknown');
+    }
+
+    private function signTicket(array $data): string
+    {
+        $json = (string)json_encode($data, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        $b64 = rtrim(strtr(base64_encode($json), '+/', '-_'), '=');
+        $secret = $this->getSecret();
+        $signature = hash_hmac('sha256', $b64, $secret, true);
+        $sigB64 = rtrim(strtr(base64_encode($signature), '+/', '-_'), '=');
+
+        return $b64 . '.' . $sigB64;
+    }
+
     private function getSecret(): string
     {
         $configured = (string)$this->scopeConfig->getValue('afd_ai/websocket/secret');
@@ -178,3 +245,4 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
         return (string)$this->encryptor->getHash('afd-ai-upload-default-secret');
     }
 }
+

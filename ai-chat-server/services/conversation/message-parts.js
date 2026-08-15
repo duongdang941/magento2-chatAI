@@ -219,13 +219,6 @@ export function toOpenAiContent(parts = [], fallbackText = '') {
                     type: 'image_url',
                     image_url: { url: attachmentRef.url }
                 });
-            } else if (attachmentRef.data) {
-                normalizedParts.push({
-                    type: 'image_url',
-                    image_url: {
-                        url: `data:${attachmentRef.mime_type};base64,${attachmentRef.data}`
-                    }
-                });
             }
             continue;
         }
@@ -273,18 +266,6 @@ export function toGeminiParts(parts = [], fallbackText = '') {
             normalizedParts.push({ text });
         }
 
-        const attachmentRef = extractAttachmentRef(part);
-        if (attachmentRef && attachmentRef.data) {
-            hasImage = true;
-            normalizedParts.push({
-                inlineData: {
-                    mimeType: attachmentRef.mime_type,
-                    data: attachmentRef.data
-                }
-            });
-            continue;
-        }
-
         const inlineData = extractInlineData(part);
         if (inlineData) {
             hasImage = true;
@@ -324,8 +305,7 @@ export function extractAttachmentRef(part) {
             purpose: part.purpose || 'vision',
             mime_type: part.mime_type || part.mimeType || 'image/jpeg',
             bytes: Number(part.bytes || part.size) || 0,
-            url: typeof part.url === 'string' ? part.url : '',
-            data: typeof part.data === 'string' ? part.data : ''
+            url: typeof part.url === 'string' ? part.url : ''
         };
     }
 
@@ -337,8 +317,7 @@ export function extractAttachmentRef(part) {
             purpose: part.purpose || 'vision',
             mime_type: part.mime_type || part.mimeType || 'image/jpeg',
             bytes: Number(part.bytes || part.size) || 0,
-            url: typeof part.url === 'string' ? part.url : '',
-            data: typeof part.data === 'string' ? part.data : ''
+            url: typeof part.url === 'string' ? part.url : ''
         };
     }
 

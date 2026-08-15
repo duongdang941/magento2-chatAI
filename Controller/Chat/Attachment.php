@@ -63,14 +63,26 @@ class Attachment implements HttpGetActionInterface
             return $this->notFound($result);
         }
 
+        $stat = $directory->stat($relativeFile);
+        $fileSize = (int)($stat['size'] ?? 0);
+        $absolutePath = $directory->getAbsolutePath($relativeFile);
+
         $result->setHeader('Content-Type', self::MIME_BY_EXTENSION[$extension], true);
+        $result->setHeader('Content-Length', (string)$fileSize, true);
         $result->setHeader('Content-Disposition', 'inline; filename="' . $filename . '"', true);
         $result->setHeader('Cache-Control', 'private, no-store, max-age=0', true);
         $result->setHeader('X-Content-Type-Options', 'nosniff', true);
         $result->setHeader('X-Frame-Options', 'DENY', true);
         $result->setHeader('Cross-Origin-Resource-Policy', 'same-origin', true);
         $result->setHeader('Referrer-Policy', 'no-referrer', true);
-        $result->setContents($directory->readFile($relativeFile));
+
+        $stream = fopen($absolutePath, 'rb');
+        if ($stream) {
+            $result->setContents(stream_get_contents($stream));
+            fclose($stream);
+        } else {
+            $result->setContents($directory->readFile($relativeFile));
+        }
         return $result;
     }
 
