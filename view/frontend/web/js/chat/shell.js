@@ -3,23 +3,34 @@
     'use strict';
 
     modules.shellMethods = function (context) {
-const { config, urls } = context;
-const {
-    sanitizeHtml,
-    hydrateProductGridHtml,
-    getBrowserFormKey,
-    resolveWebSocketUrl,
-    PET_SPRITESHEET_COLUMNS,
-    PET_SPRITESHEET_ROWS,
-    PET_FRAME_LIBRARY,
-    petFramePosition,
-    IMAGE_UPLOAD_MAX_BYTES,
-    IMAGE_UPLOAD_MAX_COUNT,
-    IMAGE_UPLOAD_TYPES,
-    MAX_MODEL_HISTORY_MESSAGES
-} = context.helpers;
+        const { config, urls } = context;
+        const {
+            sanitizeHtml,
+            hydrateProductGridHtml,
+            getBrowserFormKey,
+            resolveWebSocketUrl,
+            PET_SPRITESHEET_COLUMNS,
+            PET_SPRITESHEET_ROWS,
+            PET_FRAME_LIBRARY,
+            petFramePosition,
+            IMAGE_UPLOAD_MAX_BYTES,
+            IMAGE_UPLOAD_MAX_COUNT,
+            IMAGE_UPLOAD_TYPES,
+            MAX_MODEL_HISTORY_MESSAGES
+        } = context.helpers;
 
         return {
+            t(key, params = {}) {
+                const configTranslations = config?.translations || window.afdAiChatConfig?.translations || {};
+                let text = configTranslations[key] || key;
+                if (params && typeof params === 'object') {
+                    for (const [paramKey, paramVal] of Object.entries(params)) {
+                        text = text.replace(new RegExp(`%${paramKey}|\\{${paramKey}\\}`, 'g'), String(paramVal));
+                        text = text.replace(/%1/g, String(paramVal));
+                    }
+                }
+                return text;
+            },
             scrollToBottom(force = false) {
                 this.$nextTick(() => {
                     const chatWindow = document.getElementById('chatWindow');

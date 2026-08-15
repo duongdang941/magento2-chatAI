@@ -3,24 +3,24 @@
     'use strict';
 
     modules.attachmentMethods = function (context) {
-const { config, urls } = context;
-const {
-    sanitizeHtml,
-    hydrateProductGridHtml,
-    getBrowserFormKey,
-    resolveWebSocketUrl,
-    PET_SPRITESHEET_COLUMNS,
-    PET_SPRITESHEET_ROWS,
-    PET_FRAME_LIBRARY,
-    petFramePosition,
-    IMAGE_UPLOAD_MAX_BYTES,
-    IMAGE_UPLOAD_MAX_COUNT,
-    IMAGE_UPLOAD_MAX_TOTAL_BYTES,
-    IMAGE_UPLOAD_MAX_ENCODED_BYTES,
-    IMAGE_UPLOAD_MAX_TOTAL_PIXELS,
-    IMAGE_UPLOAD_TYPES,
-    MAX_MODEL_HISTORY_MESSAGES
-} = context.helpers;
+        const { config, urls } = context;
+        const {
+            sanitizeHtml,
+            hydrateProductGridHtml,
+            getBrowserFormKey,
+            resolveWebSocketUrl,
+            PET_SPRITESHEET_COLUMNS,
+            PET_SPRITESHEET_ROWS,
+            PET_FRAME_LIBRARY,
+            petFramePosition,
+            IMAGE_UPLOAD_MAX_BYTES,
+            IMAGE_UPLOAD_MAX_COUNT,
+            IMAGE_UPLOAD_MAX_TOTAL_BYTES,
+            IMAGE_UPLOAD_MAX_ENCODED_BYTES,
+            IMAGE_UPLOAD_MAX_TOTAL_PIXELS,
+            IMAGE_UPLOAD_TYPES,
+            MAX_MODEL_HISTORY_MESSAGES
+        } = context.helpers;
 
         return {
             /**
@@ -456,7 +456,7 @@ const {
                 }
                 try {
                     URL.revokeObjectURL(previewUrl);
-                } catch (error) {}
+                } catch (error) { }
             },
 
             formatFileSize(bytes) {

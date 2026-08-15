@@ -201,9 +201,9 @@
                                                                       x-text="part.state === 'verified' ? 'verified_user' : (part.state === 'expired' ? 'timer_off' : 'lock')"></span>
                                                                 <div class="afd-ai-chat__order-address-form-heading">
                                                                     <p class="afd-ai-chat__guest-order-access-kicker"
-                                                                       x-text="part.purpose === 'support' ? 'Human support' : 'Guest checkout'"></p>
+                                                                       x-text="part.purpose === 'support' ? t('human_support') : t('guest_checkout')"></p>
                                                                     <p class="afd-ai-chat__guest-order-access-title"
-                                                                       x-text="part.state === 'verified' ? 'Email verified' : (part.state === 'expired' ? 'Verification expired' : 'Verify your email')"></p>
+                                                                       x-text="part.state === 'verified' ? t('email_verified') : (part.state === 'expired' ? t('verification_expired') : t('verify_your_email'))"></p>
                                                                 </div>
                                                                 <div class="afd-ai-chat__guest-order-access-countdown"
                                                                      x-show="part.state === 'email' || part.state === 'code'"
@@ -214,8 +214,8 @@
                                                             </div>
 
                                                             <template x-if="part.state === 'expired'">
-                                                                <p class="afd-ai-chat__guest-order-access-copy afd-ai-chat__guest-order-access-copy--expired">
-                                                                    This verification form expired after 15 minutes. Ask the assistant to open a new secure form.
+                                                                <p class="afd-ai-chat__guest-order-access-copy afd-ai-chat__guest-order-access-copy--expired"
+                                                                   x-text="t('form_expired_copy')">
                                                                 </p>
                                                             </template>
 
@@ -223,10 +223,10 @@
                                                                 <form class="afd-ai-chat__guest-order-access-form"
                                                                       @submit.prevent="requestGuestOrderOtp(part)">
                                                                     <p class="afd-ai-chat__guest-order-access-copy"
-                                                                       x-text="part.purpose === 'support' ? 'Verify your contact email so a team member can reply safely in this conversation.' : 'Enter the email used at checkout. We’ll send a code before showing order information.'"></p>
+                                                                       x-text="part.purpose === 'support' ? t('verify_contact_email_copy') : t('enter_email_checkout_copy')"></p>
                                                                     <label class="afd-ai-chat__guest-order-access-label"
                                                                            :for="'afd-ai-chat-guest-email-' + part.id"
-                                                                           x-text="part.purpose === 'support' ? 'Contact email' : 'Checkout email'"></label>
+                                                                           x-text="part.purpose === 'support' ? t('contact_email') : t('checkout_email')"></label>
                                                                     <input :id="'afd-ai-chat-guest-email-' + part.id"
                                                                            class="afd-ai-chat__guest-order-access-input"
                                                                            type="email"
@@ -244,8 +244,8 @@
                                                                         <button type="submit"
                                                                                 class="afd-ai-chat__guest-order-access-primary"
                                                                                 :disabled="part.busy || !part.email">
-                                                                            <span x-show="!part.busy">Send code</span>
-                                                                            <span x-show="part.busy">Sending…</span>
+                                                                            <span x-show="!part.busy" x-text="t('send_code')"></span>
+                                                                            <span x-show="part.busy" x-text="t('sending_code')"></span>
                                                                         </button>
                                                                     </div>
                                                                 </form>
@@ -254,9 +254,10 @@
                                                             <template x-if="part.state === 'code'">
                                                                 <form class="afd-ai-chat__guest-order-access-form"
                                                                       @submit.prevent="verifyGuestOrderOtp(part)">
-                                                                    <p class="afd-ai-chat__guest-order-access-copy">Enter the six-digit code sent to <strong x-text="part.email"></strong>. The code expires after 10 minutes.</p>
+                                                                    <p class="afd-ai-chat__guest-order-access-copy"><span x-text="t('enter_code_copy')"></span> <strong x-text="part.email"></strong>. <span x-text="t('code_expires_copy')"></span></p>
                                                                     <label class="afd-ai-chat__guest-order-access-label"
-                                                                           :for="'afd-ai-chat-guest-code-' + part.id">Verification code</label>
+                                                                           :for="'afd-ai-chat-guest-code-' + part.id"
+                                                                           x-text="t('verification_code')"></label>
                                                                     <input :id="'afd-ai-chat-guest-code-' + part.id"
                                                                            class="afd-ai-chat__guest-order-access-input afd-ai-chat__guest-order-access-input--code"
                                                                            type="text"
@@ -277,12 +278,13 @@
                                                                         <button type="button"
                                                                                 class="afd-ai-chat__guest-order-access-secondary"
                                                                                 @click="resetGuestOrderAccessForm(part)"
-                                                                                :disabled="part.busy">Use another email</button>
+                                                                                :disabled="part.busy"
+                                                                                x-text="t('use_another_email')"></button>
                                                                         <button type="submit"
                                                                                 class="afd-ai-chat__guest-order-access-primary"
                                                                                 :disabled="part.busy || part.code.length !== 6">
-                                                                            <span x-show="!part.busy">Verify</span>
-                                                                            <span x-show="part.busy">Verifying…</span>
+                                                                            <span x-show="!part.busy" x-text="t('verify')"></span>
+                                                                            <span x-show="part.busy" x-text="t('verifying')"></span>
                                                                         </button>
                                                                     </div>
                                                                 </form>
@@ -291,7 +293,7 @@
                                                             <template x-if="part.state === 'verified'">
                                                                 <div>
                                                                     <p class="afd-ai-chat__guest-order-access-copy afd-ai-chat__guest-order-access-copy--verified"
-                                                                       x-text="part.purpose === 'support' ? 'Your email is verified. Select an existing ticket or start a new private conversation with support.' : 'Your email is verified. Your pending order request will continue automatically.'"></p>
+                                                                       x-text="part.purpose === 'support' ? t('verified_support_copy') : t('verified_order_copy')"></p>
 
                                                                     <template x-if="part.purpose === 'support'">
                                                                         <div class="afd-ai-chat__support-portal">
@@ -397,7 +399,7 @@
                                                                     <p class="afd-ai-chat__order-address-form-kicker"
                                                                        x-text="part.resourceType === 'customer_account' ? 'Your account' : 'Order #' + part.orderNumber"></p>
                                                                     <p class="afd-ai-chat__order-address-form-title"
-                                                                       x-text="part.status === 'success' ? 'Address updated' : (part.status === 'expired' ? 'Address form expired' : (part.resourceType === 'customer_account' ? 'Default billing & shipping' : 'Update order address'))"></p>
+                                                                       x-text="part.status === 'success' ? t('address_updated') : (part.status === 'expired' ? t('address_form_expired') : (part.resourceType === 'customer_account' ? t('default_billing_shipping') : t('update_order_address')))"></p>
                                                                 </div>
                                                                 <div class="afd-ai-chat__order-address-form-countdown"
                                                                      x-show="part.status !== 'success' && part.status !== 'expired'"
@@ -427,7 +429,7 @@
                                                                                         :class="{ 'afd-ai-chat__order-address-form-type--active': part.addressType === type }"
                                                                                         :disabled="part.busy || part.status === 'expired'"
                                                                                         @click="selectOrderAddressFormType(part, type)"
-                                                                                        x-text="type === 'shipping' ? 'Shipping' : 'Billing'"></button>
+                                                                                        x-text="type === 'shipping' ? t('shipping_tab') : t('billing_tab')"></button>
                                                                             </template>
                                                                         </div>
 
@@ -539,8 +541,8 @@
                                                                             <button type="submit"
                                                                                     class="afd-ai-chat__order-address-form-submit"
                                                                                     :disabled="part.busy || part.status === 'expired'">
-                                                                                <span x-show="!part.busy">Save address</span>
-                                                                                <span x-show="part.busy">Saving…</span>
+                                                                                <span x-show="!part.busy" x-text="t('save_address')"></span>
+                                                                                <span x-show="part.busy" x-text="t('saving_address')"></span>
                                                                             </button>
                                                                         </div>
                                                                     </fieldset>
@@ -924,9 +926,9 @@
                                     <div class="afd-ai-chat__thinking-header">
                                         <span class="material-symbols-outlined afd-ai-chat__thinking-icon" aria-hidden="true">psychology</span>
                                         <span class="afd-ai-chat__thinking-shimmer">
-                                            Thinking
+                                            <span x-text="t('thinking')">Thinking</span>
                                             <span class="afd-ai-chat__thinking-shimmer-sweep" aria-hidden="true">
-                                                <span class="afd-ai-chat__thinking-shimmer-highlight">Thinking</span>
+                                                <span class="afd-ai-chat__thinking-shimmer-highlight" x-text="t('thinking')">Thinking</span>
                                             </span>
                                         </span>
                                     </div>

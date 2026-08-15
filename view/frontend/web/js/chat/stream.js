@@ -589,11 +589,11 @@ const {
             },
 
             reasoningTitle(part) {
-                if (!part) return 'Thought process';
+                if (!part) return this.t('thought_process');
                 const events = Array.isArray(part.events) ? part.events : [];
                 const count = events.length || ((Array.isArray(part.steps) ? part.steps.length : 0) + (Array.isArray(part.activities) ? part.activities.length : 0));
-                if (count <= 1) return 'Thought process (1 step)';
-                return `Thought process (${count} steps)`;
+                if (count <= 1) return this.t('thought_process_1_step');
+                return this.t('thought_process_steps', { 1: count });
             },
 
             renderMarkdown(content) {

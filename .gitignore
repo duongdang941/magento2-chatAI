@@ -10,3 +10,4 @@ ai-chat-server/logs/
 **/.DS_Store
 .ua/
 .local/
+**/.local/
