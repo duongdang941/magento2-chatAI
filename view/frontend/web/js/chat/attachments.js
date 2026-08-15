@@ -487,9 +487,19 @@
                 }
 
                 try {
+                    const getRestUrl = (endpoint) => {
+                        const base = (window.BASE_URL || '/').replace(/\/+$/, '');
+                        const cleanEndpoint = endpoint.replace(/^\/+/, '');
+                        if (cleanEndpoint.startsWith('rest/')) {
+                            return `${base}/${cleanEndpoint}`;
+                        }
+                        return `${base}/rest/V1/${cleanEndpoint}`;
+                    };
+
                     // Step 1: Initiate upload session and acquire ticket
-                    const initResponse = await fetch('/rest/V1/afd-ai/attachments/init', {
+                    const initResponse = await fetch(getRestUrl('rest/V1/afd-ai/attachments/init'), {
                         method: 'POST',
+                        credentials: 'same-origin',
                         headers: {
                             'Content-Type': 'application/json',
                             'X-Requested-With': 'XMLHttpRequest'
@@ -502,6 +512,8 @@
                     });
 
                     if (!initResponse.ok) {
+                        const errData = await initResponse.text();
+                        console.warn('[AFD-AI-CHAT] Attachment init failed:', initResponse.status, errData);
                         return null;
                     }
 
@@ -513,6 +525,7 @@
                     // Step 2: Stream binary file to upload endpoint
                     const uploadResponse = await fetch(uploadUrl, {
                         method: 'POST',
+                        credentials: 'same-origin',
                         headers: {
                             'Authorization': `Bearer ${ticket}`,
                             'Content-Type': attachment.type
@@ -521,12 +534,15 @@
                     });
 
                     if (!uploadResponse.ok) {
+                        const errData = await uploadResponse.text();
+                        console.warn('[AFD-AI-CHAT] Attachment binary upload failed:', uploadResponse.status, errData);
                         return null;
                     }
 
                     // Step 3: Complete upload
-                    const completeResponse = await fetch('/rest/V1/afd-ai/attachments/complete', {
+                    const completeResponse = await fetch(getRestUrl('rest/V1/afd-ai/attachments/complete'), {
                         method: 'POST',
+                        credentials: 'same-origin',
                         headers: {
                             'Content-Type': 'application/json',
                             'X-Requested-With': 'XMLHttpRequest'
@@ -538,6 +554,8 @@
                     });
 
                     if (!completeResponse.ok) {
+                        const errData = await completeResponse.text();
+                        console.warn('[AFD-AI-CHAT] Attachment complete failed:', completeResponse.status, errData);
                         return null;
                     }
 
