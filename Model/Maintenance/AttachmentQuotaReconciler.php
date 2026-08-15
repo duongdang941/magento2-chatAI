@@ -21,7 +21,8 @@ class AttachmentQuotaReconciler
         private readonly Filesystem $filesystem,
         private readonly ResourceConnection $resource,
         private readonly LockManagerInterface $lockManager,
-        private readonly LoggerInterface $logger
+        private readonly LoggerInterface $logger,
+        private readonly ?\Afd\AI\Model\Attachment\AttachmentRepository $attachmentRepository = null
     ) {
     }
 
@@ -153,11 +154,36 @@ class AttachmentQuotaReconciler
                         $stagedExists = $stagedPath !== '' && $directory->isFile($stagedPath);
 
                         if ($finalExists) {
-                            $connection->update($attTable, [
-                                'state' => 'committed',
-                                'updated_at' => gmdate('Y-m-d H:i:s')
-                            ], ['attachment_id = ?' => $attId, 'state = ?' => 'finalizing']);
-                            $corrected++;
+                            $stat = $directory->stat($finalPath);
+                            $actualFileSize = (int)($stat['size'] ?? 0);
+                            $resId = (string)($staleAtt['reservation_id'] ?? '');
+                            $ownerKey = (string)($staleAtt['owner_key'] ?? '');
+                            $ownerType = (string)($staleAtt['owner_type'] ?? 'guest');
+                            $ownerPath = $ownerType === 'customer' ? $ownerKey : 'guest/' . $ownerKey;
+
+                            if ($this->attachmentRepository) {
+                                try {
+                                    $this->attachmentRepository->commitFinalAttachmentAtomic(
+                                        $attId,
+                                        $finalPath,
+                                        $ownerPath,
+                                        $actualFileSize,
+                                        $resId ?: null,
+                                        isset($staleAtt['conversation_id']) ? (int)$staleAtt['conversation_id'] : null,
+                                        $ownerKey
+                                    );
+                                    $corrected++;
+                                } catch (\Throwable) {
+                                    // Already settled
+                                }
+                            } else {
+                                $connection->update($attTable, [
+                                    'state' => 'committed',
+                                    'bytes' => $actualFileSize,
+                                    'updated_at' => gmdate('Y-m-d H:i:s')
+                                ], ['attachment_id = ?' => $attId, 'state = ?' => 'finalizing']);
+                                $corrected++;
+                            }
                         } elseif ($stagedExists) {
                             $connection->update($attTable, [
                                 'state' => 'staged',
@@ -165,6 +191,13 @@ class AttachmentQuotaReconciler
                             ], ['attachment_id = ?' => $attId, 'state = ?' => 'finalizing']);
                             $corrected++;
                         } else {
+                            $resId = (string)($staleAtt['reservation_id'] ?? '');
+                            if ($resId !== '' && $connection->isTableExists($resTable)) {
+                                $connection->update($resTable, [
+                                    'state' => 'released',
+                                    'updated_at' => gmdate('Y-m-d H:i:s')
+                                ], ['reservation_id = ?' => $resId, 'state = ?' => 'active']);
+                            }
                             $connection->update($attTable, [
                                 'state' => 'failed',
                                 'updated_at' => gmdate('Y-m-d H:i:s')

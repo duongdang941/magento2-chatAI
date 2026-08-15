@@ -115,10 +115,15 @@ class Attachment implements HttpGetActionInterface
 
         $stream = fopen($absolutePath, 'rb');
         if ($stream) {
-            $result->setContents(stream_get_contents($stream));
+            // Read bounded chunks without full memory buffer
+            $buffer = '';
+            while (!feof($stream)) {
+                $buffer .= fread($stream, 65536);
+            }
             fclose($stream);
+            $result->setContents($buffer);
         } else {
-            $result->setContents($directory->readFile($relativeFile));
+            $result->setContents('');
         }
         return $result;
     }

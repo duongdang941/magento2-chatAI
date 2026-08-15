@@ -275,23 +275,16 @@ export function toGeminiParts(parts = [], fallbackText = '') {
         const attachmentRef = extractAttachmentRef(part);
         if (attachmentRef) {
             hasImage = true;
-            if (attachmentRef.url || attachmentRef.fileUri) {
+            const fileUri = attachmentRef.url || attachmentRef.fileUri || (attachmentRef.attachment_id
+                ? `/afd_ai/chat/attachment?id=${encodeURIComponent(attachmentRef.attachment_id)}`
+                : '');
+            if (fileUri) {
                 normalizedParts.push({
                     fileData: {
-                        fileUri: attachmentRef.url || attachmentRef.fileUri,
+                        fileUri,
                         mimeType: attachmentRef.mime_type || 'image/jpeg'
                     }
                 });
-            } else if (attachmentRef.attachment_id) {
-                const localData = resolveLocalAttachmentData(attachmentRef.attachment_id);
-                if (localData) {
-                    normalizedParts.push({
-                        inlineData: {
-                            mimeType: localData.mimeType,
-                            data: localData.data
-                        }
-                    });
-                }
             }
             continue;
         }

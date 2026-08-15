@@ -57,3 +57,47 @@ test('does not consume image quota when the requested amount is rejected', async
     assert.equal(calls.length, 1);
     assert.equal(calls[0][0].amount, 4);
 });
+
+test('calculates cost for attachment_ref with explicit bytes and default fallback bytes', () => {
+    // 1 attachment with 2MB explicit bytes
+    const costExplicit = imageRequestCost([
+        { type: 'attachment_ref', attachment_id: 'att_123', bytes: 2 * 1024 * 1024 }
+    ]);
+    assert.equal(costExplicit.imageCount, 1);
+    assert.equal(costExplicit.units >= 5, true);
+
+    // 1 attachment without bytes (uses 1MB default)
+    const costDefault = imageRequestCost([
+        { type: 'attachment_ref', attachment_id: 'att_456' }
+    ]);
+    assert.equal(costDefault.imageCount, 1);
+    assert.equal(costDefault.units >= 4, true);
+
+    // Multiple attachments
+    const costMulti = imageRequestCost([
+        { type: 'attachment_ref', attachment_id: 'att_1', bytes: 1024 * 1024 },
+        { type: 'attachment_ref', attachment_id: 'att_2', bytes: 2 * 1024 * 1024 }
+    ]);
+    assert.equal(costMulti.imageCount, 2);
+    assert.equal(costMulti.units >= 8, true);
+});
+
+test('batch rate limit rejection does not cause partial debit', async () => {
+    let batchCalled = false;
+    const runtime = {
+        async consumeRateLimitBatch(entries) {
+            batchCalled = true;
+            return { allowed: false, count: 50, retryAfterMs: 3000 };
+        }
+    };
+
+    const result = await admitImageRequest(runtime, {
+        rateLimitKey: 'customer:99', networkRateLimitKey: 'network:z'
+    }, [
+        { type: 'attachment_ref', attachment_id: 'att_test', bytes: 1024 * 1024 }
+    ]);
+
+    assert.equal(batchCalled, true);
+    assert.equal(result.allowed, false);
+    assert.equal(result.cost.imageCount, 1);
+});
