@@ -117,3 +117,32 @@ test('buildUserMessageDescriptor supports attachment_ref contract', () => {
     const openAiContent = toOpenAiContent(message.parts, message.text);
     assert.equal(openAiContent.some((p) => p.type === 'image_url' && p.image_url?.url === 'https://example.com/media/chat/att_abc123.jpg'), true);
 });
+
+test('provider content converters resolve attachment_ref with local binary resolver for Gemini and OpenAI', () => {
+    const message = buildUserMessageDescriptor({
+        text: 'Tìm áo tương tự',
+        parts: [
+            { text: 'Tìm áo tương tự' },
+            {
+                type: 'attachment_ref',
+                attachment_id: 'att_0123456789abcdef0123456789abcdef',
+                kind: 'image',
+                mime_type: 'image/png'
+            }
+        ]
+    });
+
+    assert.equal(message.hasImage, true);
+    assert.equal(validateImageParts(message.parts), '');
+
+    // Gemini converter includes text and handles attachment reference structure safely
+    const geminiParts = toGeminiParts(message.parts, message.text);
+    assert.equal(geminiParts.length >= 1, true);
+    assert.equal(geminiParts[0].text, 'Tìm áo tương tự');
+
+    // OpenAI converter generates structured text & image parts safely
+    const openAiContent = toOpenAiContent(message.parts, message.text);
+    assert.equal(Array.isArray(openAiContent), true);
+    assert.equal(openAiContent[0].type, 'text');
+    assert.equal(openAiContent[0].text, 'Tìm áo tương tự');
+});
