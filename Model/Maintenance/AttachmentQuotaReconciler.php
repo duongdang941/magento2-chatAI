@@ -173,8 +173,16 @@ class AttachmentQuotaReconciler
                                         $ownerKey
                                     );
                                     $corrected++;
-                                } catch (\Throwable) {
-                                    // Already settled
+                                } catch (\Throwable $e) {
+                                    $checkRow = $this->attachmentRepository->getAttachment($attId);
+                                    if ($checkRow && ($checkRow['state'] ?? '') === 'committed') {
+                                        $corrected++;
+                                    } else {
+                                        $this->logger->warning(
+                                            'Afd AI quota reconciler failed to commit stale finalizing attachment: ' . $attId,
+                                            ['exception' => $e]
+                                        );
+                                    }
                                 }
                             } else {
                                 $connection->update($attTable, [

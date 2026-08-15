@@ -195,7 +195,7 @@ export function validateImageParts(parts = [], options = {}) {
     return '';
 }
 
-export function toOpenAiContent(parts = [], fallbackText = '') {
+export function toOpenAiContent(parts = [], fallbackText = '', baseUrl = '') {
     const normalizedParts = [];
     let hasImage = false;
     let hasText = false;
@@ -217,9 +217,12 @@ export function toOpenAiContent(parts = [], fallbackText = '') {
         const attachmentRef = extractAttachmentRef(part);
         if (attachmentRef) {
             hasImage = true;
-            const imageUrl = attachmentRef.url || (attachmentRef.attachment_id
+            const relativePath = attachmentRef.attachment_id
                 ? `/afd_ai/chat/attachment?id=${encodeURIComponent(attachmentRef.attachment_id)}`
-                : '');
+                : '';
+            const imageUrl = attachmentRef.url || (baseUrl && relativePath
+                ? `${baseUrl.replace(/\/+$/, '')}${relativePath}`
+                : relativePath);
             if (imageUrl) {
                 normalizedParts.push({
                     type: 'image_url',
@@ -256,7 +259,7 @@ export function toOpenAiContent(parts = [], fallbackText = '') {
     return normalizedParts;
 }
 
-export function toGeminiParts(parts = [], fallbackText = '') {
+export function toGeminiParts(parts = [], fallbackText = '', baseUrl = '') {
     const normalizedParts = [];
     let hasImage = false;
     let hasText = false;
@@ -275,9 +278,12 @@ export function toGeminiParts(parts = [], fallbackText = '') {
         const attachmentRef = extractAttachmentRef(part);
         if (attachmentRef) {
             hasImage = true;
-            const fileUri = attachmentRef.url || attachmentRef.fileUri || (attachmentRef.attachment_id
+            const relativePath = attachmentRef.attachment_id
                 ? `/afd_ai/chat/attachment?id=${encodeURIComponent(attachmentRef.attachment_id)}`
-                : '');
+                : '';
+            const fileUri = attachmentRef.url || attachmentRef.fileUri || (baseUrl && relativePath
+                ? `${baseUrl.replace(/\/+$/, '')}${relativePath}`
+                : relativePath);
             if (fileUri) {
                 normalizedParts.push({
                     fileData: {

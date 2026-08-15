@@ -29,7 +29,7 @@ class Attachment implements HttpGetActionInterface
         private readonly GuestChatIdentity $guestChatIdentity,
         private readonly ConversationIdentity $conversationIdentity,
         private readonly Filesystem $filesystem,
-        private readonly ?\Magento\Framework\App\Response\Http\FileFactory $fileFactory = null
+        private readonly \Magento\Framework\App\Response\Http\FileFactory $fileFactory
     ) {
     }
 
@@ -86,46 +86,16 @@ class Attachment implements HttpGetActionInterface
         }
 
         $mimeType = self::MIME_BY_EXTENSION[$extension];
-        $stat = $directory->stat($relativeFile);
-        $fileSize = (int)($stat['size'] ?? 0);
-        $absolutePath = $directory->getAbsolutePath($relativeFile);
 
-        if ($this->fileFactory !== null) {
-            return $this->fileFactory->create(
-                basename($relativeFile),
-                [
-                    'type' => 'filename',
-                    'value' => $relativeFile
-                ],
-                DirectoryList::VAR_DIR,
-                $mimeType
-            );
-        }
-
-        /** @var Raw $result */
-        $result = $this->resultFactory->create(ResultFactory::TYPE_RAW);
-        $result->setHeader('Content-Type', $mimeType, true);
-        $result->setHeader('Content-Length', (string)$fileSize, true);
-        $result->setHeader('Content-Disposition', 'inline; filename="' . basename($relativeFile) . '"', true);
-        $result->setHeader('Cache-Control', 'private, no-store, max-age=0', true);
-        $result->setHeader('X-Content-Type-Options', 'nosniff', true);
-        $result->setHeader('X-Frame-Options', 'DENY', true);
-        $result->setHeader('Cross-Origin-Resource-Policy', 'same-origin', true);
-        $result->setHeader('Referrer-Policy', 'no-referrer', true);
-
-        $stream = fopen($absolutePath, 'rb');
-        if ($stream) {
-            // Read bounded chunks without full memory buffer
-            $buffer = '';
-            while (!feof($stream)) {
-                $buffer .= fread($stream, 65536);
-            }
-            fclose($stream);
-            $result->setContents($buffer);
-        } else {
-            $result->setContents('');
-        }
-        return $result;
+        return $this->fileFactory->create(
+            basename($relativeFile),
+            [
+                'type' => 'filename',
+                'value' => $relativeFile
+            ],
+            DirectoryList::VAR_DIR,
+            $mimeType
+        );
     }
 
     private function notFound(): Raw

@@ -191,8 +191,14 @@ class AttachmentRepository
             $now = gmdate('Y-m-d H:i:s');
             $releaseReserved = $fileSize;
 
-            // 1. Validate & Lock Reservation if provided
-            if ($reservationId !== null && $reservationId !== '' && $connection->isTableExists($tableRes)) {
+            // 1. Validate & Lock Reservation if provided (Fail-Closed)
+            if ($reservationId !== null && $reservationId !== '') {
+                if (!$connection->isTableExists($tableRes)) {
+                    throw new \Magento\Framework\Exception\LocalizedException(
+                        __('Attachment reservation table is unavailable.')
+                    );
+                }
+
                 $resSelect = $connection->select()->from($tableRes)
                     ->where('reservation_id = ?', $reservationId)
                     ->where('attachment_id = ?', $attachmentId)
@@ -202,20 +208,24 @@ class AttachmentRepository
                     ->forUpdate(true);
 
                 $resRow = $connection->fetchRow($resSelect);
-                if ($resRow) {
-                    $releaseReserved = (int)($resRow['reserved_bytes'] ?? $fileSize);
-                    $affectedRes = $connection->update($tableRes, [
-                        'state' => 'committed',
-                        'updated_at' => $now
-                    ], [
-                        'reservation_id = ?' => $reservationId,
-                        'state = ?' => 'active'
-                    ]);
-                    if ($affectedRes === 0) {
-                        throw new \Magento\Framework\Exception\LocalizedException(
-                            __('Attachment reservation conflict or already processed.')
-                        );
-                    }
+                if (!$resRow) {
+                    throw new \Magento\Framework\Exception\LocalizedException(
+                        __('Valid active attachment reservation was not found or has expired.')
+                    );
+                }
+
+                $releaseReserved = (int)($resRow['reserved_bytes'] ?? $fileSize);
+                $affectedRes = $connection->update($tableRes, [
+                    'state' => 'committed',
+                    'updated_at' => $now
+                ], [
+                    'reservation_id = ?' => $reservationId,
+                    'state = ?' => 'active'
+                ]);
+                if ($affectedRes === 0) {
+                    throw new \Magento\Framework\Exception\LocalizedException(
+                        __('Attachment reservation conflict or already processed.')
+                    );
                 }
             }
 

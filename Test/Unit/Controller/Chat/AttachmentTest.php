@@ -23,6 +23,7 @@ class AttachmentTest extends TestCase
     private GuestChatIdentity|MockObject $guestChatIdentity;
     private ConversationIdentity|MockObject $conversationIdentity;
     private Filesystem|MockObject $filesystem;
+    private \Magento\Framework\App\Response\Http\FileFactory|MockObject $fileFactory;
     private Attachment $controller;
 
     protected function setUp(): void
@@ -33,6 +34,7 @@ class AttachmentTest extends TestCase
         $this->guestChatIdentity = $this->createMock(GuestChatIdentity::class);
         $this->conversationIdentity = $this->createMock(ConversationIdentity::class);
         $this->filesystem = $this->createMock(Filesystem::class);
+        $this->fileFactory = $this->createMock(\Magento\Framework\App\Response\Http\FileFactory::class);
 
         $this->controller = new Attachment(
             $this->request,
@@ -40,7 +42,8 @@ class AttachmentTest extends TestCase
             $this->customerSession,
             $this->guestChatIdentity,
             $this->conversationIdentity,
-            $this->filesystem
+            $this->filesystem,
+            $this->fileFactory
         );
     }
 
@@ -60,17 +63,21 @@ class AttachmentTest extends TestCase
         $readDir->method('isFile')->willReturnCallback(function (string $path) {
             return str_ends_with($path, 'att_0123456789abcdef0123456789abcdef.png');
         });
-        $readDir->method('stat')->willReturn(['size' => 1024]);
-        $readDir->method('getAbsolutePath')->willReturn(__FILE__);
         $this->filesystem->method('getDirectoryRead')->willReturn($readDir);
 
-        $rawResult = $this->createMock(Raw::class);
-        $rawResult->expects($this->atLeastOnce())->method('setHeader')->willReturnSelf();
-        $rawResult->expects($this->once())->method('setContents')->willReturnSelf();
-        $this->resultFactory->method('create')->with(ResultFactory::TYPE_RAW)->willReturn($rawResult);
+        $mockResponse = $this->createMock(\Magento\Framework\App\ResponseInterface::class);
+        $this->fileFactory->expects($this->once())
+            ->method('create')
+            ->with(
+                'att_0123456789abcdef0123456789abcdef.png',
+                $this->callback(fn($val) => ($val['type'] ?? '') === 'filename'),
+                \Magento\Framework\App\Filesystem\DirectoryList::VAR_DIR,
+                'image/png'
+            )
+            ->willReturn($mockResponse);
 
         $result = $this->controller->execute();
-        $this->assertSame($rawResult, $result);
+        $this->assertSame($mockResponse, $result);
     }
 
     public function testExecuteServesFileByConversationAndFilename(): void
@@ -90,17 +97,21 @@ class AttachmentTest extends TestCase
 
         $readDir = $this->createMock(ReadInterface::class);
         $readDir->method('isFile')->willReturn(true);
-        $readDir->method('stat')->willReturn(['size' => 2048]);
-        $readDir->method('getAbsolutePath')->willReturn(__FILE__);
         $this->filesystem->method('getDirectoryRead')->willReturn($readDir);
 
-        $rawResult = $this->createMock(Raw::class);
-        $rawResult->expects($this->atLeastOnce())->method('setHeader')->willReturnSelf();
-        $rawResult->expects($this->once())->method('setContents')->willReturnSelf();
-        $this->resultFactory->method('create')->with(ResultFactory::TYPE_RAW)->willReturn($rawResult);
+        $mockResponse = $this->createMock(\Magento\Framework\App\ResponseInterface::class);
+        $this->fileFactory->expects($this->once())
+            ->method('create')
+            ->with(
+                $filename,
+                $this->callback(fn($val) => ($val['type'] ?? '') === 'filename'),
+                \Magento\Framework\App\Filesystem\DirectoryList::VAR_DIR,
+                'image/jpeg'
+            )
+            ->willReturn($mockResponse);
 
         $result = $this->controller->execute();
-        $this->assertSame($rawResult, $result);
+        $this->assertSame($mockResponse, $result);
     }
 
     public function testExecuteReturns404WhenUnownedConversation(): void
@@ -148,21 +159,22 @@ class AttachmentTest extends TestCase
 
             $readDir = $this->createMock(ReadInterface::class);
             $readDir->method('isFile')->willReturnCallback(fn(string $p) => str_ends_with($p, '.' . $ext));
-            $readDir->method('stat')->willReturn(['size' => 512]);
-            $readDir->method('getAbsolutePath')->willReturn(__FILE__);
             $filesystem = $this->createMock(Filesystem::class);
             $filesystem->method('getDirectoryRead')->willReturn($readDir);
 
-            $rawResult = $this->createMock(Raw::class);
-            $setHeaders = [];
-            $rawResult->method('setHeader')->willReturnCallback(function ($name, $value) use (&$setHeaders, $rawResult) {
-                $setHeaders[$name] = $value;
-                return $rawResult;
-            });
-            $rawResult->method('setContents')->willReturnSelf();
+            $mockResponse = $this->createMock(\Magento\Framework\App\ResponseInterface::class);
+            $fileFactory = $this->createMock(\Magento\Framework\App\Response\Http\FileFactory::class);
+            $fileFactory->expects($this->once())
+                ->method('create')
+                ->with(
+                    $attachmentId . '.' . $ext,
+                    $this->anything(),
+                    \Magento\Framework\App\Filesystem\DirectoryList::VAR_DIR,
+                    $expectedMime
+                )
+                ->willReturn($mockResponse);
 
             $resultFactory = $this->createMock(ResultFactory::class);
-            $resultFactory->method('create')->with(ResultFactory::TYPE_RAW)->willReturn($rawResult);
 
             $controller = new Attachment(
                 $request,
@@ -170,11 +182,12 @@ class AttachmentTest extends TestCase
                 $customerSession,
                 $this->guestChatIdentity,
                 $this->conversationIdentity,
-                $filesystem
+                $filesystem,
+                $fileFactory
             );
 
-            $controller->execute();
-            $this->assertSame($expectedMime, $setHeaders['Content-Type'] ?? null, "MIME type mismatch for {$ext}");
+            $result = $controller->execute();
+            $this->assertSame($mockResponse, $result);
         }
     }
 }
