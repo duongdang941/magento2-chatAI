@@ -39,7 +39,8 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
         private readonly AiConfig $config,
         private readonly Filesystem $filesystem,
         private readonly AttachmentUploadManagement $uploadManagement,
-        private readonly LoggerInterface $logger
+        private readonly LoggerInterface $logger,
+        private readonly ?\Afd\AI\Model\Attachment\AttachmentRepository $attachmentRepository = null
     ) {
     }
 
@@ -237,6 +238,15 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
                 'success' => false,
                 'error' => 'Failed to stage uploaded attachment.'
             ]);
+        }
+
+        if ($this->attachmentRepository) {
+            $this->attachmentRepository->recordStaged(
+                $attachmentId,
+                $finalRelativePath,
+                $totalBytes,
+                $sha256
+            );
         }
 
         return $result->setData([

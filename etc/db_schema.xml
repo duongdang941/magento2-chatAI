@@ -264,4 +264,44 @@
         <constraint xsi:type="unique" referenceId="AFD_AI_ATTACHMENT_QUOTA_SCOPE"><column name="scope_type"/><column name="scope_key"/></constraint>
         <index referenceId="AFD_AI_ATTACHMENT_QUOTA_UPDATED"><column name="updated_at"/></index>
     </table>
+
+    <table name="afd_ai_attachment" resource="default" engine="innodb" comment="AI Chat Upload Attachments">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="Attachment Primary ID"/>
+        <column xsi:type="varchar" name="attachment_id" nullable="false" length="64" comment="Opaque Public Attachment ID"/>
+        <column xsi:type="varchar" name="owner_type" nullable="false" length="16" comment="customer or guest"/>
+        <column xsi:type="varchar" name="owner_key" nullable="false" length="64" comment="Owner Identifier"/>
+        <column xsi:type="int" name="conversation_id" unsigned="true" nullable="true" comment="Conversation ID"/>
+        <column xsi:type="varchar" name="state" nullable="false" length="16" default="issued" comment="State: issued, staged, committed, failed, expired"/>
+        <column xsi:type="varchar" name="staged_path" nullable="true" length="255" comment="Temporary Staged Relative Path"/>
+        <column xsi:type="varchar" name="final_path" nullable="true" length="255" comment="Final Conversation Relative Path"/>
+        <column xsi:type="varchar" name="mime_type" nullable="false" length="32" default="image/jpeg" comment="MIME Type"/>
+        <column xsi:type="bigint" name="bytes" unsigned="true" nullable="false" default="0" comment="Attachment Byte Size"/>
+        <column xsi:type="varchar" name="sha256" nullable="true" length="64" comment="SHA-256 Digest"/>
+        <column xsi:type="varchar" name="reservation_id" nullable="true" length="64" comment="Quota Reservation ID"/>
+        <column xsi:type="varchar" name="nonce_hash" nullable="true" length="64" comment="Single-Use Ticket Nonce Hash"/>
+        <column xsi:type="timestamp" name="expires_at" nullable="false" on_update="false" default="CURRENT_TIMESTAMP" comment="Upload Expiration Timestamp"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" on_update="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
+        <column xsi:type="timestamp" name="updated_at" nullable="false" on_update="true" default="CURRENT_TIMESTAMP" comment="Updated At"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY"><column name="entity_id"/></constraint>
+        <constraint xsi:type="unique" referenceId="AFD_AI_ATTACHMENT_ID"><column name="attachment_id"/></constraint>
+        <index referenceId="AFD_AI_ATTACHMENT_OWNER_STATE" indexType="btree"><column name="owner_key"/><column name="state"/></index>
+        <index referenceId="AFD_AI_ATTACHMENT_CONVERSATION" indexType="btree"><column name="conversation_id"/><column name="state"/></index>
+        <index referenceId="AFD_AI_ATTACHMENT_EXPIRES" indexType="btree"><column name="state"/><column name="expires_at"/></index>
+    </table>
+
+    <table name="afd_ai_attachment_reservation" resource="default" engine="innodb" comment="AI Chat Upload Quota Reservations">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="Reservation Primary ID"/>
+        <column xsi:type="varchar" name="reservation_id" nullable="false" length="64" comment="Opaque Reservation ID"/>
+        <column xsi:type="varchar" name="attachment_id" nullable="false" length="64" comment="Attachment ID"/>
+        <column xsi:type="varchar" name="owner_path" nullable="false" length="128" comment="Owner Storage Path"/>
+        <column xsi:type="bigint" name="reserved_bytes" unsigned="true" nullable="false" default="0" comment="Reserved Bytes"/>
+        <column xsi:type="varchar" name="state" nullable="false" length="16" default="active" comment="active, committed, released, expired"/>
+        <column xsi:type="timestamp" name="expires_at" nullable="false" on_update="false" default="CURRENT_TIMESTAMP" comment="Expiry Timestamp"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" on_update="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
+        <column xsi:type="timestamp" name="updated_at" nullable="false" on_update="true" default="CURRENT_TIMESTAMP" comment="Updated At"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY"><column name="entity_id"/></constraint>
+        <constraint xsi:type="unique" referenceId="AFD_AI_ATTACHMENT_RES_ID"><column name="reservation_id"/></constraint>
+        <index referenceId="AFD_AI_ATTACHMENT_RES_EXPIRES" indexType="btree"><column name="state"/><column name="expires_at"/></index>
+        <index referenceId="AFD_AI_ATTACHMENT_RES_OWNER" indexType="btree"><column name="owner_path"/><column name="state"/></index>
+    </table>
 </schema>

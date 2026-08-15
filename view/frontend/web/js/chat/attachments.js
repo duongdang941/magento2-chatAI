@@ -590,13 +590,6 @@
                             kind: 'image',
                             purpose: 'vision'
                         });
-                    } else if (attachment.base64) {
-                        parts.push({
-                            inline_data: {
-                                mime_type: attachment.type,
-                                data: attachment.base64
-                            }
-                        });
                     }
                 });
                 return parts;

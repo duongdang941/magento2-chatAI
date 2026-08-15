@@ -35,7 +35,8 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
         private readonly ScopeConfigInterface $scopeConfig,
         private readonly EncryptorInterface $encryptor,
         private readonly Filesystem $filesystem,
-        private readonly ?\Magento\Framework\App\DeploymentConfig $deploymentConfig = null
+        private readonly ?\Magento\Framework\App\DeploymentConfig $deploymentConfig = null,
+        private readonly ?\Afd\AI\Model\Attachment\AttachmentRepository $attachmentRepository = null
     ) {
     }
 
@@ -83,6 +84,27 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
         $attachmentId = 'att_' . bin2hex(random_bytes(16));
         $expiresAt = time() + self::TICKET_TTL_SECONDS;
         $nonce = bin2hex(random_bytes(8));
+        $reservationId = 'res_' . bin2hex(random_bytes(16));
+
+        if ($this->attachmentRepository) {
+            $this->attachmentRepository->recordIssued(
+                $attachmentId,
+                (int)$this->customerSession->getCustomerId() > 0 ? 'customer' : 'guest',
+                (string)$ownerId,
+                $reserveBytes,
+                $normalizedMime,
+                $expiresAt,
+                $reservationId,
+                hash('sha256', $nonce)
+            );
+            $this->attachmentRepository->recordReservation(
+                $reservationId,
+                $attachmentId,
+                $ownerPath,
+                $reserveBytes,
+                $expiresAt
+            );
+        }
 
         $ticketPayload = [
             'aid' => $attachmentId,
@@ -93,6 +115,7 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
             'mime' => $normalizedMime,
             'exp' => $expiresAt,
             'nonce' => $nonce,
+            'res_id' => $reservationId
         ];
 
         $signedTicket = $this->signTicket($ticketPayload);
@@ -177,6 +200,13 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
             $this->quotaCounter->commit($ownerPath, $fileSize);
         } else {
             $this->quotaCounter->commit($ownerPath, $fileSize);
+        }
+
+        if ($this->attachmentRepository) {
+            $this->attachmentRepository->recordCommitted($attachmentId, $foundFile);
+            if (isset($payload['res_id'])) {
+                $this->attachmentRepository->releaseReservation((string)$payload['res_id']);
+            }
         }
 
         // Persist attachment meta state as committed
