@@ -220,28 +220,32 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
             }
         }
 
-        // Commit quota with safety check
-        if ($fileSize > $reservedBytes) {
-            $additionalBytes = $fileSize - $reservedBytes;
-            $this->quotaCounter->reserve(
-                $ownerPath,
-                (int)($limits['max_owner_storage_bytes'] ?? 67108864),
-                $additionalBytes,
-                (int)($limits['max_total_storage_bytes'] ?? 1073741824)
-            );
-            $this->quotaCounter->commit($ownerPath, $fileSize);
-        } elseif ($fileSize < $reservedBytes) {
-            $excessBytes = $reservedBytes - $fileSize;
-            $this->quotaCounter->releaseReservation($ownerPath, $excessBytes);
-            $this->quotaCounter->commit($ownerPath, $fileSize);
-        } else {
-            $this->quotaCounter->commit($ownerPath, $fileSize);
-        }
-
+        // Atomically commit quota, reservation, and attachment state in unified DB transaction
         if ($this->attachmentRepository) {
-            $this->attachmentRepository->recordCommitted($attachmentId, $foundFile);
-            if (isset($payload['res_id'])) {
-                $this->attachmentRepository->releaseReservation((string)$payload['res_id']);
+            $this->attachmentRepository->commitFinalAttachmentAtomic(
+                $attachmentId,
+                $foundFile,
+                $ownerPath,
+                $fileSize,
+                $resId ?: null
+            );
+        } else {
+            // Fallback for standalone / unit mock environment
+            if ($fileSize > $reservedBytes) {
+                $additionalBytes = $fileSize - $reservedBytes;
+                $this->quotaCounter->reserve(
+                    $ownerPath,
+                    (int)($limits['max_owner_storage_bytes'] ?? 67108864),
+                    $additionalBytes,
+                    (int)($limits['max_total_storage_bytes'] ?? 1073741824)
+                );
+                $this->quotaCounter->commit($ownerPath, $fileSize);
+            } elseif ($fileSize < $reservedBytes) {
+                $excessBytes = $reservedBytes - $fileSize;
+                $this->quotaCounter->releaseReservation($ownerPath, $excessBytes);
+                $this->quotaCounter->commit($ownerPath, $fileSize);
+            } else {
+                $this->quotaCounter->commit($ownerPath, $fileSize);
             }
         }
 

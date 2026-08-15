@@ -217,21 +217,14 @@ export function toOpenAiContent(parts = [], fallbackText = '') {
         const attachmentRef = extractAttachmentRef(part);
         if (attachmentRef) {
             hasImage = true;
-            if (attachmentRef.url) {
+            const imageUrl = attachmentRef.url || (attachmentRef.attachment_id
+                ? `/afd_ai/chat/attachment?id=${encodeURIComponent(attachmentRef.attachment_id)}`
+                : '');
+            if (imageUrl) {
                 normalizedParts.push({
                     type: 'image_url',
-                    image_url: { url: attachmentRef.url }
+                    image_url: { url: imageUrl }
                 });
-            } else if (attachmentRef.attachment_id) {
-                const localData = resolveLocalAttachmentData(attachmentRef.attachment_id);
-                if (localData) {
-                    normalizedParts.push({
-                        type: 'image_url',
-                        image_url: {
-                            url: `data:${localData.mimeType};base64,${localData.data}`
-                        }
-                    });
-                }
             }
             continue;
         }
@@ -282,7 +275,14 @@ export function toGeminiParts(parts = [], fallbackText = '') {
         const attachmentRef = extractAttachmentRef(part);
         if (attachmentRef) {
             hasImage = true;
-            if (attachmentRef.attachment_id) {
+            if (attachmentRef.url || attachmentRef.fileUri) {
+                normalizedParts.push({
+                    fileData: {
+                        fileUri: attachmentRef.url || attachmentRef.fileUri,
+                        mimeType: attachmentRef.mime_type || 'image/jpeg'
+                    }
+                });
+            } else if (attachmentRef.attachment_id) {
                 const localData = resolveLocalAttachmentData(attachmentRef.attachment_id);
                 if (localData) {
                     normalizedParts.push({

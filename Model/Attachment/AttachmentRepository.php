@@ -167,4 +167,86 @@ class AttachmentRepository
             'updated_at' => gmdate('Y-m-d H:i:s')
         ], ['reservation_id = ?' => $reservationId]);
     }
+
+    /**
+     * Atomically commits attachment, releases reservation, and commits quota in a single DB transaction.
+     */
+    public function commitFinalAttachmentAtomic(
+        string $attachmentId,
+        string $finalPath,
+        string $ownerPath,
+        int $fileSize,
+        ?string $reservationId = null,
+        ?int $conversationId = null
+    ): void {
+        $connection = $this->resource->getConnection();
+        $tableAtt = $this->resource->getTableName(self::TABLE_ATTACHMENT);
+        $tableRes = $this->resource->getTableName(self::TABLE_RESERVATION);
+        $tableQuota = $this->resource->getTableName('afd_ai_attachment_quota');
+
+        $connection->beginTransaction();
+        try {
+            // 1. Update attachment state to committed
+            $attData = [
+                'state' => 'committed',
+                'final_path' => $finalPath,
+                'bytes' => $fileSize,
+                'updated_at' => gmdate('Y-m-d H:i:s')
+            ];
+            if ($conversationId !== null && $conversationId > 0) {
+                $attData['conversation_id'] = $conversationId;
+            }
+            $connection->update($tableAtt, $attData, ['attachment_id = ?' => $attachmentId]);
+
+            // 2. Update reservation to committed
+            if ($reservationId !== null && $reservationId !== '') {
+                $connection->update($tableRes, [
+                    'state' => 'committed',
+                    'updated_at' => gmdate('Y-m-d H:i:s')
+                ], ['reservation_id = ?' => $reservationId]);
+            }
+
+            // 3. Update quota counters atomically
+            if ($connection->isTableExists($tableQuota)) {
+                $ownerRow = $connection->fetchRow(
+                    $connection->select()->from($tableQuota)
+                        ->where('scope_type = ?', 'owner')
+                        ->where('scope_key = ?', $ownerPath)
+                        ->forUpdate(true)
+                );
+                if ($ownerRow) {
+                    $reservedBytes = (int)$ownerRow['reserved_bytes'];
+                    $newReserved = max(0, $reservedBytes - $fileSize);
+                    $newUsed = (int)$ownerRow['used_bytes'] + $fileSize;
+                    $connection->update($tableQuota, [
+                        'used_bytes' => $newUsed,
+                        'reserved_bytes' => $newReserved,
+                        'updated_at' => gmdate('Y-m-d H:i:s')
+                    ], ['scope_id = ?' => (int)$ownerRow['scope_id']]);
+                }
+
+                $globalRow = $connection->fetchRow(
+                    $connection->select()->from($tableQuota)
+                        ->where('scope_type = ?', 'global')
+                        ->where('scope_key = ?', 'module')
+                        ->forUpdate(true)
+                );
+                if ($globalRow) {
+                    $reservedBytes = (int)$globalRow['reserved_bytes'];
+                    $newReserved = max(0, $reservedBytes - $fileSize);
+                    $newUsed = (int)$globalRow['used_bytes'] + $fileSize;
+                    $connection->update($tableQuota, [
+                        'used_bytes' => $newUsed,
+                        'reserved_bytes' => $newReserved,
+                        'updated_at' => gmdate('Y-m-d H:i:s')
+                    ], ['scope_id = ?' => (int)$globalRow['scope_id']]);
+                }
+            }
+
+            $connection->commit();
+        } catch (\Throwable $e) {
+            $connection->rollBack();
+            throw $e;
+        }
+    }
 }
