@@ -162,9 +162,10 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
             $canFinalize = $this->attachmentRepository->tryMarkFinalizing($attachmentId);
             if (!$canFinalize) {
                 $existingRecord = $this->attachmentRepository->getAttachment($attachmentId);
-                if ($existingRecord && in_array($existingRecord['state'] ?? '', ['committed', 'finalizing'], true)) {
+                if ($existingRecord && ($existingRecord['state'] ?? '') === 'committed') {
                     return true;
                 }
+                throw new LocalizedException(__('Attachment finalization is currently in progress. Please retry.'));
             }
         } elseif ($varDir->isFile($metaPath)) {
             $existingMeta = json_decode((string)$varDir->readFile($metaPath), true);
@@ -209,6 +210,15 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
 
         $limits = $this->config->getAttachmentConfig();
         $reservedBytes = (int)($payload['reserved_bytes'] ?? $fileSize);
+        $resId = (string)($payload['res_id'] ?? '');
+
+        // Use DB reservation authority if available
+        if ($resId !== '' && $this->attachmentRepository) {
+            $resRow = $this->attachmentRepository->getReservation($resId);
+            if ($resRow && ($resRow['state'] ?? '') === 'active') {
+                $reservedBytes = (int)($resRow['reserved_bytes'] ?? $reservedBytes);
+            }
+        }
 
         // Commit quota with safety check
         if ($fileSize > $reservedBytes) {

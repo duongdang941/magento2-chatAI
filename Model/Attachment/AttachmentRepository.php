@@ -65,11 +65,13 @@ class AttachmentRepository
         ], ['attachment_id = ?' => $attachmentId]);
     }
 
-    public function tryMarkFinalizing(string $attachmentId): bool
+    public function tryMarkFinalizing(string $attachmentId, int $leaseSeconds = 30): bool
     {
         $connection = $this->resource->getConnection();
         $table = $this->resource->getTableName(self::TABLE_ATTACHMENT);
+        $staleThreshold = gmdate('Y-m-d H:i:s', time() - $leaseSeconds);
 
+        // Allow transition from issued/staged or expired finalizing lease (> 30s)
         $affected = $connection->update(
             $table,
             [
@@ -78,7 +80,11 @@ class AttachmentRepository
             ],
             [
                 'attachment_id = ?' => $attachmentId,
-                'state IN (?)' => ['issued', 'staged']
+                'state IN (?) OR (state = ? AND updated_at < ?)' => [
+                    ['issued', 'staged'],
+                    'finalizing',
+                    $staleThreshold
+                ]
             ]
         );
 
@@ -137,6 +143,18 @@ class AttachmentRepository
             'created_at' => gmdate('Y-m-d H:i:s'),
             'updated_at' => gmdate('Y-m-d H:i:s')
         ]);
+    }
+
+    public function getReservation(string $reservationId): ?array
+    {
+        $connection = $this->resource->getConnection();
+        $table = $this->resource->getTableName(self::TABLE_RESERVATION);
+
+        $row = $connection->fetchRow(
+            $connection->select()->from($table)->where('reservation_id = ?', $reservationId)
+        );
+
+        return is_array($row) && !empty($row) ? $row : null;
     }
 
     public function releaseReservation(string $reservationId): void
