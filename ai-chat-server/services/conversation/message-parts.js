@@ -332,3 +332,136 @@ function isImagePlaceholderText(value) {
     const normalized = normalizeSearchableText(value);
     return normalized ? IMAGE_PLACEHOLDER_TEXTS.has(normalized) : false;
 }
+
+export function recordOutboundAssistantPart(assistantParts, parsed) {
+    if (!Array.isArray(assistantParts) || !parsed || typeof parsed !== 'object') return;
+
+    if (parsed.type === 'chunk' && parsed.content) {
+        const lastPart = assistantParts[assistantParts.length - 1];
+        if (lastPart && lastPart.type === 'text') {
+            lastPart.raw += parsed.content;
+        } else {
+            assistantParts.push({ type: 'text', raw: parsed.content });
+        }
+    } else if (parsed.type === 'discard_thinking_text') {
+        discardLatestThinkingText(assistantParts);
+    } else if (parsed.type === 'products_html' && parsed.html) {
+        const incomingPart = {
+            type: 'products',
+            html: parsed.html,
+            payload: parsed.products && typeof parsed.products === 'object' ? parsed.products : null
+        };
+        const existingIndex = findLastProductPartIndex(assistantParts);
+        if (existingIndex >= 0) {
+            assistantParts.splice(existingIndex, 1, incomingPart);
+        } else {
+            assistantParts.push(incomingPart);
+        }
+    } else if (parsed.type === 'image_generated' && parsed.url) {
+        assistantParts.push({
+            type: 'image',
+            url: String(parsed.url),
+            alt: String(parsed.alt || 'Generated image'),
+            prompt: String(parsed.alt || '').slice(0, 4000),
+            size: String(parsed.size || ''),
+            quality: String(parsed.quality || '')
+        });
+    } else if (parsed.type === 'guest_order_access_required') {
+        assistantParts.push({
+            type: 'guest_order_access',
+            state: 'email',
+            purpose: parsed.purpose === 'support' ? 'support' : 'order',
+            expires_at: parsed.expires_at
+        });
+    } else if (parsed.type === 'thinking_delta') {
+        let reasoningPart = assistantParts.find(p => p.type === 'reasoning');
+        if (!reasoningPart) {
+            reasoningPart = { type: 'reasoning', events: [], steps: [], activities: [] };
+            assistantParts.unshift(reasoningPart);
+        }
+        if (!Array.isArray(reasoningPart.events)) reasoningPart.events = [];
+        const stepId = String(parsed.step_id || 'step-active');
+        let stepItem = reasoningPart.events.find(e => e.type === 'step' && e.id === stepId);
+        if (!stepItem) {
+            stepItem = {
+                id: stepId,
+                type: 'step',
+                content: ''
+            };
+            reasoningPart.events.push(stepItem);
+        }
+        stepItem.content += String(parsed.delta || '');
+    } else if (parsed.type === 'discard_tentative_step') {
+        let reasoningPart = assistantParts.find(p => p.type === 'reasoning');
+        if (reasoningPart && Array.isArray(reasoningPart.events)) {
+            const stepId = String(parsed.step_id || '');
+            if (stepId) {
+                reasoningPart.events = reasoningPart.events.filter(e => e.id !== stepId);
+            }
+        }
+    } else if (parsed.type === 'thinking_step' && parsed.content) {
+        let reasoningPart = assistantParts.find(p => p.type === 'reasoning');
+        if (!reasoningPart) {
+            reasoningPart = { type: 'reasoning', events: [], steps: [], activities: [] };
+            assistantParts.unshift(reasoningPart);
+        }
+        if (!Array.isArray(reasoningPart.events)) reasoningPart.events = [];
+        const stepId = String(parsed.step_id || 'step-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7));
+        const existing = reasoningPart.events.find(e => e.type === 'step' && e.id === stepId);
+        if (existing) {
+            existing.content = String(parsed.content);
+        } else {
+            const stepItem = {
+                id: stepId,
+                type: 'step',
+                content: String(parsed.content),
+                tool: String(parsed.tool || '')
+            };
+            reasoningPart.events.push(stepItem);
+            if (Array.isArray(reasoningPart.steps)) reasoningPart.steps.push(stepItem);
+        }
+    } else if (parsed.type === 'tool_activity' && parsed.tool) {
+        let reasoningPart = assistantParts.find(p => p.type === 'reasoning');
+        if (!reasoningPart) {
+            reasoningPart = { type: 'reasoning', events: [], steps: [], activities: [] };
+            assistantParts.unshift(reasoningPart);
+        }
+        if (!Array.isArray(reasoningPart.events)) reasoningPart.events = [];
+        const activityId = String(parsed.activity_id || '');
+        const existing = reasoningPart.events.find(a => a.type === 'activity' && a.id === activityId);
+        if (existing) {
+            existing.state = parsed.state;
+            if (parsed.result_count !== undefined) existing.result_count = parsed.result_count;
+        } else {
+            const actItem = {
+                id: activityId,
+                type: 'activity',
+                tool: String(parsed.tool || ''),
+                state: String(parsed.state || 'running'),
+                result_count: parsed.result_count
+            };
+            reasoningPart.events.push(actItem);
+            if (Array.isArray(reasoningPart.activities)) reasoningPart.activities.push(actItem);
+        }
+    }
+}
+
+export function discardLatestThinkingText(parts) {
+    if (!Array.isArray(parts)) return;
+    for (let index = parts.length - 1; index >= 0; index -= 1) {
+        if (parts[index]?.type === 'text') {
+            parts.splice(index, 1);
+            return;
+        }
+        if (parts[index]?.type === 'products') {
+            return;
+        }
+    }
+}
+
+function findLastProductPartIndex(parts) {
+    for (let index = parts.length - 1; index >= 0; index -= 1) {
+        if (parts[index]?.type === 'products') return index;
+    }
+    return -1;
+}

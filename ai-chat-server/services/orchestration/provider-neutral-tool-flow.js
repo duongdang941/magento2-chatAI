@@ -74,10 +74,6 @@ export function createProviderNeutralToolFlow({
     const reconcile = (results = []) => {
         state.catalogIdentityResolved = false;
         state.hasVisibleImages = false;
-        state.hasVisibleProducts = false;
-        state.lastToolOutcome = null;
-        state.pendingProductPresentation = null;
-        state.terminalCatalog = false;
         state.toolErrorMessage = '';
 
         for (const result of Array.isArray(results) ? results : []) {
@@ -105,6 +101,7 @@ export function createProviderNeutralToolFlow({
             if (result.error) state.toolErrorMessage = result.error;
         }
 
+        state.hasVisibleProducts = Boolean(state.pendingProductPresentation && !state.terminalCatalog);
         return getState();
     };
 

@@ -260,19 +260,116 @@
             return container.innerHTML;
         }
 
-        function sanitizeHtml(rawText) {
-            let html = typeof marked !== 'undefined'
-                ? marked.parse(rawText, { breaks: true, gfm: true })
-                : escapeHtml(rawText).replace(/\r?\n/g, '<br>');
-            if (typeof DOMPurify !== 'undefined') {
-                html = DOMPurify.sanitize(html, {
-                    ADD_ATTR: ['data-code-copy', 'data-code-language']
-                });
-            } else {
-                // Never inject unsanitized model output when the sanitizer CDN is unavailable.
-                html = escapeHtml(rawText).replace(/\r?\n/g, '<br>');
+        function getMarkedParser() {
+            if (typeof window !== 'undefined') {
+                if (window.marked && typeof window.marked.parse === 'function') {
+                    return window.marked;
+                }
+                if (typeof window.require === 'function') {
+                    try {
+                        if (window.require.defined && window.require.defined('marked')) {
+                            const m = window.require('marked');
+                            if (m && typeof m.parse === 'function') {
+                                window.marked = m;
+                                return m;
+                            }
+                        }
+                    } catch (e) {}
+                }
             }
-            return enhanceMarkdownCodeBlocks(enhanceMarkdownLinks(enhanceBareTextLinks(html)));
+            if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+                return marked;
+            }
+            return null;
+        }
+
+        function getDomPurify() {
+            if (typeof window !== 'undefined') {
+                if (window.DOMPurify && typeof window.DOMPurify.sanitize === 'function') {
+                    return window.DOMPurify;
+                }
+                if (typeof window.require === 'function') {
+                    try {
+                        if (window.require.defined && window.require.defined('DOMPurify')) {
+                            const p = window.require('DOMPurify');
+                            if (p && typeof p.sanitize === 'function') {
+                                window.DOMPurify = p;
+                                return p;
+                            }
+                        }
+                    } catch (e) {}
+                }
+            }
+            if (typeof DOMPurify !== 'undefined' && typeof DOMPurify.sanitize === 'function') {
+                return DOMPurify;
+            }
+            return null;
+        }
+
+        function normalizeMarkdownWhitespace(text) {
+            return String(text || '')
+                .replace(/(\*\*[^*\n]+\*\*)\s*\n{2,}/g, '$1\n')
+                .replace(/(\r?\n){3,}/g, '\n\n');
+        }
+
+        function parseBasicMarkdownFallback(text) {
+            let clean = normalizeMarkdownWhitespace(text);
+            let result = escapeHtml(clean);
+            // Bold: **text** or __text__
+            result = result.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            result = result.replace(/__(.+?)__/g, '<strong>$1</strong>');
+            // Italic: *text* or _text_
+            result = result.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+            result = result.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+            // Markdown link: [label](url)
+            result = result.replace(/\[([^\]]+)\]\((https?:\/\/[^\s\)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="afd-ai-chat__message-link">$1</a>');
+            // Linebreaks: collapse double newlines after bold title
+            result = result.replace(/(<strong>.+?<\/strong>)\s*<br\s*\/?>\s*<br\s*\/?>/gi, '$1<br>');
+            result = result.replace(/\r?\n/g, '<br>');
+            result = result.replace(/(?:<br\s*\/?>\s*){3,}/gi, '<br><br>');
+            return result;
+        }
+
+        function renderMarkdownWithParser(text) {
+            const parser = getMarkedParser();
+            const cleanText = normalizeMarkdownWhitespace(text);
+            if (!parser) return parseBasicMarkdownFallback(cleanText);
+            try {
+                if (typeof parser.parse === 'function') {
+                    return parser.parse(cleanText, { breaks: true, gfm: true });
+                }
+                if (typeof parser === 'function') {
+                    return parser(cleanText, { breaks: true, gfm: true });
+                }
+                if (parser.marked && typeof parser.marked.parse === 'function') {
+                    return parser.marked.parse(cleanText, { breaks: true, gfm: true });
+                }
+                if (parser.default && typeof parser.default.parse === 'function') {
+                    return parser.default.parse(cleanText, { breaks: true, gfm: true });
+                }
+            } catch (e) {
+                console.warn('[AFD-AI-CHAT] Markdown parser error, falling back:', e);
+            }
+            return parseBasicMarkdownFallback(cleanText);
+        }
+
+        function sanitizeHtml(rawText) {
+            try {
+                const normalizedText = normalizeMalformedMarkdownLinks(rawText);
+                let html = renderMarkdownWithParser(normalizedText);
+                const purify = getDomPurify();
+                if (purify && typeof purify.sanitize === 'function') {
+                    try {
+                        html = purify.sanitize(html, {
+                            ADD_ATTR: ['data-code-copy', 'data-code-language']
+                        });
+                    } catch (e) {}
+                }
+                return enhanceMarkdownCodeBlocks(enhanceMarkdownLinks(enhanceBareTextLinks(html)));
+            } catch (error) {
+                console.error('[AFD-AI-CHAT] sanitizeHtml error:', error);
+                return parseBasicMarkdownFallback(rawText);
+            }
         }
 
         function sanitizeStreamingHtml(rawText) {

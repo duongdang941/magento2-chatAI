@@ -126,6 +126,57 @@
                                                     <span class="material-symbols-outlined" aria-hidden="true">delete</span>
                                                     <span>This message was deleted.</span>
                                                 </p>
+                                                 <!-- Codex-style Reasoning / Thinking Accordion for completed turns -->
+                                                <template x-for="part in msg.parts" :key="'reasoning-' + part.id">
+                                                    <template x-if="part.type === 'reasoning' && ((part.events && part.events.length > 0) || (part.steps && part.steps.length > 0) || (part.activities && part.activities.length > 0))">
+                                                        <div class="afd-ai-chat__reasoning-accordion">
+                                                            <button type="button"
+                                                                    class="afd-ai-chat__reasoning-toggle"
+                                                                    @click.stop="toggleReasoning(part)"
+                                                                    :aria-expanded="part.isExpanded ? 'true' : 'false'">
+                                                                <span class="afd-ai-chat__reasoning-title" x-text="reasoningTitle(part)"></span>
+                                                                <span class="material-symbols-outlined afd-ai-chat__reasoning-chevron"
+                                                                      :class="{ 'afd-ai-chat__reasoning-chevron--expanded': part.isExpanded }"
+                                                                      aria-hidden="true">expand_more</span>
+                                                            </button>
+                                                            <div class="afd-ai-chat__reasoning-content" x-show="part.isExpanded">
+                                                                <div class="afd-ai-chat__reasoning-timeline">
+                                                                    <!-- Interleaved chronological event timeline -->
+                                                                    <template x-for="event in (part.events || [])" :key="event.id">
+                                                                        <div class="afd-ai-chat__reasoning-timeline-item">
+                                                                            <template x-if="event.type === 'step'">
+                                                                                <div class="afd-ai-chat__reasoning-step-message" x-html="renderMarkdown(event.content)"></div>
+                                                                            </template>
+                                                                            <template x-if="event.type === 'activity'">
+                                                                                <div class="afd-ai-chat__tool-activity" :class="'afd-ai-chat__tool-activity--' + event.state">
+                                                                                    <span class="material-symbols-outlined afd-ai-chat__tool-activity-icon" aria-hidden="true" x-text="toolActivityIcon(event)"></span>
+                                                                                    <span class="afd-ai-chat__tool-activity-label" x-text="toolActivityLabel(event)"></span>
+                                                                                    <span class="material-symbols-outlined afd-ai-chat__tool-activity-state" x-show="event.state !== 'running'" aria-hidden="true" x-text="event.state === 'completed' ? 'check' : 'error'"></span>
+                                                                                </div>
+                                                                            </template>
+                                                                        </div>
+                                                                    </template>
+                                                                    <!-- Backward compatibility fallback for legacy messages -->
+                                                                    <template x-if="!part.events || part.events.length === 0">
+                                                                        <div>
+                                                                            <template x-for="step in (part.steps || [])" :key="step.id || step.content">
+                                                                                <div class="afd-ai-chat__reasoning-step-message" x-html="renderMarkdown(step.content)"></div>
+                                                                            </template>
+                                                                            <template x-for="act in (part.activities || [])" :key="act.id || act.tool">
+                                                                                <div class="afd-ai-chat__tool-activity" :class="'afd-ai-chat__tool-activity--' + act.state">
+                                                                                    <span class="material-symbols-outlined afd-ai-chat__tool-activity-icon" aria-hidden="true" x-text="toolActivityIcon(act)"></span>
+                                                                                    <span class="afd-ai-chat__tool-activity-label" x-text="toolActivityLabel(act)"></span>
+                                                                                    <span class="material-symbols-outlined afd-ai-chat__tool-activity-state" x-show="act.state !== 'running'" aria-hidden="true" x-text="act.state === 'completed' ? 'check' : 'error'"></span>
+                                                                                </div>
+                                                                            </template>
+                                                                        </div>
+                                                                    </template>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </template>
+                                                </template>
+
                                                 <!-- Render all text content first -->
                                                 <template x-for="part in msg.parts" :key="'text-' + part.id">
                                                     <template x-if="part.type === 'text' && (part.streaming === true || (part.html || '').trim().length > 0)">
@@ -864,39 +915,44 @@
                             </div>
                         </div>
 
-                        <!-- A stable, customer-safe tool timeline. It shows action
-                             progress only; raw tool payloads and model reasoning are
-                             never rendered here. -->
+                        <!-- Live Codex-style Thinking & Action Timeline while stream is active -->
                         <div x-show="isLoading && !isHistoryLoading && currentAiMessageIndex === -1"
                              class="afd-ai-chat__msg-ai afd-ai-chat__msg-ai--thinking"
                              x-transition.opacity.duration.150ms>
                             <div class="afd-ai-chat__msg-content">
-                                <div class="afd-ai-chat__thinking-row">
-                                    <span class="afd-ai-chat__thinking-shimmer">
-                                        Thinking
-                                        <span class="afd-ai-chat__thinking-shimmer-sweep" aria-hidden="true">
-                                            <span class="afd-ai-chat__thinking-shimmer-highlight">Thinking</span>
+                                <div class="afd-ai-chat__thinking-card">
+                                    <div class="afd-ai-chat__thinking-header">
+                                        <span class="material-symbols-outlined afd-ai-chat__thinking-icon" aria-hidden="true">psychology</span>
+                                        <span class="afd-ai-chat__thinking-shimmer">
+                                            Thinking
+                                            <span class="afd-ai-chat__thinking-shimmer-sweep" aria-hidden="true">
+                                                <span class="afd-ai-chat__thinking-shimmer-highlight">Thinking</span>
+                                            </span>
                                         </span>
-                                    </span>
-                                    <div x-show="toolActivities.length > 0"
-                                         class="afd-ai-chat__tool-activity-list"
-                                         aria-live="polite"
-                                         aria-atomic="false">
-                                        <template x-for="activity in toolActivities" :key="activity.id">
-                                            <div class="afd-ai-chat__tool-activity"
-                                                 :class="'afd-ai-chat__tool-activity--' + activity.state">
-                                                <span class="material-symbols-outlined afd-ai-chat__tool-activity-icon"
-                                                      aria-hidden="true"
-                                                      x-text="toolActivityIcon(activity)"></span>
-                                                <span class="afd-ai-chat__tool-activity-label" x-text="toolActivityLabel(activity)"></span>
-                                                <span class="material-symbols-outlined afd-ai-chat__tool-activity-state"
-                                                      x-show="activity.state !== 'running'"
-                                                      aria-hidden="true"
-                                                      x-text="activity.state === 'completed' ? 'check' : 'error'"></span>
+                                    </div>
+                                    <div class="afd-ai-chat__thinking-live-timeline" x-show="(thinkingEvents && thinkingEvents.length > 0) || thinkingSteps.length > 0 || toolActivities.length > 0">
+                                        <template x-for="event in (thinkingEvents || [])" :key="event.id">
+                                            <div class="afd-ai-chat__thinking-timeline-item">
+                                                <template x-if="event.type === 'step'">
+                                                    <div class="afd-ai-chat__thinking-step-message" x-html="renderStreamingMarkdown(event.content)"></div>
+                                                </template>
+                                                <template x-if="event.type === 'activity'">
+                                                    <div class="afd-ai-chat__tool-activity"
+                                                         :class="'afd-ai-chat__tool-activity--' + event.state">
+                                                        <span class="material-symbols-outlined afd-ai-chat__tool-activity-icon"
+                                                              aria-hidden="true"
+                                                              x-text="toolActivityIcon(event)"></span>
+                                                        <span class="afd-ai-chat__tool-activity-label" x-text="toolActivityLabel(event)"></span>
+                                                        <span class="material-symbols-outlined afd-ai-chat__tool-activity-state"
+                                                              x-show="event.state !== 'running'"
+                                                              aria-hidden="true"
+                                                              x-text="event.state === 'completed' ? 'check' : 'error'"></span>
+                                                    </div>
+                                                </template>
                                             </div>
                                         </template>
                                     </div>
-                                    <div x-show="toolActivities.length === 0 && statusMessage && statusMessage.trim().length > 0"
+                                    <div x-show="(!thinkingEvents || thinkingEvents.length === 0) && thinkingSteps.length === 0 && toolActivities.length === 0 && statusMessage && statusMessage.trim().length > 0"
                                          x-transition.opacity.duration.150ms
                                          class="afd-ai-chat__tool-activity"
                                          aria-live="polite"

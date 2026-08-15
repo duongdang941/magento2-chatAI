@@ -376,11 +376,13 @@ const {
                     return;
                 }
                 if (data.type === 'conversation_messages') {
+                    console.log('[AFD-AI-CHAT] WS received conversation_messages:', data);
                     if (data.status === 'success') {
                         this.clearTransportNotice('history-load-timeout');
                         this.clearTransportNotice('history-load-failed');
                     }
                     if (!this.isCurrentConversationResponse(data)) {
+                        console.warn('[AFD-AI-CHAT] Ignored conversation_messages not matching current load token/id:', { data, activeId: this.activeConversationId, token: this.activeHistoryLoadToken });
                         if (data.append === true) {
                             this.isLoadingOlderMessages = false;
                             this.historyScrollHeightBeforeLoad = 0;

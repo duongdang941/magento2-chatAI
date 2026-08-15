@@ -53,5 +53,6 @@ test('builds a native Gemini image-generation request from the shared image tool
 
     assert.equal(request.model, 'gemini-3.1-flash-image');
     assert.deepEqual(request.body.generationConfig.responseModalities, ['IMAGE']);
-    assert.equal(request.body.generationConfig.responseFormat.image.aspectRatio, '3:2');
+    assert.equal(request.body.generationConfig.responseFormat.image.aspectRatio, 'ASPECT_RATIO_3_2');
+    assert.equal(request.body.generationConfig.responseFormat.image.imageSize, 'IMAGE_SIZE_1K');
 });

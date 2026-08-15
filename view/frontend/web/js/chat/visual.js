@@ -182,6 +182,17 @@ const {
                             return this.createOrderAddressFormPart(part);
                         }
 
+                        if (part.type === 'reasoning') {
+                            return {
+                                id,
+                                type: 'reasoning',
+                                events: Array.isArray(part.events) ? part.events : [],
+                                steps: Array.isArray(part.steps) ? part.steps : [],
+                                activities: Array.isArray(part.activities) ? part.activities : [],
+                                isExpanded: Boolean(part.isExpanded)
+                            };
+                        }
+
                         const raw = sanitizeCustomerResponseText(part.raw || part.text || '');
                         return {
                             id,

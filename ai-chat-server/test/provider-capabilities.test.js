@@ -24,6 +24,7 @@ test('reports only the configured Gemini capabilities without exposing credentia
     assert.equal(capabilities.live_voice.supported, false);
     assert.equal(JSON.stringify(capabilities).includes('secret-that-must-not-be-in-the-result'), false);
 });
+
 test('keeps OpenAI Realtime separate from ordinary provider credentials', () => {
     const capabilities = getProviderCapabilities({
         provider: 'openai',
@@ -60,3 +61,4 @@ test('rejects an enabled chat provider without an API key but permits a disabled
     assert.deepEqual(disabled.errors, []);
     assert.deepEqual(disabled.warnings, []);
 });
+

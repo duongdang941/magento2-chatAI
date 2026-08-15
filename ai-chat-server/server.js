@@ -38,6 +38,7 @@ import * as db from './services/gateway/db-service.js';
 import { GuestSessionHistory } from './services/conversation/guest-session-history.js';
 import {
     buildUserMessageDescriptor,
+    recordOutboundAssistantPart,
     validateImageParts
 } from './services/conversation/message-parts.js';
 import {
@@ -1037,6 +1038,7 @@ wss.on('connection', async (ws, req) => {
                         : (mode === 'database'
                             ? await db.getGuestConversation(data.conversation_id, guestHistoryIdentity(client), client.catalogScope || null)
                             : await guestSessionHistory.get(client.sessionId, data.conversation_id));
+                    console.log('[AI-SERVER] load_conversation:', { conversation_id: data.conversation_id, customerId: client.customerId, guestId: guestHistoryIdentity(client), mode, found: Boolean(conv) });
                     if (!conv) {
                         ws.send(JSON.stringify({ type: 'conversation_messages', messages: [], status: 'error', conversationId: Number(data.conversation_id) || 0, client_load_token: String(data.client_load_token || '') }));
                         return;
@@ -1051,6 +1053,7 @@ wss.on('connection', async (ws, req) => {
                         client,
                         data.conversation_id
                     );
+                    console.log('[AI-SERVER] sending conversation_messages:', { conversation_id: data.conversation_id, count: messages.length });
                     ws.send(JSON.stringify({
                         type: 'conversation_messages',
                         status: 'success',
@@ -1689,53 +1692,13 @@ async function handleChat(ws, data, client, requestConfig = null) {
                             }
                         }
                         ws.send(outbound);
-                        if (parsed.type === 'chunk' && parsed.content) {
-                            const lastPart = assistantParts[assistantParts.length - 1];
-                            if (lastPart && lastPart.type === 'text') {
-                                lastPart.raw += parsed.content;
-                            } else {
-                                assistantParts.push({ type: 'text', raw: parsed.content });
-                            }
-                        } else if (parsed.type === 'discard_thinking_text') {
-                            discardLatestThinkingText(assistantParts);
-                        } else if (parsed.type === 'stream_reset') {
-                            // Compatibility with an older gateway during a rolling
-                            // deploy. Never discard customer-visible text from the
-                            // stored conversation; current orchestrators emit
-                            // discard_thinking_text only for transient narration.
-                        } else if (parsed.type === 'products_html' && parsed.html) {
-                            const incomingPart = {
-                                type: 'products',
-                                html: parsed.html,
-                                payload: parsed.products && typeof parsed.products === 'object' ? parsed.products : null
-                            };
-                            // A turn may retrieve several candidate sets while
-                            // the model refines its answer. Persist only the
-                            // final shopper-facing result set.
-                            replaceProductPart(assistantParts, incomingPart);
-                        } else if (parsed.type === 'image_generated' && parsed.url) {
-                            assistantParts.push({
-                                type: 'image',
-                                url: String(parsed.url),
-                                alt: String(parsed.alt || 'Generated image'),
-                                prompt: String(parsed.alt || '').slice(0, 4000),
-                                size: String(parsed.size || ''),
-                                quality: String(parsed.quality || '')
-                            });
-                        } else if (parsed.type === 'guest_order_access_required') {
-                            assistantParts.push({
-                                type: 'guest_order_access',
-                                state: 'email',
-                                purpose: parsed.purpose === 'support' ? 'support' : 'order',
-                                expires_at: parsed.expires_at
-                            });
-                        } else if (parsed.type === 'order_address_form') {
+                        recordOutboundAssistantPart(assistantParts, parsed);
+                        if (parsed.type === 'order_address_form') {
                             const addressForm = normalizeOrderAddressFormPart(parsed);
                             if (addressForm) {
                                 addressUpdateAdmission.activate(client, conversationId, addressForm).catch((error) => {
                                     console.warn('[Address form] Could not activate form:', summarizeError(error));
                                 });
-                                assistantParts.push(addressForm);
                             }
                         }
                     } catch (e) {
@@ -1859,18 +1822,6 @@ async function handleChat(ws, data, client, requestConfig = null) {
         if (admission) await admission.release().catch(() => {});
         metrics.observe('chat_duration', (Date.now() - processingStartedAt) / 1000);
         clearActiveRun(ws, run);
-    }
-}
-
-function discardLatestThinkingText(parts) {
-    for (let index = parts.length - 1; index >= 0; index -= 1) {
-        if (parts[index]?.type === 'text') {
-            parts.splice(index, 1);
-            return;
-        }
-        if (parts[index]?.type === 'products') {
-            return;
-        }
     }
 }
 

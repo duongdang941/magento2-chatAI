@@ -581,6 +581,35 @@ const {
                 }
             },
 
+            toggleReasoning(part) {
+                if (part) {
+                    part.isExpanded = !part.isExpanded;
+                    this.scheduleGuestSessionSnapshot?.();
+                }
+            },
+
+            reasoningTitle(part) {
+                if (!part) return 'Thought process';
+                const events = Array.isArray(part.events) ? part.events : [];
+                const count = events.length || ((Array.isArray(part.steps) ? part.steps.length : 0) + (Array.isArray(part.activities) ? part.activities.length : 0));
+                if (count <= 1) return 'Thought process (1 step)';
+                return `Thought process (${count} steps)`;
+            },
+
+            renderMarkdown(content) {
+                if (!content) return '';
+                return typeof sanitizeHtml === 'function'
+                    ? sanitizeHtml(content)
+                    : (window.marked ? window.marked.parse(content) : String(content));
+            },
+
+            renderStreamingMarkdown(content) {
+                if (!content) return '';
+                return typeof sanitizeStreamingHtml === 'function'
+                    ? sanitizeStreamingHtml(content)
+                    : (typeof sanitizeHtml === 'function' ? sanitizeHtml(content) : String(content));
+            },
+
             isProductPageLoading(part) {
                 return Boolean(part?.id && this.productPageLoading[String(part.id)]);
             },
@@ -1255,7 +1284,7 @@ const {
                     return;
                 }
 
-                if (['chunk', 'products_html', 'products_page', 'status', 'tool_activity', 'image_generation_started', 'image_generated', 'image_generation_failed', 'guest_order_access_required'].includes(data.type)) {
+                if (['chunk', 'thinking_step', 'products_html', 'products_page', 'status', 'tool_activity', 'image_generation_started', 'image_generated', 'image_generation_failed', 'guest_order_access_required'].includes(data.type)) {
                     this.armResponseWatchdog();
                 }
 
@@ -1278,20 +1307,79 @@ const {
                 } else if (data.type === 'discard_thinking_text') {
                     this.discardThinkingText();
 
+                } else if (data.type === 'thinking_delta') {
+                    const stepId = String(data.step_id || 'active-step');
+                    if (!Array.isArray(this.thinkingEvents)) this.thinkingEvents = [];
+                    let step = this.thinkingEvents.find(e => e.type === 'step' && e.id === stepId);
+                    if (!step) {
+                        step = {
+                            id: stepId,
+                            type: 'step',
+                            content: ''
+                        };
+                        this.thinkingEvents.push(step);
+                    }
+                    step.content += String(data.delta || '');
+                    this.isLoading = true;
+                    this.scheduleStreamingScroll();
+
+                } else if (data.type === 'discard_tentative_step') {
+                    const stepId = String(data.step_id || '');
+                    if (stepId && Array.isArray(this.thinkingEvents)) {
+                        this.thinkingEvents = this.thinkingEvents.filter(e => e.id !== stepId);
+                    }
+
+                } else if (data.type === 'thinking_step') {
+                    if (data.content && typeof data.content === 'string') {
+                        const stepId = String(data.step_id || 'step-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7));
+                        if (!Array.isArray(this.thinkingEvents)) this.thinkingEvents = [];
+                        let step = this.thinkingEvents.find(e => e.type === 'step' && e.id === stepId);
+                        if (step) {
+                            step.content = data.content;
+                        } else {
+                            this.thinkingEvents.push({
+                                id: stepId,
+                                type: 'step',
+                                content: data.content,
+                                tool: String(data.tool || '')
+                            });
+                        }
+                        this.isLoading = true;
+                        this.scrollToBottom();
+                    }
+
                 } else if (data.type === 'chunk') {
                     this.statusMessage = '';
                     if (this.currentAiMessageIndex === -1) {
+                        const parts = [];
+                        if (Array.isArray(this.thinkingEvents) && this.thinkingEvents.length > 0) {
+                            parts.push({
+                                id: 'reasoning-' + Date.now(),
+                                type: 'reasoning',
+                                events: [...this.thinkingEvents],
+                                isExpanded: false
+                            });
+                        }
+                        parts.push(this.createStreamingTextPart(data.content || ''));
                         this.messages.push({
                             role: 'assistant',
                             request_id: data.request_id || this.activeRequestId || '',
                             feedbackEnabled: false,
                             feedbackBusy: false,
-                            parts: [this.createStreamingTextPart(data.content || '')]
+                            parts
                         });
                         this.currentAiMessageIndex = this.messages.length - 1;
                     } else {
                         const msg = this.messages[this.currentAiMessageIndex];
                         if (msg) {
+                            if (Array.isArray(this.thinkingEvents) && this.thinkingEvents.length > 0 && !msg.parts.some(p => p?.type === 'reasoning')) {
+                                msg.parts.unshift({
+                                    id: 'reasoning-' + Date.now(),
+                                    type: 'reasoning',
+                                    events: [...this.thinkingEvents],
+                                    isExpanded: false
+                                });
+                            }
                             let lastPart = msg.parts[msg.parts.length - 1];
                             if (!lastPart || lastPart.type !== 'text') {
                                 msg.parts.push(this.createStreamingTextPart());
@@ -1310,12 +1398,23 @@ const {
                     const activityId = String(data.activity_id || 'tool-' + Date.now() + '-' + Math.random());
                     const nextActivity = {
                         id: activityId,
+                        type: 'activity',
                         tool: String(data.tool || ''),
                         state: ['running', 'completed', 'failed'].includes(data.state) ? data.state : 'running',
                         result_count: Number.isFinite(Number(data.result_count)) ? Number(data.result_count) : null
                     };
-                    const activityIndex = this.toolActivities.findIndex(activity => activity.id === activityId);
+                    if (!Array.isArray(this.thinkingEvents)) this.thinkingEvents = [];
+                    const eventIndex = this.thinkingEvents.findIndex(item => item.type === 'activity' && item.id === activityId);
+                    if (eventIndex === -1) {
+                        this.thinkingEvents.push(nextActivity);
+                    } else {
+                        this.thinkingEvents.splice(eventIndex, 1, {
+                            ...this.thinkingEvents[eventIndex],
+                            ...nextActivity
+                        });
+                    }
 
+                    const activityIndex = this.toolActivities.findIndex(activity => activity.id === activityId);
                     if (activityIndex === -1) {
                         this.toolActivities.push(nextActivity);
                     } else {
@@ -1593,6 +1692,7 @@ const {
                 } else if (data.type === 'done') {
                     const completedRequestId = String(data.request_id || this.activeRequestId || '');
                     this.finalizeStreamingMarkdown();
+                    this.flushPendingReasoningParts();
                     this.flushPendingProductParts();
                     this.flushPendingOrderAddressFormParts();
                     this.flushPendingGuestOrderAccessParts();
@@ -1630,12 +1730,60 @@ const {
                     this.pendingProductParts = [];
                     this.pendingOrderAddressFormParts = [];
                     this.pendingGuestOrderAccessParts = [];
+                    this.thinkingEvents = [];
+                    this.thinkingSteps = [];
+                    this.toolActivities = [];
                     this.responseStartedAt = 0;
                     this.clearResponseWatchdog();
                     if (!data.request_id || data.request_id === this.activeRequestId) {
                         this.activeRequestId = null;
                     }
                 }
+            },
+
+            flushPendingReasoningParts() {
+                const hasEvents = Array.isArray(this.thinkingEvents) && this.thinkingEvents.length > 0;
+                const hasLegacy = (Array.isArray(this.toolActivities) && this.toolActivities.length > 0)
+                    || (Array.isArray(this.thinkingSteps) && this.thinkingSteps.length > 0);
+                if (!hasEvents && !hasLegacy) {
+                    return;
+                }
+
+                let message = this.currentAiMessageIndex >= 0
+                    ? this.messages[this.currentAiMessageIndex]
+                    : null;
+
+                if (!message || message.role !== 'assistant' || !Array.isArray(message.parts)) {
+                    message = {
+                        role: 'assistant',
+                        request_id: this.activeRequestId || '',
+                        feedbackEnabled: false,
+                        feedbackBusy: false,
+                        parts: []
+                    };
+                    this.messages.push(message);
+                    this.currentAiMessageIndex = this.messages.length - 1;
+                }
+
+                const reasoningPart = {
+                    id: Date.now() + Math.random(),
+                    type: 'reasoning',
+                    events: [...(this.thinkingEvents || [])],
+                    steps: [...(this.thinkingSteps || [])],
+                    activities: [...(this.toolActivities || [])],
+                    isExpanded: false
+                };
+
+                const existingIndex = message.parts.findIndex(p => p?.type === 'reasoning');
+                if (existingIndex === -1) {
+                    message.parts.unshift(reasoningPart);
+                } else {
+                    message.parts[existingIndex] = reasoningPart;
+                }
+
+                this.thinkingEvents = [];
+                this.toolActivities = [];
+                this.thinkingSteps = [];
             },
 
             flushPendingProductParts() {

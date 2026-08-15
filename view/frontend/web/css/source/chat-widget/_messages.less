@@ -27,7 +27,8 @@
         min-width: 0;
         overflow-x: hidden;
         overflow-y: auto;
-        overscroll-behavior: contain;
+        overscroll-behavior: none;
+        scroll-behavior: auto !important;
         // Reserve the scrollbar rail before streamed text exceeds the visible
         // area. Without it, the reading column repeatedly loses and regains
         // a few pixels as chunks change the scroll height.
@@ -1354,32 +1355,48 @@
 
 .afd-ai-chat__msg-ai--thinking {
     min-height: 0;
-    // Keep the live activity timeline visually separate from the composer.
-    // The bottom margin participates in the scroll height, so auto-scroll
-    // still reveals every activity while leaving a calm reading gap below it.
     margin-bottom: 1.35rem;
     position: relative;
     top: -0.28rem;
 }
 
-.afd-ai-chat__thinking-row {
-    display: inline-flex;
+.afd-ai-chat__thinking-card {
+    display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    width: fit-content;
-    max-width: 100%;
-    gap: 0.28rem;
-    padding: 0.16rem 0;
+    gap: 0.5rem;
+    width: 100%;
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+.afd-ai-chat__thinking-header {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--afd-chat-text-faint-live, @afd-chat-text-faint);
+    font-size: ~"calc(0.8rem * var(--afd-chat-font-scale))";
+}
+
+.afd-ai-chat__thinking-icon {
+    font-size: 0.95rem;
+    color: var(--afd-chat-accent-live, @afd-chat-accent);
+    animation: afd-thinking-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes afd-thinking-pulse {
+    0%, 100% { opacity: 0.6; transform: scale(0.95); }
+    50% { opacity: 1; transform: scale(1.05); }
 }
 
 .afd-ai-chat__thinking-shimmer {
     position: relative;
     display: inline-block;
     overflow: hidden;
-    color: @afd-chat-text-muted;
-    font-size: ~"calc(0.82rem * var(--afd-chat-font-scale))";
-    font-weight: 520;
-    line-height: 1.5;
+    color: var(--afd-chat-text-faint-live, @afd-chat-text-faint);
+    font-size: ~"calc(0.8rem * var(--afd-chat-font-scale))";
+    font-weight: 500;
+    line-height: 1.4;
     white-space: nowrap;
 }
 
@@ -1398,13 +1415,127 @@
 .afd-ai-chat__thinking-shimmer-highlight {
     display: block;
     width: 200%;
-    color: @afd-chat-text;
+    color: var(--afd-chat-text-live, @afd-chat-text);
     transform: translateX(50%);
     animation: afd-thinking-shimmer-highlight 1.15s steps(48, end) infinite;
 }
 
+/* Codex-style Reasoning Accordion for completed turns */
+.afd-ai-chat__reasoning-accordion {
+    margin-bottom: 0.65rem;
+    border: none;
+    background: transparent;
+    padding: 0;
+}
+
+.afd-ai-chat__reasoning-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.15rem 0;
+    background: transparent;
+    border: none;
+    color: var(--afd-chat-text-faint-live, @afd-chat-text-faint);
+    font-size: ~"calc(0.78rem * var(--afd-chat-font-scale))";
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    user-select: none;
+    transition: color 0.15s ease;
+
+    &:hover {
+        color: var(--afd-chat-text-live, @afd-chat-text);
+    }
+}
+
+.afd-ai-chat__reasoning-title {
+    flex: none;
+}
+
+.afd-ai-chat__reasoning-chevron {
+    font-size: 0.95rem;
+    color: inherit;
+    flex-shrink: 0;
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+
+    &.afd-ai-chat__reasoning-chevron--expanded {
+        transform: rotate(180deg);
+    }
+}
+
+.afd-ai-chat__reasoning-content {
+    padding: 0.35rem 0 0 0;
+    border: none;
+}
+
+.afd-ai-chat__reasoning-timeline,
+.afd-ai-chat__thinking-live-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0;
+    margin: 0;
+    border: none;
+}
+
+.afd-ai-chat__reasoning-timeline-item,
+.afd-ai-chat__thinking-timeline-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.afd-ai-chat__reasoning-step-message,
+.afd-ai-chat__thinking-step-message {
+    font-size: ~"calc(0.85rem * var(--afd-chat-font-scale))";
+    color: var(--afd-chat-text-secondary-live, var(--afd-chat-text-live, @afd-chat-text));
+    line-height: 1.45;
+    word-break: break-word;
+
+    p {
+        margin: 0 0 0.2rem 0;
+        &:last-child {
+            margin-bottom: 0;
+        }
+    }
+
+    strong, b {
+        font-weight: 600;
+        color: var(--afd-chat-text-live, @afd-chat-text);
+    }
+
+    > strong:first-child,
+    > b:first-child,
+    p:first-child > strong:only-child,
+    p:first-child > b:only-child {
+        display: block;
+        margin-bottom: 0.15rem;
+        font-weight: 600;
+        color: var(--afd-chat-text-live, @afd-chat-text);
+    }
+
+    br + br {
+        display: none;
+    }
+
+    ul, ol {
+        margin: 0.2rem 0 0.35rem 1.15rem;
+        padding: 0;
+    }
+
+    li {
+        margin-bottom: 0.15rem;
+    }
+
+    a, .afd-ai-chat__message-link {
+        color: var(--afd-chat-accent-live, @afd-chat-accent);
+        text-decoration: underline;
+        word-break: break-word;
+    }
+}
+
 .afd-ai-chat__status-line {
-    color: @afd-chat-text-faint;
+    color: var(--afd-chat-text-faint-live, @afd-chat-text-faint);
     font-size: ~"calc(0.72rem * var(--afd-chat-font-scale))";
     line-height: 1.35;
 }

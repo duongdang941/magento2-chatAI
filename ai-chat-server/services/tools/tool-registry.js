@@ -126,7 +126,7 @@ export const TOOL_DEFINITIONS = Object.freeze([
     tool('searchWeb', 'Search current external information without sending private customer or store data.', objectSchema({
         query: { type: 'string' }
     }, ['query']), { risk: 'external_read' }),
-    tool('generateImage', 'Create a new image only after an explicit visual-generation request.', objectSchema({
+    tool('generateImage', 'Create a new visual picture, image, or artwork only when the user explicitly asks to draw or generate an image. Never use for text writing, essays, stories, poems, or text descriptions.', objectSchema({
         prompt: { type: 'string' }
     }, ['prompt']), { risk: 'paid_generation' })
 ]);

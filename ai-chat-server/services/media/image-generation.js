@@ -164,7 +164,12 @@ export function buildImageGenerationRequest(prompt, config = {}) {
             contents: [{ role: 'user', parts: [{ text: String(prompt || '').trim().slice(0, 4000) }] }],
             generationConfig: {
                 responseModalities: ['IMAGE'],
-                responseFormat: { image: { aspectRatio: aspectRatioFromSize(providerConfig.size), imageSize: '1K' } }
+                responseFormat: {
+                    image: {
+                        aspectRatio: geminiAspectRatioFromSize(providerConfig.size),
+                        imageSize: 'IMAGE_SIZE_1K'
+                    }
+                }
             }
         }
         : {
@@ -180,10 +185,10 @@ export function buildImageGenerationRequest(prompt, config = {}) {
     };
 }
 
-function aspectRatioFromSize(size) {
-    if (size === '1536x1024') return '3:2';
-    if (size === '1024x1536') return '2:3';
-    return '1:1';
+function geminiAspectRatioFromSize(size) {
+    if (size === '1536x1024') return 'ASPECT_RATIO_3_2';
+    if (size === '1024x1536') return 'ASPECT_RATIO_2_3';
+    return 'ASPECT_RATIO_1_1';
 }
 
 function geminiImageUrl(baseUrl, model) {

@@ -131,46 +131,17 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         for (let iteration = 0; iteration < maxToolRounds; iteration += 1) {
             if (isCancelled()) return { cancelled: true };
 
+            const currentStepId = 'step-' + (iteration + 1) + '-' + Math.random().toString(36).slice(2, 7);
             const assistantMessage = {
                 role: 'assistant',
                 content: '',
+                reasoning: '',
                 tool_calls: []
             };
-            const customerTurn = createCustomerTurnBuffer();
             const smoothEmitter = createSmoothChunkEmitter({
                 emit: content => ws.send(JSON.stringify({ type: 'chunk', content })),
                 isCancelled
             });
-            let releaseTimer = null;
-            let provisionalTextWasEmitted = false;
-            let customerTextStreamingEnabled = false;
-            const releaseCustomerText = () => {
-                const customerText = customerTurn.release();
-                if (!customerText) return;
-                provisionalTextWasEmitted = true;
-                smoothEmitter.push(customerText);
-            };
-            const scheduleCustomerTextRelease = () => {
-                if (releaseTimer !== null) return;
-                releaseTimer = setTimeout(() => {
-                    releaseTimer = null;
-                    customerTextStreamingEnabled = true;
-                    releaseCustomerText();
-                }, PROVISIONAL_TEXT_HOLD_MS);
-            };
-            const clearCustomerTextRelease = () => {
-                if (releaseTimer === null) return;
-                clearTimeout(releaseTimer);
-                releaseTimer = null;
-            };
-            const bufferCustomerText = (content) => {
-                customerTurn.push(content);
-                // Tool calls generally arrive together with the first provider
-                // deltas. After this short hold, ordinary answers return to
-                // genuine token streaming instead of a late full-text replay.
-                if (customerTextStreamingEnabled) releaseCustomerText();
-                else scheduleCustomerTextRelease();
-            };
             let finishReason = '';
             for (let providerAttempt = 0; providerAttempt < 2; providerAttempt += 1) {
                 const streamRequest = createProviderStreamSignal(signal, providerStreamTimeoutMs);
@@ -207,13 +178,30 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                                 collectToolCalls(assistantMessage.tool_calls, delta.tool_calls);
                             }
 
+                            if (typeof delta.reasoning_content === 'string' && delta.reasoning_content.length > 0) {
+                                assistantMessage.reasoning += delta.reasoning_content;
+                                ws.send(JSON.stringify({
+                                    type: 'thinking_delta',
+                                    step_id: currentStepId,
+                                    delta: delta.reasoning_content
+                                }));
+                            }
+                            if (typeof delta.reasoning === 'string' && delta.reasoning.length > 0) {
+                                assistantMessage.reasoning += delta.reasoning;
+                                ws.send(JSON.stringify({
+                                    type: 'thinking_delta',
+                                    step_id: currentStepId,
+                                    delta: delta.reasoning
+                                }));
+                            }
+
                             if (typeof delta.content === 'string' && delta.content.length > 0) {
                                 assistantMessage.content += delta.content;
-                                // Tool calls may arrive after normal text deltas. Hold
-                                // this turn until its finish reason is known so the UI
-                                // never hides Thinking, shows temporary narration, then
-                                // removes it again when a tool is selected.
-                                bufferCustomerText(delta.content);
+                                ws.send(JSON.stringify({
+                                    type: 'thinking_delta',
+                                    step_id: currentStepId,
+                                    delta: delta.content
+                                }));
                             }
                         },
                         isCancelled
@@ -244,35 +232,24 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             if (assistantMessage.content || toolCalls.length > 0) {
                 messages.push({
                     role: 'assistant',
-                    // A provider can narrate “I will search…” in the same
-                    // streamed turn as a tool call. Do not leak that unfinished
-                    // narration to the shopper or feed it into the final turn.
                     content: toolCalls.length > 0 ? null : (assistantMessage.content || null),
                     ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {})
                 });
             }
 
             if (toolCalls.length === 0) {
-                clearCustomerTextRelease();
-                releaseCustomerText();
-                const finalCustomerText = customerTurn.commit();
+                // Final answer turn: discard the tentative thinking step and stream final response to customer
+                ws.send(JSON.stringify({
+                    type: 'discard_tentative_step',
+                    step_id: currentStepId
+                }));
+                const finalCustomerText = (assistantMessage.content || '').trim();
                 if (finalCustomerText) {
                     smoothEmitter.push(finalCustomerText);
+                    hasVisibleText = true;
                 }
-                if (provisionalTextWasEmitted || finalCustomerText) hasVisibleText = true;
                 await smoothEmitter.drain();
                 break;
-            }
-
-            // A provider occasionally writes “I will check…” before it emits
-            // a tool call. Usually it is still held locally. If it already
-            // streamed, retract just that provisional narration before the
-            // tool timeline starts.
-            clearCustomerTextRelease();
-            customerTurn.discard();
-            if (provisionalTextWasEmitted) {
-                smoothEmitter.discard();
-                ws.send(JSON.stringify({ type: 'discard_thinking_text' }));
             }
 
             let stopAfterToolBatch = false;

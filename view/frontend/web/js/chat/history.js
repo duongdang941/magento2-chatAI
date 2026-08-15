@@ -36,6 +36,13 @@ const {
                             : []
                     ];
                 }
+                if (type === 'reasoning') {
+                    return [
+                        type,
+                        Array.isArray(part?.steps) ? part.steps.map(s => s.content) : [],
+                        Array.isArray(part?.activities) ? part.activities.map(a => a.tool) : []
+                    ];
+                }
                 if (type === 'image') return [type, String(part?.url || '')];
                 return [type, String(part?.raw || part?.content || '')];
             });
@@ -202,6 +209,7 @@ const {
 
             switchConversation(conversationId, forceReload = false, options = {}) {
                 const targetConversationId = Number(conversationId) || 0;
+                console.log('[AFD-AI-CHAT] switchConversation triggered:', { targetConversationId, forceReload, options, activeId: this.activeConversationId, wsConnected: this.wsConnected });
                 if (!targetConversationId) return;
                 if (!forceReload && Number(this.activeConversationId) === targetConversationId && this.hasStartedChat) return;
 
@@ -253,8 +261,10 @@ const {
                     refresh: preserveVisibleMessages
                 };
                 if (this.socket && this.wsConnected) {
+                    console.log('[AFD-AI-CHAT] Sending WS load_conversation request:', request);
                     this.socket.send(JSON.stringify(request));
                 } else {
+                    console.log('[AFD-AI-CHAT] Sending HTTP load_conversation request for id:', targetConversationId);
                     fetch(urls.loadConversation + '?id=' + targetConversationId).then(r=>r.json()).then(data => {
                         const response = {
                             ...data,
@@ -262,10 +272,12 @@ const {
                             client_load_token: loadToken,
                             refresh: preserveVisibleMessages || data.refresh === true
                         };
+                        console.log('[AFD-AI-CHAT] HTTP load_conversation response:', response);
                         if (!this.isCurrentConversationResponse(response)) return;
                         this.isLoading = false;
                         this.applyConversationMessagePage(response, false);
-                    }).catch(() => {
+                    }).catch((err) => {
+                        console.error('[AFD-AI-CHAT] HTTP load_conversation error:', err);
                         if (loadToken !== this.activeHistoryLoadToken) return;
                         this.isLoading = false;
                         this.isHistoryLoading = false;
@@ -292,7 +304,9 @@ const {
             },
 
             applyConversationMessagePage(data, append) {
+                console.log('[AFD-AI-CHAT] applyConversationMessagePage received:', { data, append, activeId: this.activeConversationId });
                 if (!this.isCurrentConversationResponse(data)) {
+                    console.warn('[AFD-AI-CHAT] applyConversationMessagePage rejected by isCurrentConversationResponse');
                     if (append) {
                         this.isLoadingOlderMessages = false;
                         this.historyScrollHeightBeforeLoad = 0;
@@ -301,13 +315,20 @@ const {
                 }
                 this.isLoadingOlderMessages = false;
                 if (data.status !== 'success') {
+                    console.warn('[AFD-AI-CHAT] applyConversationMessagePage status not success:', data.status);
                     this.isHistoryLoading = false;
                     return;
                 }
 
-                const pageMessages = Array.isArray(data.messages)
-                    ? data.messages.map(message => this.normalizeLoadedMessage(message))
-                    : [];
+                let pageMessages = [];
+                try {
+                    pageMessages = Array.isArray(data.messages)
+                        ? data.messages.map(message => this.normalizeLoadedMessage(message))
+                        : [];
+                    console.log('[AFD-AI-CHAT] pageMessages normalized successfully:', { count: pageMessages.length, sample: pageMessages[0] });
+                } catch (err) {
+                    console.error('[AFD-AI-CHAT] Error normalizing loaded messages:', err);
+                }
                 this.hasOlderMessages = data.has_more === true;
                 this.nextMessageCursor = Number(data.next_before_message_id) || null;
 

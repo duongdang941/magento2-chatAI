@@ -34,6 +34,8 @@
             pendingOrderAddressFormParts: [],
             pendingGuestOrderAccessParts: [],
             toolActivities: [],
+            thinkingSteps: [],
+            thinkingEvents: [],
             statusMessage: '',
             imageGenerationNow: Date.now(),
             imageGenerationTimer: null,

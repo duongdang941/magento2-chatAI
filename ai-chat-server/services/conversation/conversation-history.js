@@ -229,6 +229,16 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
             const form = normalizeOrderAddressFormPart(part);
             if (form) return { id, ...form };
         }
+        if (part.type === 'reasoning') {
+            return {
+                id,
+                type: 'reasoning',
+                events: Array.isArray(part.events) ? part.events : [],
+                steps: Array.isArray(part.steps) ? part.steps : [],
+                activities: Array.isArray(part.activities) ? part.activities : [],
+                isExpanded: Boolean(part.isExpanded)
+            };
+        }
         const raw = sanitizeCustomerResponse(part.raw || part.text || '');
         return { id, type: 'text', raw, html: raw };
     }

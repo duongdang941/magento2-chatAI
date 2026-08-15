@@ -146,38 +146,11 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
 
             let combinedParts = [];
             let functionCalls = [];
-            const customerTurn = createCustomerTurnBuffer();
+            const currentStepId = 'step-' + (iteration + 1) + '-' + Math.random().toString(36).slice(2, 7);
             const smoothEmitter = createSmoothChunkEmitter({
                 emit: content => ws.send(JSON.stringify({ type: 'chunk', content })),
                 isCancelled
             });
-            let releaseTimer = null;
-            let provisionalTextWasEmitted = false;
-            let customerTextStreamingEnabled = false;
-            const releaseCustomerText = () => {
-                const customerText = customerTurn.release();
-                if (!customerText) return;
-                provisionalTextWasEmitted = true;
-                smoothEmitter.push(customerText);
-            };
-            const scheduleCustomerTextRelease = () => {
-                if (releaseTimer !== null) return;
-                releaseTimer = setTimeout(() => {
-                    releaseTimer = null;
-                    customerTextStreamingEnabled = true;
-                    releaseCustomerText();
-                }, PROVISIONAL_TEXT_HOLD_MS);
-            };
-            const clearCustomerTextRelease = () => {
-                if (releaseTimer === null) return;
-                clearTimeout(releaseTimer);
-                releaseTimer = null;
-            };
-            const bufferCustomerText = (content) => {
-                customerTurn.push(content);
-                if (customerTextStreamingEnabled) releaseCustomerText();
-                else scheduleCustomerTextRelease();
-            };
 
             for await (const chunk of result.stream) {
                 if (isCancelled()) {
@@ -188,10 +161,11 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 if (parts) {
                     for (const part of parts) {
                         if (part.text) {
-                            // Gemini can emit prose before function calls in the
-                            // same turn. Buffer it until the complete turn proves
-                            // it is a customer response rather than tool narration.
-                            bufferCustomerText(part.text);
+                            ws.send(JSON.stringify({
+                                type: 'thinking_delta',
+                                step_id: currentStepId,
+                                delta: part.text
+                            }));
                         }
 
                         const normalizedPart = normalizeGeminiModelPart(part);
@@ -219,14 +193,19 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 return { cancelled: true };
             }
 
-            // If AI called tools, we need to execute and continue
-            if (functionCalls.length > 0) {
-                clearCustomerTextRelease();
-                customerTurn.discard();
-                if (provisionalTextWasEmitted) {
-                    smoothEmitter.discard();
-                    ws.send(JSON.stringify({ type: 'discard_thinking_text' }));
+            // If AI did not call any tools, this is the final customer answer
+            if (functionCalls.length === 0) {
+                ws.send(JSON.stringify({
+                    type: 'discard_tentative_step',
+                    step_id: currentStepId
+                }));
+                const thoughtText = combinedParts.filter(p => p && p.text).map(p => p.text).join('').trim();
+                if (thoughtText) {
+                    smoothEmitter.push(thoughtText);
                 }
+                await smoothEmitter.drain();
+                break;
+            }
                 const functionResponses = await Promise.all(functionCalls.map(async (fnCall) => {
                     if (isCancelled()) return null;
                     const result = await toolFlow.execute({
@@ -268,18 +247,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                     }));
                     break;
                 }
-
-            } else {
-                clearCustomerTextRelease();
-                releaseCustomerText();
-                const finalCustomerText = customerTurn.commit();
-                if (finalCustomerText) {
-                    smoothEmitter.push(finalCustomerText);
-                }
-                if (provisionalTextWasEmitted || finalCustomerText) hasVisibleText = true;
-                await smoothEmitter.drain();
-                isDone = true;
-            }
         }
 
         if (!hasVisibleText) {

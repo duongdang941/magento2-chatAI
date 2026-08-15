@@ -36,7 +36,8 @@ const {
                     }
 
                     chatWindow.scrollLeft = 0;
-                    chatWindow.scrollTop = chatWindow.scrollHeight;
+                    const maxScrollTop = Math.max(0, chatWindow.scrollHeight - chatWindow.clientHeight);
+                    chatWindow.scrollTop = maxScrollTop;
                     this.isAtChatBottom = true;
                     this.hasUnreadMessages = false;
                 });
@@ -93,6 +94,8 @@ const {
                 return msg.parts.some((part) => (
                     part?.type === 'guest_order_access'
                     || part?.type === 'order_address_form'
+                    || part?.type === 'products'
+                    || part?.type === 'reasoning'
                     || (part?.type === 'text' && part.streaming === true)
                     || (part?.type === 'image' && (
                         part.status === 'generating'
@@ -100,6 +103,7 @@ const {
                         || part.url
                     ))
                     || (typeof part?.html === 'string' && part.html.trim().length > 0)
+                    || (typeof part?.raw === 'string' && part.raw.trim().length > 0)
                 ));
             },
             handleSuggestionClick(text) {
