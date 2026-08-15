@@ -10,6 +10,12 @@ export function imageRequestCost(parts = []) {
     let imageCount = 0;
     let encodedBytes = 0;
     for (const part of Array.isArray(parts) ? parts : []) {
+        if (part?.type === 'attachment_ref' || part?.attachment_id) {
+            imageCount += 1;
+            const bytes = Number(part.bytes || 1024 * 1024);
+            encodedBytes += Math.ceil(bytes * 4 / 3);
+            continue;
+        }
         const data = String(part?.inline_data?.data || '');
         if (!data) continue;
         imageCount += 1;
