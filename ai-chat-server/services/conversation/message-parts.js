@@ -217,17 +217,21 @@ export function toOpenAiContent(parts = [], fallbackText = '', baseUrl = '') {
         const attachmentRef = extractAttachmentRef(part);
         if (attachmentRef) {
             hasImage = true;
-            const relativePath = attachmentRef.attachment_id
-                ? `/afd_ai/chat/attachment?id=${encodeURIComponent(attachmentRef.attachment_id)}`
-                : '';
-            const imageUrl = attachmentRef.url || (baseUrl && relativePath
-                ? `${baseUrl.replace(/\/+$/, '')}${relativePath}`
-                : relativePath);
-            if (imageUrl) {
+            if (attachmentRef.url && /^https?:\/\/(?!localhost|127\.0\.0\.1|.*\.test)/i.test(attachmentRef.url)) {
                 normalizedParts.push({
                     type: 'image_url',
-                    image_url: { url: imageUrl }
+                    image_url: { url: attachmentRef.url }
                 });
+            } else if (attachmentRef.attachment_id) {
+                const localData = resolveLocalAttachmentData(attachmentRef.attachment_id);
+                if (localData) {
+                    normalizedParts.push({
+                        type: 'image_url',
+                        image_url: {
+                            url: `data:${localData.mimeType};base64,${localData.data}`
+                        }
+                    });
+                }
             }
             continue;
         }
@@ -278,19 +282,23 @@ export function toGeminiParts(parts = [], fallbackText = '', baseUrl = '') {
         const attachmentRef = extractAttachmentRef(part);
         if (attachmentRef) {
             hasImage = true;
-            const relativePath = attachmentRef.attachment_id
-                ? `/afd_ai/chat/attachment?id=${encodeURIComponent(attachmentRef.attachment_id)}`
-                : '';
-            const fileUri = attachmentRef.url || attachmentRef.fileUri || (baseUrl && relativePath
-                ? `${baseUrl.replace(/\/+$/, '')}${relativePath}`
-                : relativePath);
-            if (fileUri) {
+            if (attachmentRef.fileUri && !attachmentRef.fileUri.startsWith('/')) {
                 normalizedParts.push({
                     fileData: {
-                        fileUri,
+                        fileUri: attachmentRef.fileUri,
                         mimeType: attachmentRef.mime_type || 'image/jpeg'
                     }
                 });
+            } else if (attachmentRef.attachment_id) {
+                const localData = resolveLocalAttachmentData(attachmentRef.attachment_id);
+                if (localData) {
+                    normalizedParts.push({
+                        inlineData: {
+                            mimeType: localData.mimeType,
+                            data: localData.data
+                        }
+                    });
+                }
             }
             continue;
         }
@@ -364,34 +372,51 @@ export function resolveLocalAttachmentData(attachmentId, ownerPath = null) {
     }
 
     const exts = ['jpg', 'png', 'webp'];
-    if (ownerPath) {
-        for (const ext of exts) {
-            const directPath = path.join(varChatDir, ownerPath, 'staged', `${attachmentId}.${ext}`);
-            if (fs.existsSync(directPath)) {
-                return readAttachmentFileBounded(directPath, ext);
+    const subDirs = ['final', 'staged'];
+
+    const searchInDir = (baseDir) => {
+        for (const sub of subDirs) {
+            for (const ext of exts) {
+                const candidate = path.join(baseDir, sub, `${attachmentId}.${ext}`);
+                if (fs.existsSync(candidate)) {
+                    return readAttachmentFileBounded(candidate, ext);
+                }
             }
         }
+        return null;
+    };
+
+    if (ownerPath) {
+        const direct = searchInDir(path.join(varChatDir, ownerPath));
+        if (direct) return direct;
     }
 
     try {
-        const ownerDirs = fs.readdirSync(varChatDir);
-        for (const ownerDir of ownerDirs) {
-            for (const ext of exts) {
-                const target = path.join(varChatDir, ownerDir, 'staged', `${attachmentId}.${ext}`);
-                if (fs.existsSync(target)) {
-                    return readAttachmentFileBounded(target, ext);
-                }
-                const guestTarget = path.join(varChatDir, 'guest', ownerDir, 'staged', `${attachmentId}.${ext}`);
-                if (fs.existsSync(guestTarget)) {
-                    return readAttachmentFileBounded(guestTarget, ext);
+        const scan = (currentDir, depth = 0) => {
+            if (depth > 3 || !fs.existsSync(currentDir)) return null;
+            const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+            for (const entry of entries) {
+                if (entry.isDirectory()) {
+                    if (subDirs.includes(entry.name)) {
+                        for (const ext of exts) {
+                            const candidate = path.join(currentDir, entry.name, `${attachmentId}.${ext}`);
+                            if (fs.existsSync(candidate)) {
+                                return readAttachmentFileBounded(candidate, ext);
+                            }
+                        }
+                    } else {
+                        const nested = scan(path.join(currentDir, entry.name), depth + 1);
+                        if (nested) return nested;
+                    }
                 }
             }
-        }
+            return null;
+        };
+
+        return scan(varChatDir);
     } catch {
         return null;
     }
-
-    return null;
 }
 
 function readAttachmentFileBounded(filePath, ext) {
