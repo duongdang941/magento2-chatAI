@@ -25,8 +25,8 @@ test('buildUserMessageDescriptor keeps uploaded image parts for the model', () =
     });
 
     assert.equal(message.hasImage, true);
-    assert.equal(message.displayText, 'Đã gửi hình ảnh');
-    assert.match(message.text, /^Mô tả nội dung hình ảnh này/);
+    assert.equal(message.displayText, 'Sent an image');
+    assert.match(message.text, /^Analyze this image/);
     assert.equal(validateImageParts(message.parts), '');
 });
 

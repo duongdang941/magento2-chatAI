@@ -1218,7 +1218,7 @@ async function handleChat(ws, data, client, requestConfig = null) {
     const isResumedAction = data.resume_pending_action === true;
     const replaceFromMessageId = Math.max(0, Math.floor(Number(data.replace_from_message_id) || 0));
     const currentUser = buildUserMessageDescriptor(data, {
-        imageDisplayText: 'Đã gửi hình ảnh'
+        imageDisplayText: 'Sent an image'
     });
     const run = createActiveRun(ws, data.request_id || null);
 

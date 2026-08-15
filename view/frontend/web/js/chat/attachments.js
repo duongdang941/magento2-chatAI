@@ -575,7 +575,10 @@
             async prepareOutgoingUserParts(text, attachments = []) {
                 const parts = [];
                 const cleanText = (text || '').trim();
-                parts.push({ text: cleanText || 'Mô tả nội dung hình ảnh này và nếu phù hợp hãy tìm sản phẩm tương ứng trong cửa hàng.' });
+                const defaultPrompt = typeof window.$t === 'function'
+                    ? window.$t('Analyze this image and recommend relevant products from the store if applicable.')
+                    : 'Analyze this image and recommend relevant products from the store if applicable.';
+                parts.push({ text: cleanText || defaultPrompt });
 
                 for (const attachment of attachments) {
                     const uploadedRef = await this.uploadAttachment(attachment);
@@ -589,7 +592,10 @@
                             purpose: 'vision'
                         });
                     } else {
-                        this.uploadError = 'Upload attachment failed. Please try sending the image again.';
+                        const errMsg = typeof window.$t === 'function'
+                            ? window.$t('Upload attachment failed. Please try sending the image again.')
+                            : 'Upload attachment failed. Please try sending the image again.';
+                        this.uploadError = errMsg;
                         throw new Error('Attachment upload failed');
                     }
                 }
@@ -599,7 +605,10 @@
             buildOutgoingUserParts(text, attachments = []) {
                 const parts = [];
                 const cleanText = (text || '').trim();
-                parts.push({ text: cleanText || 'Mô tả nội dung hình ảnh này và nếu phù hợp hãy tìm sản phẩm tương ứng trong cửa hàng.' });
+                const defaultPrompt = typeof window.$t === 'function'
+                    ? window.$t('Analyze this image and recommend relevant products from the store if applicable.')
+                    : 'Analyze this image and recommend relevant products from the store if applicable.';
+                parts.push({ text: cleanText || defaultPrompt });
                 attachments.forEach((attachment) => {
                     if (attachment.attachment_id) {
                         parts.push({

@@ -1,14 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const DEFAULT_IMAGE_PROMPT = 'Mô tả nội dung hình ảnh này và nếu phù hợp hãy tìm sản phẩm tương ứng trong cửa hàng.';
-const DEFAULT_IMAGE_DISPLAY_TEXT = 'Đã gửi hình ảnh';
+const DEFAULT_IMAGE_PROMPT = 'Analyze this image and recommend relevant products from the store if applicable.';
+const DEFAULT_IMAGE_DISPLAY_TEXT = 'Sent an image';
 const ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 const IMAGE_PLACEHOLDER_TEXTS = new Set([
     normalizeSearchableText('Sent a product image'),
+    normalizeSearchableText('Sent an image'),
     normalizeSearchableText('Đã gửi hình ảnh'),
     normalizeSearchableText('Analyze this product image and find matching items in the store.'),
+    normalizeSearchableText('Analyze this image and recommend relevant products from the store if applicable.'),
+    normalizeSearchableText('Mô tả nội dung hình ảnh này và nếu phù hợp hãy tìm sản phẩm tương ứng trong cửa hàng.'),
     normalizeSearchableText(DEFAULT_IMAGE_PROMPT)
 ]);
 
@@ -361,12 +364,28 @@ export function extractAttachmentRef(part) {
     return null;
 }
 
+function getVarChatDir() {
+    const candidates = [
+        path.resolve(process.cwd(), '../../../../../var/afd_ai/chat'),
+        path.resolve(process.cwd(), '../../../../var/afd_ai/chat'),
+        path.resolve(process.cwd(), 'var/afd_ai/chat'),
+        path.resolve(process.cwd(), '../var/afd_ai/chat'),
+        '/Users/duongdang/Sites/magento/afd/var/afd_ai/chat'
+    ];
+    for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) {
+            return candidate;
+        }
+    }
+    return candidates[0];
+}
+
 export function resolveLocalAttachmentData(attachmentId, ownerPath = null) {
     if (!attachmentId || typeof attachmentId !== 'string' || !/^att_[a-f0-9]{32}$/.test(attachmentId)) {
         return null;
     }
 
-    const varChatDir = path.resolve(process.cwd(), '../../../../var/afd_ai/chat');
+    const varChatDir = getVarChatDir();
     if (!fs.existsSync(varChatDir)) {
         return null;
     }

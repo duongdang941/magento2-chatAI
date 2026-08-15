@@ -140,7 +140,7 @@ test('normalizes account address updates without accepting customer identity', (
 test('formatProviderError exposes 9router HTTP failures clearly', () => {
     assert.equal(
         formatProviderError(new Error('Base URL https://aud4eq.tailabefe9.ts.net/v1 returned HTTP 502')),
-        '9router endpoint đang trả về HTTP 502. Hãy kiểm tra base_url public/tailnet trong cấu hình.'
+        '9router endpoint returned HTTP 502. Please check the public/tailnet base_url in configuration.'
     );
 });
 

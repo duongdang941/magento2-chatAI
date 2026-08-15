@@ -356,11 +356,11 @@ function formatGeminiError(error) {
     }
 
     if (/invalid image|image data.*valid image|does not represent a valid image|corrupt image|malformed image/i.test(message)) {
-        return 'Ảnh không hợp lệ hoặc không đọc được. Hãy thử ảnh JPG, PNG hoặc WebP khác.';
+        return 'The uploaded image is invalid or could not be read. Please try a different JPG, PNG, or WebP image.';
     }
 
     if (/image|vision|multimodal|inline_data|unsupported.*image/i.test(message)) {
-        return 'Mô hình AI hiện tại chưa hỗ trợ ảnh. Hãy đổi sang model có vision hoặc kiểm tra lại provider.';
+        return 'The current AI model does not support images. Please switch to a vision-capable model or check your provider settings.';
     }
 
     return 'The AI service could not complete this response. Please try again.';

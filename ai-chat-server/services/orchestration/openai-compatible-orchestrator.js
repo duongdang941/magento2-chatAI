@@ -576,23 +576,23 @@ function formatProviderError(error, providerLabel = '9router') {
     const message = String(error?.message || '');
     const code = String(error?.cause?.code || error?.code || '');
     const baseUrlHint = providerLabel === '9router'
-        ? 'Hãy kiểm tra base_url public/tailnet trong cấu hình.'
-        : 'Hãy kiểm tra base_url trong cấu hình.';
+        ? 'Please check the public/tailnet base_url in configuration.'
+        : 'Please check the base_url in configuration.';
 
     if (error?.code === 'PROVIDER_STREAM_TIMEOUT') {
-        return 'AI mất quá lâu để hoàn tất phản hồi. Hãy thử lại với yêu cầu ngắn hơn.';
+        return 'The AI service took too long to complete. Please try again with a shorter request.';
     }
 
     const httpStatusMatch = message.match(/\bHTTP\s+(\d{3})\b/i);
     if (httpStatusMatch) {
         const status = Number(httpStatusMatch[1]);
         if (status >= 500) {
-            return `${providerLabel} endpoint đang trả về HTTP ${status}. ${baseUrlHint}`;
+            return `${providerLabel} endpoint returned HTTP ${status}. ${baseUrlHint}`;
         }
     }
 
     if (Number.isInteger(error?.status) && error.status >= 500) {
-        return `${providerLabel} endpoint đang trả về HTTP ${error.status}. ${baseUrlHint}`;
+        return `${providerLabel} endpoint returned HTTP ${error.status}. ${baseUrlHint}`;
     }
 
     if (error?.status === 429 || /quota|too many requests|rate[- ]?limit/i.test(message)) {
@@ -604,11 +604,11 @@ function formatProviderError(error, providerLabel = '9router') {
     }
 
     if (/invalid image|image data.*valid image|does not represent a valid image|corrupt image|malformed image/i.test(message)) {
-        return 'Ảnh không hợp lệ hoặc không đọc được. Hãy thử ảnh JPG, PNG hoặc WebP khác.';
+        return 'The uploaded image is invalid or could not be read. Please try a different JPG, PNG, or WebP image.';
     }
 
     if (/image|vision|multimodal|image_url|inline_data|unsupported.*image/i.test(message)) {
-        return 'Mô hình AI hiện tại chưa hỗ trợ ảnh. Hãy đổi sang model có vision hoặc kiểm tra lại provider.';
+        return 'The current AI model does not support images. Please switch to a vision-capable model or check your provider settings.';
     }
 
     if (code === 'ENOTFOUND'
@@ -616,7 +616,7 @@ function formatProviderError(error, providerLabel = '9router') {
         || code === 'ECONNREFUSED'
         || code === 'ETIMEDOUT'
         || /fetch failed|getaddrinfo|network|dns|timeout|ENOTFOUND/i.test(message)) {
-        return `Không kết nối được tới ${providerLabel} từ máy chủ. Hãy kiểm tra DNS/base_url và mạng của gateway.`;
+        return `Could not connect to ${providerLabel} from server. Please check DNS/base_url and gateway network.`;
     }
 
     return 'The AI service could not complete this response. Please try again.';
