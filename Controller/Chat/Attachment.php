@@ -28,14 +28,13 @@ class Attachment implements HttpGetActionInterface
         private readonly CustomerSession $customerSession,
         private readonly GuestChatIdentity $guestChatIdentity,
         private readonly ConversationIdentity $conversationIdentity,
-        private readonly Filesystem $filesystem
+        private readonly Filesystem $filesystem,
+        private readonly ?\Magento\Framework\App\Response\Http\FileFactory $fileFactory = null
     ) {
     }
 
-    public function execute(): Raw
+    public function execute()
     {
-        /** @var Raw $result */
-        $result = $this->resultFactory->create(ResultFactory::TYPE_RAW);
         $conversationId = (int)$this->request->getParam('conversation_id');
         $filename = strtolower(trim((string)$this->request->getParam('file')));
         $attachmentId = strtolower(trim((string)($this->request->getParam('id') ?? $this->request->getParam('attachment_id') ?? '')));
@@ -65,7 +64,7 @@ class Attachment implements HttpGetActionInterface
             }
         } elseif ($conversationId > 0 && preg_match('/^[a-f0-9]{40}\.(?:jpg|png|webp)$/D', $filename)) {
             if (!$this->conversationIdentity->ownsConversation($conversationId, $customerId, $guestId)) {
-                return $this->notFound($result);
+                return $this->notFound();
             }
             $checkPath = 'afd_ai/chat/' . $ownerPath . '/' . $conversationId . '/' . $filename;
             if ($directory->isFile($checkPath)) {
@@ -75,13 +74,27 @@ class Attachment implements HttpGetActionInterface
         }
 
         if (!$relativeFile || !$extension || !isset(self::MIME_BY_EXTENSION[$extension])) {
-            return $this->notFound($result);
+            return $this->notFound();
         }
 
         $stat = $directory->stat($relativeFile);
         $fileSize = (int)($stat['size'] ?? 0);
         $absolutePath = $directory->getAbsolutePath($relativeFile);
 
+        if ($this->fileFactory !== null) {
+            return $this->fileFactory->create(
+                basename($relativeFile),
+                [
+                    'type' => 'filename',
+                    'value' => $relativeFile
+                ],
+                DirectoryList::VAR_DIR,
+                self::MIME_BY_EXTENSION[$extension]
+            );
+        }
+
+        /** @var Raw $result */
+        $result = $this->resultFactory->create(ResultFactory::TYPE_RAW);
         $result->setHeader('Content-Type', self::MIME_BY_EXTENSION[$extension], true);
         $result->setHeader('Content-Length', (string)$fileSize, true);
         $result->setHeader('Content-Disposition', 'inline; filename="' . basename($relativeFile) . '"', true);
@@ -101,8 +114,10 @@ class Attachment implements HttpGetActionInterface
         return $result;
     }
 
-    private function notFound(Raw $result): Raw
+    private function notFound(): Raw
     {
+        /** @var Raw $result */
+        $result = $this->resultFactory->create(ResultFactory::TYPE_RAW);
         $result->setHttpResponseCode(404);
         $result->setHeader('Cache-Control', 'no-store', true);
         $result->setContents('');

@@ -354,59 +354,63 @@ export function extractAttachmentRef(part) {
     return null;
 }
 
-export function resolveLocalAttachmentData(attachmentId) {
+export function resolveLocalAttachmentData(attachmentId, ownerPath = null) {
     if (!attachmentId || typeof attachmentId !== 'string' || !/^att_[a-f0-9]{32}$/.test(attachmentId)) {
         return null;
     }
 
-    const searchDirs = [
-        path.resolve(process.cwd(), '../../../../var/afd_ai/chat'),
-        path.resolve(process.cwd(), 'var/afd_ai/chat'),
-        path.resolve('/Users/duongdang/Sites/magento/afd/var/afd_ai/chat')
-    ];
+    const varChatDir = path.resolve(process.cwd(), '../../../../var/afd_ai/chat');
+    if (!fs.existsSync(varChatDir)) {
+        return null;
+    }
 
-    for (const baseDir of searchDirs) {
-        if (!fs.existsSync(baseDir)) continue;
-
-        const findFile = (dir, depth = 0) => {
-            if (depth > 5) return null;
-            try {
-                const entries = fs.readdirSync(dir, { withFileTypes: true });
-                for (const entry of entries) {
-                    const fullPath = path.join(dir, entry.name);
-                    if (entry.isDirectory()) {
-                        const nested = findFile(fullPath, depth + 1);
-                        if (nested) return nested;
-                    } else if (entry.isFile() && entry.name.startsWith(attachmentId + '.')) {
-                        return fullPath;
-                    }
-                }
-            } catch {
-                return null;
-            }
-            return null;
-        };
-
-        const targetFile = findFile(baseDir);
-        if (targetFile) {
-            try {
-                const stat = fs.statSync(targetFile);
-                if (stat.size > 10 * 1024 * 1024) return null;
-                const ext = path.extname(targetFile).toLowerCase().replace('.', '');
-                const mimeType = ext === 'png' ? 'image/png' : (ext === 'webp' ? 'image/webp' : 'image/jpeg');
-                const buffer = fs.readFileSync(targetFile);
-                return {
-                    mimeType,
-                    data: buffer.toString('base64'),
-                    bytes: stat.size
-                };
-            } catch {
-                return null;
+    const exts = ['jpg', 'png', 'webp'];
+    if (ownerPath) {
+        for (const ext of exts) {
+            const directPath = path.join(varChatDir, ownerPath, 'staged', `${attachmentId}.${ext}`);
+            if (fs.existsSync(directPath)) {
+                return readAttachmentFileBounded(directPath, ext);
             }
         }
     }
 
+    try {
+        const ownerDirs = fs.readdirSync(varChatDir);
+        for (const ownerDir of ownerDirs) {
+            for (const ext of exts) {
+                const target = path.join(varChatDir, ownerDir, 'staged', `${attachmentId}.${ext}`);
+                if (fs.existsSync(target)) {
+                    return readAttachmentFileBounded(target, ext);
+                }
+                const guestTarget = path.join(varChatDir, 'guest', ownerDir, 'staged', `${attachmentId}.${ext}`);
+                if (fs.existsSync(guestTarget)) {
+                    return readAttachmentFileBounded(guestTarget, ext);
+                }
+            }
+        }
+    } catch {
+        return null;
+    }
+
     return null;
+}
+
+function readAttachmentFileBounded(filePath, ext) {
+    try {
+        const stat = fs.statSync(filePath);
+        if (stat.size > 5 * 1024 * 1024) {
+            return null;
+        }
+        const mimeType = ext === 'png' ? 'image/png' : (ext === 'webp' ? 'image/webp' : 'image/jpeg');
+        const buffer = fs.readFileSync(filePath);
+        return {
+            mimeType,
+            data: buffer.toString('base64'),
+            bytes: stat.size
+        };
+    } catch {
+        return null;
+    }
 }
 
 function extractInlineData(part) {
