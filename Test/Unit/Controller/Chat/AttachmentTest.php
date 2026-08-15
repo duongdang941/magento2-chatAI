@@ -125,4 +125,56 @@ class AttachmentTest extends TestCase
         $result = $this->controller->execute();
         $this->assertSame($rawResult, $result);
     }
+
+    public function testExecuteSetsCorrectMimeTypesForJpgPngWebp(): void
+    {
+        foreach ([
+            'jpg' => 'image/jpeg',
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+        ] as $ext => $expectedMime) {
+            $attachmentId = 'att_0123456789abcdef0123456789abcdef';
+            $request = $this->createMock(RequestInterface::class);
+            $request->method('getParam')->willReturnCallback(function (string $param) use ($attachmentId) {
+                return match ($param) {
+                    'id', 'attachment_id' => $attachmentId,
+                    default => null,
+                };
+            });
+
+            $customerSession = $this->createMock(CustomerSession::class);
+            $customerSession->method('isLoggedIn')->willReturn(true);
+            $customerSession->method('getCustomerId')->willReturn(1);
+
+            $readDir = $this->createMock(ReadInterface::class);
+            $readDir->method('isFile')->willReturnCallback(fn(string $p) => str_ends_with($p, '.' . $ext));
+            $readDir->method('stat')->willReturn(['size' => 512]);
+            $readDir->method('getAbsolutePath')->willReturn(__FILE__);
+            $filesystem = $this->createMock(Filesystem::class);
+            $filesystem->method('getDirectoryRead')->willReturn($readDir);
+
+            $rawResult = $this->createMock(Raw::class);
+            $setHeaders = [];
+            $rawResult->method('setHeader')->willReturnCallback(function ($name, $value) use (&$setHeaders, $rawResult) {
+                $setHeaders[$name] = $value;
+                return $rawResult;
+            });
+            $rawResult->method('setContents')->willReturnSelf();
+
+            $resultFactory = $this->createMock(ResultFactory::class);
+            $resultFactory->method('create')->with(ResultFactory::TYPE_RAW)->willReturn($rawResult);
+
+            $controller = new Attachment(
+                $request,
+                $resultFactory,
+                $customerSession,
+                $this->guestChatIdentity,
+                $this->conversationIdentity,
+                $filesystem
+            );
+
+            $controller->execute();
+            $this->assertSame($expectedMime, $setHeaders['Content-Type'] ?? null, "MIME type mismatch for {$ext}");
+        }
+    }
 }

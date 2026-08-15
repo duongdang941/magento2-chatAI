@@ -65,6 +65,26 @@ class AttachmentRepository
         ], ['attachment_id = ?' => $attachmentId]);
     }
 
+    public function tryMarkFinalizing(string $attachmentId): bool
+    {
+        $connection = $this->resource->getConnection();
+        $table = $this->resource->getTableName(self::TABLE_ATTACHMENT);
+
+        $affected = $connection->update(
+            $table,
+            [
+                'state' => 'finalizing',
+                'updated_at' => gmdate('Y-m-d H:i:s')
+            ],
+            [
+                'attachment_id = ?' => $attachmentId,
+                'state IN (?)' => ['issued', 'staged']
+            ]
+        );
+
+        return $affected > 0;
+    }
+
     public function recordCommitted(
         string $attachmentId,
         string $finalPath,

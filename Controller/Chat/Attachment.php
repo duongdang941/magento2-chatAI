@@ -80,10 +80,12 @@ class Attachment implements HttpGetActionInterface
             }
         }
 
-        if (!$relativeFile || !$extension || !isset(self::MIME_BY_EXTENSION[$extension])) {
+        $extension = strtolower(trim((string)$extension));
+        if (!$relativeFile || !isset(self::MIME_BY_EXTENSION[$extension])) {
             return $this->notFound();
         }
 
+        $mimeType = self::MIME_BY_EXTENSION[$extension];
         $stat = $directory->stat($relativeFile);
         $fileSize = (int)($stat['size'] ?? 0);
         $absolutePath = $directory->getAbsolutePath($relativeFile);
@@ -96,13 +98,13 @@ class Attachment implements HttpGetActionInterface
                     'value' => $relativeFile
                 ],
                 DirectoryList::VAR_DIR,
-                self::MIME_BY_EXTENSION[$extension]
+                $mimeType
             );
         }
 
         /** @var Raw $result */
         $result = $this->resultFactory->create(ResultFactory::TYPE_RAW);
-        $result->setHeader('Content-Type', self::MIME_BY_EXTENSION[$extension], true);
+        $result->setHeader('Content-Type', $mimeType, true);
         $result->setHeader('Content-Length', (string)$fileSize, true);
         $result->setHeader('Content-Disposition', 'inline; filename="' . basename($relativeFile) . '"', true);
         $result->setHeader('Cache-Control', 'private, no-store, max-age=0', true);

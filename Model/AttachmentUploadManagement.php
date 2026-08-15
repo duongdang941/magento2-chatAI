@@ -157,8 +157,16 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
         $stagedDir = 'afd_ai/chat/' . $ownerPath . '/staged';
         $metaPath = $stagedDir . '/' . $attachmentId . '.meta.json';
 
-        // Check if already committed (idempotency check)
-        if ($varDir->isFile($metaPath)) {
+        // Check if already committed (idempotency check via filesystem or repository)
+        if ($this->attachmentRepository) {
+            $canFinalize = $this->attachmentRepository->tryMarkFinalizing($attachmentId);
+            if (!$canFinalize) {
+                $existingRecord = $this->attachmentRepository->getAttachment($attachmentId);
+                if ($existingRecord && in_array($existingRecord['state'] ?? '', ['committed', 'finalizing'], true)) {
+                    return true;
+                }
+            }
+        } elseif ($varDir->isFile($metaPath)) {
             $existingMeta = json_decode((string)$varDir->readFile($metaPath), true);
             if (is_array($existingMeta) && ($existingMeta['state'] ?? '') === 'committed') {
                 return true;
