@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 const DEFAULT_IMAGE_PROMPT = 'Mô tả nội dung hình ảnh này và nếu phù hợp hãy tìm sản phẩm tương ứng trong cửa hàng.';
 const DEFAULT_IMAGE_DISPLAY_TEXT = 'Đã gửi hình ảnh';
 const ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -219,6 +222,16 @@ export function toOpenAiContent(parts = [], fallbackText = '') {
                     type: 'image_url',
                     image_url: { url: attachmentRef.url }
                 });
+            } else if (attachmentRef.attachment_id) {
+                const localData = resolveLocalAttachmentData(attachmentRef.attachment_id);
+                if (localData) {
+                    normalizedParts.push({
+                        type: 'image_url',
+                        image_url: {
+                            url: `data:${localData.mimeType};base64,${localData.data}`
+                        }
+                    });
+                }
             }
             continue;
         }
@@ -264,6 +277,23 @@ export function toGeminiParts(parts = [], fallbackText = '') {
         if (text) {
             hasText = true;
             normalizedParts.push({ text });
+        }
+
+        const attachmentRef = extractAttachmentRef(part);
+        if (attachmentRef) {
+            hasImage = true;
+            if (attachmentRef.attachment_id) {
+                const localData = resolveLocalAttachmentData(attachmentRef.attachment_id);
+                if (localData) {
+                    normalizedParts.push({
+                        inlineData: {
+                            mimeType: localData.mimeType,
+                            data: localData.data
+                        }
+                    });
+                }
+            }
+            continue;
         }
 
         const inlineData = extractInlineData(part);
@@ -319,6 +349,61 @@ export function extractAttachmentRef(part) {
             bytes: Number(part.bytes || part.size) || 0,
             url: typeof part.url === 'string' ? part.url : ''
         };
+    }
+
+    return null;
+}
+
+export function resolveLocalAttachmentData(attachmentId) {
+    if (!attachmentId || typeof attachmentId !== 'string' || !/^att_[a-f0-9]{32}$/.test(attachmentId)) {
+        return null;
+    }
+
+    const searchDirs = [
+        path.resolve(process.cwd(), '../../../../var/afd_ai/chat'),
+        path.resolve(process.cwd(), 'var/afd_ai/chat'),
+        path.resolve('/Users/duongdang/Sites/magento/afd/var/afd_ai/chat')
+    ];
+
+    for (const baseDir of searchDirs) {
+        if (!fs.existsSync(baseDir)) continue;
+
+        const findFile = (dir, depth = 0) => {
+            if (depth > 5) return null;
+            try {
+                const entries = fs.readdirSync(dir, { withFileTypes: true });
+                for (const entry of entries) {
+                    const fullPath = path.join(dir, entry.name);
+                    if (entry.isDirectory()) {
+                        const nested = findFile(fullPath, depth + 1);
+                        if (nested) return nested;
+                    } else if (entry.isFile() && entry.name.startsWith(attachmentId + '.')) {
+                        return fullPath;
+                    }
+                }
+            } catch {
+                return null;
+            }
+            return null;
+        };
+
+        const targetFile = findFile(baseDir);
+        if (targetFile) {
+            try {
+                const stat = fs.statSync(targetFile);
+                if (stat.size > 10 * 1024 * 1024) return null;
+                const ext = path.extname(targetFile).toLowerCase().replace('.', '');
+                const mimeType = ext === 'png' ? 'image/png' : (ext === 'webp' ? 'image/webp' : 'image/jpeg');
+                const buffer = fs.readFileSync(targetFile);
+                return {
+                    mimeType,
+                    data: buffer.toString('base64'),
+                    bytes: stat.size
+                };
+            } catch {
+                return null;
+            }
+        }
     }
 
     return null;

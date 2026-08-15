@@ -103,12 +103,12 @@ class AttachmentUploadManagementTest extends TestCase
         $this->customerSession->method('getCustomerId')->willReturn(42);
         $this->scopeConfig->method('getValue')->willReturn('test-secret-key-123');
 
-        $readDir = $this->createMock(ReadInterface::class);
-        $readDir->method('isFile')->willReturnCallback(function (string $path) {
+        $writeDir = $this->createMock(\Magento\Framework\Filesystem\Directory\WriteInterface::class);
+        $writeDir->method('isFile')->willReturnCallback(function (string $path) {
             return str_ends_with($path, 'att_test123.jpg');
         });
-        $readDir->method('stat')->willReturn(['size' => 5000]);
-        $this->filesystem->method('getDirectoryRead')->willReturn($readDir);
+        $writeDir->method('stat')->willReturn(['size' => 5000]);
+        $this->filesystem->method('getDirectoryWrite')->willReturn($writeDir);
 
         $this->quotaCounter->expects($this->once())
             ->method('commit')
@@ -133,5 +133,59 @@ class AttachmentUploadManagementTest extends TestCase
 
         $result = $this->management->complete('att_test123', $validToken);
         $this->assertTrue($result);
+    }
+
+    public function testCompleteIsIdempotentWhenCalledTwice(): void
+    {
+        $this->customerSession->method('getCustomerId')->willReturn(42);
+        $this->scopeConfig->method('getValue')->willReturn('test-secret-key-123');
+
+        $writeDir = $this->createMock(\Magento\Framework\Filesystem\Directory\WriteInterface::class);
+        // First call: meta does not exist, file exists
+        // Second call: meta exists with committed state
+        $metaExists = false;
+        $writeDir->method('isFile')->willReturnCallback(function (string $path) use (&$metaExists) {
+            if (str_ends_with($path, '.meta.json')) {
+                return $metaExists;
+            }
+            return str_ends_with($path, 'att_test123.jpg');
+        });
+        $writeDir->method('stat')->willReturn(['size' => 5000]);
+        $writeDir->method('readFile')->willReturnCallback(function () {
+            return json_encode(['state' => 'committed', 'attachment_id' => 'att_test123']);
+        });
+        $writeDir->method('writeFile')->willReturnCallback(function () use (&$metaExists) {
+            $metaExists = true;
+            return 100;
+        });
+        $this->filesystem->method('getDirectoryWrite')->willReturn($writeDir);
+
+        // Commit should only be called ONCE across both calls!
+        $this->quotaCounter->expects($this->once())
+            ->method('commit')
+            ->with('42', 5000);
+
+        $ticketPayload = [
+            'aid' => 'att_test123',
+            'owner' => hash('sha256', '42'),
+            'purpose' => 'vision',
+            'max_bytes' => 4194304,
+            'reserved_bytes' => 5000,
+            'mime' => 'image/jpeg',
+            'exp' => time() + 300,
+            'nonce' => 'abc12345',
+        ];
+        $json = json_encode($ticketPayload);
+        $b64 = rtrim(strtr(base64_encode($json), '+/', '-_'), '=');
+        $sig = hash_hmac('sha256', $b64, 'test-secret-key-123', true);
+        $sigB64 = rtrim(strtr(base64_encode($sig), '+/', '-_'), '=');
+        $validToken = $b64 . '.' . $sigB64;
+
+        $firstResult = $this->management->complete('att_test123', $validToken);
+        $this->assertTrue($firstResult);
+
+        // Second replay call
+        $secondResult = $this->management->complete('att_test123', $validToken);
+        $this->assertTrue($secondResult);
     }
 }

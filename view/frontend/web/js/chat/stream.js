@@ -978,9 +978,20 @@ const {
                 this.toolActivities = [];
                 this.armResponseWatchdog();
                 this.$nextTick(() => this.scrollToBottom(true));
-                const outgoingUserParts = typeof this.prepareOutgoingUserParts === 'function'
-                    ? await this.prepareOutgoingUserParts(cleanText, outgoingAttachments)
-                    : this.buildOutgoingUserParts(cleanText, outgoingAttachments);
+                let outgoingUserParts;
+                try {
+                    outgoingUserParts = typeof this.prepareOutgoingUserParts === 'function'
+                        ? await this.prepareOutgoingUserParts(cleanText, outgoingAttachments)
+                        : this.buildOutgoingUserParts(cleanText, outgoingAttachments);
+                } catch (uploadError) {
+                    this.messages.pop();
+                    this.hasStartedChat = this.messages.length > 0;
+                    this.isLoading = false;
+                    this.activeRequestId = null;
+                    this.responseStartedAt = 0;
+                    this.uploadError = this.uploadError || 'Attachment upload failed. Please try again.';
+                    return;
+                }
                 const history = this.buildModelHistory();
                 const guestHistory = this.isLoggedIn ? [] : this.buildGuestHistorySnapshot();
                 const chatPayload = {

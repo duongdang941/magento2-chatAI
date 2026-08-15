@@ -120,7 +120,15 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
         try {
             while (!feof($inputStream)) {
                 $chunk = fread($inputStream, self::CHUNK_SIZE);
-                if ($chunk === false || $chunk === '') {
+                if ($chunk === false) {
+                    fclose($targetFile);
+                    @unlink($tempFilePath);
+                    return $result->setHttpResponseCode(400)->setData([
+                        'success' => false,
+                        'error' => 'Failed reading upload stream.'
+                    ]);
+                }
+                if ($chunk === '') {
                     break;
                 }
                 $chunkLength = strlen($chunk);
@@ -136,7 +144,15 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
                 }
 
                 hash_update($hashContext, $chunk);
-                fwrite($targetFile, $chunk);
+                $written = fwrite($targetFile, $chunk);
+                if ($written !== $chunkLength) {
+                    fclose($targetFile);
+                    @unlink($tempFilePath);
+                    return $result->setHttpResponseCode(507)->setData([
+                        'success' => false,
+                        'error' => 'Storage write failure.'
+                    ]);
+                }
             }
             fclose($targetFile);
         } catch (\Throwable $e) {
@@ -183,6 +199,15 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
             return $result->setHttpResponseCode(400)->setData([
                 'success' => false,
                 'error' => 'Only JPG, PNG, or WebP images are supported.'
+            ]);
+        }
+
+        $expectedMime = strtolower((string)($ticketPayload['mime'] ?? ''));
+        if ($expectedMime !== '' && $detectedMime !== $expectedMime) {
+            @unlink($tempFilePath);
+            return $result->setHttpResponseCode(400)->setData([
+                'success' => false,
+                'error' => 'Uploaded file MIME type does not match ticket declaration.'
             ]);
         }
 
@@ -250,12 +275,12 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
             return $customerId;
         }
 
-        $guestIdentity = $this->guestChatIdentity->resolve();
-        if ($guestIdentity !== null && $guestIdentity !== '') {
+        $guestIdentity = (string)($this->guestChatIdentity->resolve() ?? '');
+        if ($guestIdentity !== '' && preg_match('/^[a-f0-9]{32,64}$/i', $guestIdentity)) {
             return $guestIdentity;
         }
 
-        return $this->customerSession->getSessionId() ?: 'guest';
+        return hash('sha256', (string)($this->customerSession->getSessionId() ?: 'guest'));
     }
 
     private function resolveOwnerPath(): string
@@ -265,12 +290,14 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
             return (string)$customerId;
         }
 
-        $guestIdentity = $this->guestChatIdentity->resolve();
-        if ($guestIdentity !== null && $guestIdentity !== '') {
+        $guestIdentity = (string)($this->guestChatIdentity->resolve() ?? '');
+        if ($guestIdentity !== '' && preg_match('/^[a-f0-9]{32,64}$/i', $guestIdentity)) {
             return 'guest/' . $guestIdentity;
         }
 
-        return 'guest/' . ($this->customerSession->getSessionId() ?: 'unknown');
+        $sessionId = (string)($this->customerSession->getSessionId() ?? '');
+        $safeSession = hash('sha256', $sessionId ?: 'guest');
+        return 'guest/' . $safeSession;
     }
 
     public function createCsrfValidationException(RequestInterface $request): ?InvalidRequestException

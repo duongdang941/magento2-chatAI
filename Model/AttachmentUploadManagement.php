@@ -34,7 +34,8 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
         private readonly UrlInterface $urlBuilder,
         private readonly ScopeConfigInterface $scopeConfig,
         private readonly EncryptorInterface $encryptor,
-        private readonly Filesystem $filesystem
+        private readonly Filesystem $filesystem,
+        private readonly ?\Magento\Framework\App\DeploymentConfig $deploymentConfig = null
     ) {
     }
 
@@ -129,8 +130,17 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
         }
 
         $ownerPath = $this->resolveOwnerPath();
-        $varDir = $this->filesystem->getDirectoryRead(DirectoryList::VAR_DIR);
+        $varDir = $this->filesystem->getDirectoryWrite(DirectoryList::VAR_DIR);
         $stagedDir = 'afd_ai/chat/' . $ownerPath . '/staged';
+        $metaPath = $stagedDir . '/' . $attachmentId . '.meta.json';
+
+        // Check if already committed (idempotency check)
+        if ($varDir->isFile($metaPath)) {
+            $existingMeta = json_decode((string)$varDir->readFile($metaPath), true);
+            if (is_array($existingMeta) && ($existingMeta['state'] ?? '') === 'committed') {
+                return true;
+            }
+        }
 
         // Check if file exists in staged folder
         $foundFile = null;
@@ -148,14 +158,37 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
             throw new LocalizedException(__('Uploaded attachment file not found.'));
         }
 
-        // Commit quota
+        $limits = $this->config->getAttachmentConfig();
         $reservedBytes = (int)($payload['reserved_bytes'] ?? $fileSize);
-        if ($fileSize !== $reservedBytes) {
-            $this->quotaCounter->releaseReservation($ownerPath, $reservedBytes);
+
+        // Commit quota with safety check
+        if ($fileSize > $reservedBytes) {
+            $additionalBytes = $fileSize - $reservedBytes;
+            $this->quotaCounter->reserve(
+                $ownerPath,
+                (int)($limits['max_owner_storage_bytes'] ?? 67108864),
+                $additionalBytes,
+                (int)($limits['max_total_storage_bytes'] ?? 1073741824)
+            );
+            $this->quotaCounter->commit($ownerPath, $fileSize);
+        } elseif ($fileSize < $reservedBytes) {
+            $excessBytes = $reservedBytes - $fileSize;
+            $this->quotaCounter->releaseReservation($ownerPath, $excessBytes);
             $this->quotaCounter->commit($ownerPath, $fileSize);
         } else {
             $this->quotaCounter->commit($ownerPath, $fileSize);
         }
+
+        // Persist attachment meta state as committed
+        $metaData = [
+            'attachment_id' => $attachmentId,
+            'owner' => $expectedOwner,
+            'state' => 'committed',
+            'file' => $foundFile,
+            'bytes' => $fileSize,
+            'committed_at' => time()
+        ];
+        $varDir->writeFile($metaPath, (string)json_encode($metaData, JSON_THROW_ON_ERROR));
 
         return true;
     }
@@ -201,12 +234,12 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
             return $customerId;
         }
 
-        $guestIdentity = $this->guestChatIdentity->resolve();
-        if ($guestIdentity !== null && $guestIdentity !== '') {
+        $guestIdentity = (string)($this->guestChatIdentity->resolve() ?? '');
+        if ($guestIdentity !== '' && preg_match('/^[a-f0-9]{32,64}$/i', $guestIdentity)) {
             return $guestIdentity;
         }
 
-        return $this->customerSession->getSessionId() ?: 'guest';
+        return hash('sha256', (string)($this->customerSession->getSessionId() ?: 'guest'));
     }
 
     private function resolveOwnerPath(): string
@@ -216,12 +249,14 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
             return (string)$customerId;
         }
 
-        $guestIdentity = $this->guestChatIdentity->resolve();
-        if ($guestIdentity !== null && $guestIdentity !== '') {
+        $guestIdentity = (string)($this->guestChatIdentity->resolve() ?? '');
+        if ($guestIdentity !== '' && preg_match('/^[a-f0-9]{32,64}$/i', $guestIdentity)) {
             return 'guest/' . $guestIdentity;
         }
 
-        return 'guest/' . ($this->customerSession->getSessionId() ?: 'unknown');
+        $sessionId = (string)($this->customerSession->getSessionId() ?? '');
+        $safeSession = hash('sha256', $sessionId ?: 'guest');
+        return 'guest/' . $safeSession;
     }
 
     private function signTicket(array $data): string
@@ -242,7 +277,13 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
             return $configured;
         }
 
+        if ($this->deploymentConfig) {
+            $cryptKey = (string)$this->deploymentConfig->get(\Magento\Framework\Config\ConfigOptionsListConstants::CONFIG_PATH_CRYPT_KEY);
+            if ($cryptKey !== '') {
+                return hash('sha256', 'afd_ai_upload:' . $cryptKey);
+            }
+        }
+
         return (string)$this->encryptor->getHash('afd-ai-upload-default-secret');
     }
 }
-

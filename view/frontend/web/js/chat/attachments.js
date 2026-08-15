@@ -563,13 +563,16 @@
                     const uploadedRef = await this.uploadAttachment(attachment);
                     if (uploadedRef) {
                         parts.push(uploadedRef);
-                    } else if (attachment.base64) {
+                    } else if (attachment.attachment_id) {
                         parts.push({
-                            inline_data: {
-                                mime_type: attachment.type,
-                                data: attachment.base64
-                            }
+                            type: 'attachment_ref',
+                            attachment_id: attachment.attachment_id,
+                            kind: 'image',
+                            purpose: 'vision'
                         });
+                    } else {
+                        this.uploadError = 'Upload attachment failed. Please try sending the image again.';
+                        throw new Error('Attachment upload failed');
                     }
                 }
                 return parts;

@@ -38,28 +38,43 @@ class Attachment implements HttpGetActionInterface
         $result = $this->resultFactory->create(ResultFactory::TYPE_RAW);
         $conversationId = (int)$this->request->getParam('conversation_id');
         $filename = strtolower(trim((string)$this->request->getParam('file')));
-        $extension = pathinfo($filename, PATHINFO_EXTENSION);
-        if ($conversationId < 1
-            || !preg_match('/^[a-f0-9]{40}\.(?:jpg|png|webp)$/D', $filename)
-            || !isset(self::MIME_BY_EXTENSION[$extension])
-        ) {
-            return $this->notFound($result);
-        }
+        $attachmentId = strtolower(trim((string)($this->request->getParam('id') ?? $this->request->getParam('attachment_id') ?? '')));
 
         $customerId = $this->customerSession->isLoggedIn()
             ? (int)$this->customerSession->getCustomerId()
             : null;
         $guestId = $customerId ? null : $this->guestChatIdentity->resolve();
-        if (!$this->conversationIdentity->ownsConversation($conversationId, $customerId, $guestId)) {
-            return $this->notFound($result);
-        }
 
         $ownerPath = $customerId
             ? (string)$customerId
-            : 'guest/' . $guestId;
-        $relativeFile = 'afd_ai/chat/' . $ownerPath . '/' . $conversationId . '/' . $filename;
+            : 'guest/' . ($guestId ?: hash('sha256', (string)($this->customerSession->getSessionId() ?: 'guest')));
+
         $directory = $this->filesystem->getDirectoryRead(DirectoryList::VAR_DIR);
-        if (!$directory->isFile($relativeFile)) {
+        $relativeFile = null;
+        $extension = null;
+
+        if ($attachmentId !== '' && preg_match('/^att_[a-f0-9]{32}$/', $attachmentId)) {
+            $stagedDir = 'afd_ai/chat/' . $ownerPath . '/staged';
+            foreach (['jpg', 'png', 'webp'] as $ext) {
+                $checkPath = $stagedDir . '/' . $attachmentId . '.' . $ext;
+                if ($directory->isFile($checkPath)) {
+                    $relativeFile = $checkPath;
+                    $extension = $ext;
+                    break;
+                }
+            }
+        } elseif ($conversationId > 0 && preg_match('/^[a-f0-9]{40}\.(?:jpg|png|webp)$/D', $filename)) {
+            if (!$this->conversationIdentity->ownsConversation($conversationId, $customerId, $guestId)) {
+                return $this->notFound($result);
+            }
+            $checkPath = 'afd_ai/chat/' . $ownerPath . '/' . $conversationId . '/' . $filename;
+            if ($directory->isFile($checkPath)) {
+                $relativeFile = $checkPath;
+                $extension = pathinfo($filename, PATHINFO_EXTENSION);
+            }
+        }
+
+        if (!$relativeFile || !$extension || !isset(self::MIME_BY_EXTENSION[$extension])) {
             return $this->notFound($result);
         }
 
@@ -69,7 +84,7 @@ class Attachment implements HttpGetActionInterface
 
         $result->setHeader('Content-Type', self::MIME_BY_EXTENSION[$extension], true);
         $result->setHeader('Content-Length', (string)$fileSize, true);
-        $result->setHeader('Content-Disposition', 'inline; filename="' . $filename . '"', true);
+        $result->setHeader('Content-Disposition', 'inline; filename="' . basename($relativeFile) . '"', true);
         $result->setHeader('Cache-Control', 'private, no-store, max-age=0', true);
         $result->setHeader('X-Content-Type-Options', 'nosniff', true);
         $result->setHeader('X-Frame-Options', 'DENY', true);
