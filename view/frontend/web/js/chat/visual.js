@@ -63,6 +63,7 @@ const {
                     const attachments = attachmentCandidates
                         .map((attachment) => {
                             if (!attachment || typeof attachment !== 'object') return null;
+                            const type = String(attachment.type || attachment.mime_type || 'image/jpeg');
                             const attachmentId = attachment.attachment_id || null;
                             let previewUrl = String(attachment.previewUrl || attachment.url || '');
                             if (attachmentId && (!previewUrl || previewUrl.startsWith('blob:'))) {
@@ -76,7 +77,7 @@ const {
                                 name: String(attachment.name || 'image'),
                                 size: Number(attachment.size) || 0,
                                 type,
-                                attachment_id: attachment.attachment_id || null,
+                                attachment_id: attachmentId,
                                 previewUrl
                             };
                         })
