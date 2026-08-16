@@ -69,10 +69,10 @@ const {
                             if (attachmentId && (!previewUrl || previewUrl.startsWith('blob:'))) {
                                 previewUrl = `/afd_ai/chat/attachment?id=${encodeURIComponent(attachmentId)}`;
                             }
-                            if (!previewUrl && attachment.data) {
-                                previewUrl = `data:${type};base64,${attachment.data}`;
+                            if ((!previewUrl || previewUrl.startsWith('blob:')) && (attachment.data || attachment.base64)) {
+                                previewUrl = `data:${type};base64,${attachment.data || attachment.base64}`;
                             }
-                            if (!previewUrl) return null;
+                            if (!previewUrl || previewUrl.startsWith('blob:')) return null;
                             return {
                                 name: String(attachment.name || 'image'),
                                 size: Number(attachment.size) || 0,

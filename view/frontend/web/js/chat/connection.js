@@ -633,12 +633,21 @@ const {
                     feedbackDetailsSaved: message.feedbackDetailsSaved === true,
                     interrupted: message.interrupted === true,
                     stoppedAfterSeconds: Math.max(0, Number(message.stoppedAfterSeconds) || 0),
-                    attachments: Array.isArray(message.attachments) ? message.attachments.map((attachment) => ({
-                        name: String(attachment.name || 'image'),
-                        size: Number(attachment.size) || 0,
-                        type: String(attachment.type || ''),
-                        previewUrl: String(attachment.previewUrl || '')
-                    })) : [],
+                    attachments: Array.isArray(message.attachments) ? message.attachments.map((attachment) => {
+                        const attachmentId = attachment.attachment_id || null;
+                        const permanentUrl = attachmentId ? `/afd_ai/chat/attachment?id=${encodeURIComponent(attachmentId)}` : '';
+                        let previewUrl = String(attachment.previewUrl || attachment.url || '');
+                        if (previewUrl.startsWith('blob:')) {
+                            previewUrl = permanentUrl;
+                        }
+                        return {
+                            name: String(attachment.name || 'image'),
+                            size: Number(attachment.size) || 0,
+                            type: String(attachment.type || ''),
+                            attachment_id: attachmentId,
+                            previewUrl: previewUrl || permanentUrl
+                        };
+                    }) : [],
                     parts: Array.isArray(message.parts) ? message.parts.map((part) => ({
                         type: part.type,
                         raw: String(part.raw || ''),
