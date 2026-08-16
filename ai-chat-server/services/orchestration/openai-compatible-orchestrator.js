@@ -197,8 +197,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
 
                             if (typeof delta.content === 'string' && delta.content.length > 0) {
                                 assistantMessage.content += delta.content;
-                                smoothEmitter.push(delta.content);
-                                hasVisibleText = true;
                             }
                         },
                         isCancelled
@@ -235,8 +233,19 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             }
 
             if (toolCalls.length === 0) {
+                const finalCustomerText = (assistantMessage.content || '').trim();
+                if (finalCustomerText) {
+                    smoothEmitter.push(finalCustomerText);
+                    hasVisibleText = true;
+                }
                 await smoothEmitter.drain();
                 break;
+            } else if (assistantMessage.content && assistantMessage.content.trim().length > 0) {
+                ws.send(JSON.stringify({
+                    type: 'thinking_step',
+                    step_id: currentStepId,
+                    content: assistantMessage.content.trim()
+                }));
             }
 
             let stopAfterToolBatch = false;

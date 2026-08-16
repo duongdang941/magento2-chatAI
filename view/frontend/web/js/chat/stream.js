@@ -599,16 +599,22 @@ const {
 
             renderMarkdown(content) {
                 if (!content) return '';
+                const cleanContent = typeof sanitizeCustomerResponseText === 'function'
+                    ? sanitizeCustomerResponseText(content)
+                    : content;
                 return typeof sanitizeHtml === 'function'
-                    ? sanitizeHtml(content)
-                    : (window.marked ? window.marked.parse(content) : String(content));
+                    ? sanitizeHtml(cleanContent)
+                    : (window.marked ? window.marked.parse(cleanContent) : String(cleanContent));
             },
 
             renderStreamingMarkdown(content) {
                 if (!content) return '';
+                const cleanContent = typeof sanitizeCustomerResponseText === 'function'
+                    ? sanitizeCustomerResponseText(content)
+                    : content;
                 return typeof sanitizeStreamingHtml === 'function'
-                    ? sanitizeStreamingHtml(content)
-                    : (typeof sanitizeHtml === 'function' ? sanitizeHtml(content) : String(content));
+                    ? sanitizeStreamingHtml(cleanContent)
+                    : (typeof sanitizeHtml === 'function' ? sanitizeHtml(cleanContent) : String(cleanContent));
             },
 
             isProductPageLoading(part) {

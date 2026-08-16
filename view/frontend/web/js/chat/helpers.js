@@ -378,6 +378,8 @@
     function sanitizeCustomerResponseText(value) {
         return String(value || '')
             .replace(/\b(?:searchWeb|searchStoreKnowledge|getProductAvailability|compareProducts|searchProducts|listCategories|updateCartItem|removeFromCart|getCustomerInfo|getRecentOrders|getGuestOrders|getGuestOrderDetails|getOrderDetails|getOrderFulfillment|cancelOrder|requestReturn|handoffToHuman|subscribeBackInStock|updateGuestOrderAddress|updateOrderAddress|getCustomerAddresses|updateCustomerAddress|getActiveCoupons|addToCart|CATALOG_CONTEXT)\b/gi, '')
+            .replace(/\bwith (?:categoryId|category_id)\s*\d+/gi, '')
+            .replace(/\b(?:categoryId|category_id|storeCode|customer_id|customerToken|website_id|store_id)\s*[:=]?\s*\d*\b/gi, '')
             .replace(/[ \t]{2,}/g, ' ')
             .replace(/\s+([,.;:!?])/g, '$1');
     }
