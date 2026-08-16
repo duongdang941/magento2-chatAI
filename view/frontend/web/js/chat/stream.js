@@ -756,6 +756,14 @@ const {
                 });
             },
 
+            handleEditComposerKeydown(event, index) {
+                if (this.isLoading || this.isReadingAttachments || !event) return;
+                if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+
+                event.preventDefault();
+                this.submitEditedMessage(index);
+            },
+
             async submitEditedMessage(index) {
                 if (this.isLoading || this.isReadingAttachments) return;
                 if (this.editingMessageIndex !== index) return;

@@ -770,7 +770,7 @@
                                                          :aria-label="editingMessageAttachments.length + ' image(s) will be sent again'">
                                                         <div class="afd-ai-chat__msg-edit-attachments-copy">
                                                             <span class="material-symbols-outlined" aria-hidden="true">image</span>
-                                                            <span x-text="editingMessageAttachments.length === 1 ? 'Image will be sent again' : editingMessageAttachments.length + ' images will be sent again'"></span>
+                                                            <span x-text="editingMessageAttachments.length === 1 ? t('image_will_be_sent_again') : t('images_will_be_sent_again', { 1: editingMessageAttachments.length })"></span>
                                                         </div>
                                                         <div class="afd-ai-chat__msg-edit-attachment-list">
                                                             <template x-for="(attachment, attachmentIndex) in editingMessageAttachments" :key="attachment.previewUrl + attachmentIndex">
@@ -791,21 +791,22 @@
                                                           class="afd-ai-chat__msg-edit-input"
                                                           x-model="editingMessageDraft"
                                                           @input="resizeEditMessageInput()"
+                                                          @keydown="handleEditComposerKeydown($event, index)"
                                                           @keydown.escape.prevent="cancelEditMessage()"
                                                           :disabled="isLoading || isReadingAttachments || msg.mutationBusy"
-                                                          placeholder="Edit message"
+                                                          :placeholder="t('edit_message')"
                                                           rows="1"></textarea>
                                                 <div class="afd-ai-chat__msg-edit-actions">
                                                     <button type="button"
                                                             class="afd-ai-chat__msg-edit-btn afd-ai-chat__msg-edit-btn--ghost"
                                                             @click="cancelEditMessage()"
                                                             :disabled="isLoading || isReadingAttachments || msg.mutationBusy">
-                                                        Cancel
+                                                        <span x-text="t('cancel')"></span>
                                                     </button>
                                                     <button type="submit"
                                                             class="afd-ai-chat__msg-edit-btn afd-ai-chat__msg-edit-btn--primary"
                                                             :disabled="isLoading || isReadingAttachments || msg.mutationBusy || (!editingMessageDraft.trim() && editingMessageAttachments.length === 0)">
-                                                        <span x-text="msg.mutationBusy ? 'Saving…' : (humanSupportActive ? 'Save' : 'Send')"></span>
+                                                        <span x-text="msg.mutationBusy ? t('saving') : (humanSupportActive ? t('save') : t('send'))"></span>
                                                     </button>
                                                 </div>
                                             </form>
