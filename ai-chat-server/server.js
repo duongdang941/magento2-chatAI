@@ -209,17 +209,68 @@ async function supportConversationState(client, conversationId) {
 const browserCartBridge = new BrowserCartBridge({ isSocketOpen });
 
 function guestUserHistoryMessage(currentUser, data) {
-    const imageParts = currentUser.parts.filter((part) => part?.inline_data);
     const uploadedImages = Array.isArray(data.images) ? data.images : [];
+    const attachmentRefParts = (currentUser.parts || []).filter(p => p && (p.type === 'attachment_ref' || p.attachment_id));
+    const imageParts = (currentUser.parts || []).filter((part) => part?.inline_data);
+
+    let attachments = [];
+    if (attachmentRefParts.length > 0) {
+        attachments = attachmentRefParts.map((ref, index) => ({
+            name: String(uploadedImages[index]?.name || ref.name || 'image').slice(0, 120),
+            mime_type: ref.mime_type || uploadedImages[index]?.type || 'image/jpeg',
+            size: Number(uploadedImages[index]?.size || ref.size || 0),
+            attachment_id: ref.attachment_id,
+            url: `/afd_ai/chat/attachment?id=${encodeURIComponent(ref.attachment_id)}`,
+            previewUrl: `/afd_ai/chat/attachment?id=${encodeURIComponent(ref.attachment_id)}`
+        }));
+    } else if (imageParts.length > 0) {
+        attachments = imageParts.map((part, index) => ({
+            name: String(uploadedImages[index]?.name || data.image?.name || 'uploaded-image').slice(0, 120),
+            mime_type: part.inline_data.mime_type,
+            data: part.inline_data.data,
+            url: `data:${part.inline_data.mime_type || 'image/jpeg'};base64,${part.inline_data.data}`,
+            previewUrl: `data:${part.inline_data.mime_type || 'image/jpeg'};base64,${part.inline_data.data}`
+        }));
+    }
+
     return {
         role: 'user',
         content: currentUser.displayText || currentUser.text || '',
-        attachments: imageParts.map((part, index) => ({
-            name: String(uploadedImages[index]?.name || data.image?.name || 'uploaded-image').slice(0, 120),
-            mime_type: part.inline_data.mime_type,
-            data: part.inline_data.data
-        }))
+        attachments
     };
+}
+
+function buildUserMessageAttachmentPayload(currentUser, data) {
+    const uploadedImages = Array.isArray(data.images) ? data.images : [];
+    const attachmentRefParts = (currentUser.parts || []).filter(p => p && (p.type === 'attachment_ref' || p.attachment_id));
+    const imageParts = (currentUser.parts || [])
+        .filter((part) => part && part.inline_data)
+        .map((part) => part.inline_data);
+
+    if (attachmentRefParts.length > 0) {
+        return JSON.stringify({
+            attachments: attachmentRefParts.map((ref, index) => ({
+                name: String(uploadedImages[index]?.name || ref.name || 'image').slice(0, 120),
+                mime_type: ref.mime_type || uploadedImages[index]?.type || 'image/jpeg',
+                size: Number(uploadedImages[index]?.size || ref.size || 0),
+                attachment_id: ref.attachment_id,
+                url: `/afd_ai/chat/attachment?id=${encodeURIComponent(ref.attachment_id)}`
+            }))
+        });
+    }
+
+    if (imageParts.length > 0) {
+        return JSON.stringify({
+            attachments: imageParts.map((imagePart, index) => ({
+                name: String(uploadedImages[index]?.name || data.image?.name || 'uploaded-image').slice(0, 120),
+                mime_type: imagePart.mime_type,
+                data: imagePart.data,
+                url: `data:${imagePart.mime_type || 'image/jpeg'};base64,${imagePart.data}`
+            }))
+        });
+    }
+
+    return null;
 }
 
 function guestAssistantHistoryMessage(parts, metadata = {}) {
@@ -1359,17 +1410,7 @@ async function handleChat(ws, data, client, requestConfig = null) {
                     await db.touchConversation(conversationId, client.customerId, catalogScope);
                 } else {
                     const userMessageContent = currentUser.displayText || currentUser.text || '';
-                    const uploadedImages = Array.isArray(data.images) ? data.images : [];
-                    const imageParts = currentUser.parts
-                        .filter((part) => part && part.inline_data)
-                        .map((part) => part.inline_data);
-                    const attachment = imageParts.length > 0 ? JSON.stringify({
-                        attachments: imageParts.map((imagePart, index) => ({
-                            name: String(uploadedImages[index]?.name || data.image?.name || 'uploaded-image').slice(0, 120),
-                            mime_type: imagePart.mime_type,
-                            data: imagePart.data
-                        }))
-                    }) : null;
+                    const attachment = buildUserMessageAttachmentPayload(currentUser, data);
                     savedUserMessageId = await db.saveMessage(
                         conversationId,
                         client.customerId,
@@ -1457,15 +1498,7 @@ async function handleChat(ws, data, client, requestConfig = null) {
                     await db.touchGuestConversation(conversationId, guestHistoryIdentity(client), catalogScope);
                 }
             } else if (guestMode === 'database') {
-                const uploadedImages = Array.isArray(data.images) ? data.images : [];
-                const imageParts = currentUser.parts.filter((part) => part?.inline_data).map((part) => part.inline_data);
-                const attachment = imageParts.length > 0 ? JSON.stringify({
-                    attachments: imageParts.map((imagePart, index) => ({
-                        name: String(uploadedImages[index]?.name || data.image?.name || 'uploaded-image').slice(0, 120),
-                        mime_type: imagePart.mime_type,
-                        data: imagePart.data
-                    }))
-                }) : null;
+                const attachment = buildUserMessageAttachmentPayload(currentUser, data);
                 savedUserMessageId = await db.saveGuestMessage(
                     conversationId,
                     guestHistoryIdentity(client),

@@ -62,12 +62,20 @@ const {
                         : (message.attachment && typeof message.attachment === 'object' ? [message.attachment] : []);
                     const attachments = attachmentCandidates
                         .map((attachment) => {
-                            const previewUrl = String(attachment.previewUrl || attachment.url || '');
+                            if (!attachment || typeof attachment !== 'object') return null;
+                            const type = String(attachment.type || attachment.mime_type || 'image/jpeg');
+                            const previewUrl = String(
+                                attachment.previewUrl ||
+                                attachment.url ||
+                                (attachment.attachment_id ? `/afd_ai/chat/attachment?id=${encodeURIComponent(attachment.attachment_id)}` : '') ||
+                                (attachment.data ? `data:${type};base64,${attachment.data}` : '')
+                            );
                             if (!previewUrl) return null;
                             return {
                                 name: String(attachment.name || 'image'),
                                 size: Number(attachment.size) || 0,
-                                type: String(attachment.type || attachment.mime_type || ''),
+                                type,
+                                attachment_id: attachment.attachment_id || null,
                                 previewUrl
                             };
                         })

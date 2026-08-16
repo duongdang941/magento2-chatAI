@@ -180,21 +180,21 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
     }
 
     function normalizeStoredAttachment(attachment) {
-        const type = String(attachment.mime_type).toLowerCase();
-        if (attachment.url) {
-            return {
-                name: attachment.name || 'product-image',
-                type,
-                size: Number(attachment.size) || 0,
-                previewUrl: String(attachment.url)
-            };
-        }
-        if (!attachment.data) return null;
+        if (!attachment || typeof attachment !== 'object') return null;
+        const type = String(attachment.mime_type || attachment.type || 'image/jpeg').toLowerCase();
+        const previewUrl = String(
+            attachment.previewUrl ||
+            attachment.url ||
+            (attachment.attachment_id ? `/afd_ai/chat/attachment?id=${encodeURIComponent(attachment.attachment_id)}` : '') ||
+            (attachment.data ? `data:${type};base64,${attachment.data}` : '')
+        );
+        if (!previewUrl) return null;
         return {
             name: attachment.name || 'product-image',
             type,
-            size: Math.floor(String(attachment.data).length * 0.75),
-            previewUrl: `data:${type};base64,${attachment.data}`
+            size: Number(attachment.size) || (attachment.data ? Math.floor(String(attachment.data).length * 0.75) : 0),
+            attachment_id: attachment.attachment_id || null,
+            previewUrl
         };
     }
 
