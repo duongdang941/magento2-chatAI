@@ -4,6 +4,12 @@
   "description": "Node.js WebSocket API for Magento AI Chat",
   "main": "server.js",
   "type": "module",
+  "license": "MIT",
+  "author": "Duong Dang",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/duongdang941/magento2-chatAI.git"
+  },
   "scripts": {
     "start": "node scripts/start.js",
     "dev": "node --watch server.js",
