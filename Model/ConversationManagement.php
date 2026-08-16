@@ -228,9 +228,14 @@ class ConversationManagement implements ConversationManagementInterface
             $message->setRole($role);
             $message->setContent($content);
             if ($role === 'user' && $attachment !== null && trim($attachment) !== '') {
-                $message->setAttachment(
-                    $this->chatAttachmentStorage->storeFromJson($attachment, $customerId, $conversationId)
-                );
+                $decoded = json_decode($attachment, true);
+                if (is_array($decoded) && (isset($decoded['attachments'][0]['attachment_id']) || isset($decoded['attachments'][0]['url']) || isset($decoded['attachment_id']))) {
+                    $message->setAttachment($attachment);
+                } else {
+                    $message->setAttachment(
+                        $this->chatAttachmentStorage->storeFromJson($attachment, $customerId, $conversationId)
+                    );
+                }
             }
             $this->messageRepository->save($message);
             $this->generatedImageReferenceRepository->replaceForMessage(
@@ -447,7 +452,12 @@ class ConversationManagement implements ConversationManagementInterface
         $message->setRole($role);
         $message->setContent($content);
         if ($role === 'user' && $attachment !== null && trim($attachment) !== '') {
-            $message->setAttachment($this->chatAttachmentStorage->storeFromJson($attachment, $guestId, $conversationId));
+            $decoded = json_decode($attachment, true);
+            if (is_array($decoded) && (isset($decoded['attachments'][0]['attachment_id']) || isset($decoded['attachments'][0]['url']) || isset($decoded['attachment_id']))) {
+                $message->setAttachment($attachment);
+            } else {
+                $message->setAttachment($this->chatAttachmentStorage->storeFromJson($attachment, $guestId, $conversationId));
+            }
         }
         $this->messageRepository->save($message);
         if ($role === 'user') {

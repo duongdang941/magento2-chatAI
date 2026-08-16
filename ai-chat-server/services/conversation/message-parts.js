@@ -205,6 +205,7 @@ export function toOpenAiContent(parts = [], fallbackText = '', baseUrl = '') {
     const normalizedParts = [];
     let hasImage = false;
     let hasText = false;
+    let hasAttachmentRef = false;
 
     for (const part of Array.isArray(parts) ? parts : []) {
         if (!part || typeof part !== 'object') {
@@ -222,22 +223,26 @@ export function toOpenAiContent(parts = [], fallbackText = '', baseUrl = '') {
 
         const attachmentRef = extractAttachmentRef(part);
         if (attachmentRef) {
-            hasImage = true;
+            hasAttachmentRef = true;
+            let imageUrl = null;
             if (attachmentRef.url && /^https?:\/\/(?!localhost|127\.0\.0\.1|.*\.test)/i.test(attachmentRef.url)) {
+                imageUrl = attachmentRef.url;
+            } else {
+                const attachmentId = attachmentRef.attachment_id || (attachmentRef.url ? (attachmentRef.url.match(/id=([a-f0-9_]+)/i) || [])[1] : null);
+                if (attachmentId) {
+                    const localData = resolveLocalAttachmentData(attachmentId);
+                    if (localData) {
+                        imageUrl = `data:${localData.mimeType};base64,${localData.data}`;
+                    }
+                }
+            }
+
+            if (imageUrl) {
+                hasImage = true;
                 normalizedParts.push({
                     type: 'image_url',
-                    image_url: { url: attachmentRef.url }
+                    image_url: { url: imageUrl }
                 });
-            } else if (attachmentRef.attachment_id) {
-                const localData = resolveLocalAttachmentData(attachmentRef.attachment_id);
-                if (localData) {
-                    normalizedParts.push({
-                        type: 'image_url',
-                        image_url: {
-                            url: `data:${localData.mimeType};base64,${localData.data}`
-                        }
-                    });
-                }
             }
             continue;
         }
@@ -254,16 +259,14 @@ export function toOpenAiContent(parts = [], fallbackText = '', baseUrl = '') {
         }
     }
 
-    if (!hasImage) {
+    if (!hasImage && !hasAttachmentRef) {
         const text = normalizeText(extractTextFromParts(parts) || fallbackText);
         return text || '';
     }
 
-    if (!hasText) {
-        normalizedParts.unshift({
-            type: 'text',
-            text: normalizeText(fallbackText) || DEFAULT_IMAGE_PROMPT
-        });
+    if (normalizedParts.length === 0) {
+        const text = normalizeText(fallbackText);
+        return text ? [{ type: 'text', text }] : '';
     }
 
     return normalizedParts;
