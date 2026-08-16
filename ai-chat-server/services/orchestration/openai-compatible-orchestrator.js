@@ -197,11 +197,8 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
 
                             if (typeof delta.content === 'string' && delta.content.length > 0) {
                                 assistantMessage.content += delta.content;
-                                ws.send(JSON.stringify({
-                                    type: 'thinking_delta',
-                                    step_id: currentStepId,
-                                    delta: delta.content
-                                }));
+                                smoothEmitter.push(delta.content);
+                                hasVisibleText = true;
                             }
                         },
                         isCancelled
@@ -238,16 +235,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             }
 
             if (toolCalls.length === 0) {
-                // Final answer turn: discard the tentative thinking step and stream final response to customer
-                ws.send(JSON.stringify({
-                    type: 'discard_tentative_step',
-                    step_id: currentStepId
-                }));
-                const finalCustomerText = (assistantMessage.content || '').trim();
-                if (finalCustomerText) {
-                    smoothEmitter.push(finalCustomerText);
-                    hasVisibleText = true;
-                }
                 await smoothEmitter.drain();
                 break;
             }

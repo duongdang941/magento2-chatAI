@@ -160,12 +160,15 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 const parts = chunk.candidates?.[0]?.content?.parts;
                 if (parts) {
                     for (const part of parts) {
-                        if (part.text) {
+                        if (part.thought === true || part.thought) {
                             ws.send(JSON.stringify({
                                 type: 'thinking_delta',
                                 step_id: currentStepId,
-                                delta: part.text
+                                delta: part.text || ''
                             }));
+                        } else if (part.text) {
+                            smoothEmitter.push(part.text);
+                            hasVisibleText = true;
                         }
 
                         const normalizedPart = normalizeGeminiModelPart(part);
@@ -195,14 +198,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
 
             // If AI did not call any tools, this is the final customer answer
             if (functionCalls.length === 0) {
-                ws.send(JSON.stringify({
-                    type: 'discard_tentative_step',
-                    step_id: currentStepId
-                }));
-                const thoughtText = combinedParts.filter(p => p && p.text).map(p => p.text).join('').trim();
-                if (thoughtText) {
-                    smoothEmitter.push(thoughtText);
-                }
                 await smoothEmitter.drain();
                 break;
             }

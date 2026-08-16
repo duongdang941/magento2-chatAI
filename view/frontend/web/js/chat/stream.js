@@ -1340,6 +1340,21 @@ const {
                         this.thinkingEvents.push(step);
                     }
                     step.content += String(data.delta || '');
+                    if (this.currentAiMessageIndex >= 0 && this.messages[this.currentAiMessageIndex]) {
+                        const msg = this.messages[this.currentAiMessageIndex];
+                        let reasoningPart = msg.parts.find(p => p?.type === 'reasoning');
+                        if (!reasoningPart) {
+                            reasoningPart = {
+                                id: 'reasoning-' + Date.now(),
+                                type: 'reasoning',
+                                events: [...this.thinkingEvents],
+                                isExpanded: false
+                            };
+                            msg.parts.unshift(reasoningPart);
+                        } else {
+                            reasoningPart.events = [...this.thinkingEvents];
+                        }
+                    }
                     this.isLoading = true;
                     this.scheduleStreamingScroll();
 
@@ -1363,6 +1378,21 @@ const {
                                 content: data.content,
                                 tool: String(data.tool || '')
                             });
+                        }
+                        if (this.currentAiMessageIndex >= 0 && this.messages[this.currentAiMessageIndex]) {
+                            const msg = this.messages[this.currentAiMessageIndex];
+                            let reasoningPart = msg.parts.find(p => p?.type === 'reasoning');
+                            if (!reasoningPart) {
+                                reasoningPart = {
+                                    id: 'reasoning-' + Date.now(),
+                                    type: 'reasoning',
+                                    events: [...this.thinkingEvents],
+                                    isExpanded: false
+                                };
+                                msg.parts.unshift(reasoningPart);
+                            } else {
+                                reasoningPart.events = [...this.thinkingEvents];
+                            }
                         }
                         this.isLoading = true;
                         this.scrollToBottom();
@@ -1442,6 +1472,22 @@ const {
                             ...this.toolActivities[activityIndex],
                             ...nextActivity
                         });
+                    }
+
+                    if (this.currentAiMessageIndex >= 0 && this.messages[this.currentAiMessageIndex]) {
+                        const msg = this.messages[this.currentAiMessageIndex];
+                        let reasoningPart = msg.parts.find(p => p?.type === 'reasoning');
+                        if (!reasoningPart) {
+                            reasoningPart = {
+                                id: 'reasoning-' + Date.now(),
+                                type: 'reasoning',
+                                events: [...this.thinkingEvents],
+                                isExpanded: false
+                            };
+                            msg.parts.unshift(reasoningPart);
+                        } else {
+                            reasoningPart.events = [...this.thinkingEvents];
+                        }
                     }
 
                     // A tool action belongs to the current assistant turn.
