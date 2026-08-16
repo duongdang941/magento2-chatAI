@@ -915,7 +915,7 @@ const {
                 this.statusMessage = '';
                 this.messageFeedback = {};
                 this.copiedMessageIndex = null;
-                const defaultSingleImage = typeof window.$t === 'function' ? window.$t('Sent an image') : 'Sent an image';
+                const defaultSingleImage = typeof this.t === 'function' ? this.t('sent_an_image') : (typeof window.$t === 'function' ? window.$t('Sent an image') : 'Sent an image');
                 await this.sendMessagePayload(
                     message.content || '',
                     retryAttachments,
@@ -929,9 +929,9 @@ const {
                 if ((!this.userInput.trim() && this.imageAttachments.length === 0) || this.isLoading || this.isReadingAttachments) return;
                 const text = this.userInput.trim();
                 const attachments = this.imageAttachments.map(attachment => ({ ...attachment }));
-                const defaultSingleImage = typeof window.$t === 'function' ? window.$t('Sent an image') : 'Sent an image';
-                const defaultMultiImages = typeof window.$t === 'function' ? window.$t('Sent %1 images') : 'Sent %1 images';
-                const displayText = text || (attachments.length > 1 ? defaultMultiImages.replace('%1', attachments.length) : defaultSingleImage);
+                const defaultSingleImage = typeof this.t === 'function' ? this.t('sent_an_image') : (typeof window.$t === 'function' ? window.$t('Sent an image') : 'Sent an image');
+                const defaultMultiImages = typeof this.t === 'function' ? this.t('sent_images_count', { 1: attachments.length }) : (typeof window.$t === 'function' ? window.$t('Sent %1 images').replace('%1', attachments.length) : `Sent ${attachments.length} images`);
+                const displayText = text || (attachments.length > 1 ? defaultMultiImages : defaultSingleImage);
                 this.cancelEditMessage();
                 await this.sendMessagePayload(text, attachments, displayText, true);
             },
@@ -943,9 +943,9 @@ const {
                 if (this.humanSupportActive) this.stopSupportTyping();
 
                 const cleanText = text.trim();
-                const defaultSingleImage = typeof window.$t === 'function' ? window.$t('Sent an image') : 'Sent an image';
-                const defaultMultiImages = typeof window.$t === 'function' ? window.$t('Sent %1 images') : 'Sent %1 images';
-                const fallbackImagesText = outgoingAttachments.length > 1 ? defaultMultiImages.replace('%1', outgoingAttachments.length) : defaultSingleImage;
+                const defaultSingleImage = typeof this.t === 'function' ? this.t('sent_an_image') : (typeof window.$t === 'function' ? window.$t('Sent an image') : 'Sent an image');
+                const defaultMultiImages = typeof this.t === 'function' ? this.t('sent_images_count', { 1: outgoingAttachments.length }) : (typeof window.$t === 'function' ? window.$t('Sent %1 images').replace('%1', outgoingAttachments.length) : `Sent ${outgoingAttachments.length} images`);
+                const fallbackImagesText = outgoingAttachments.length > 1 ? defaultMultiImages : defaultSingleImage;
                 const visibleText = displayText || (cleanText || fallbackImagesText);
 
                 if (restoreComposer) {

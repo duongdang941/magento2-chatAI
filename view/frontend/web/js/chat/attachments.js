@@ -575,8 +575,8 @@
             async prepareOutgoingUserParts(text, attachments = []) {
                 const parts = [];
                 const cleanText = (text || '').trim();
-                const defaultPrompt = typeof window.$t === 'function'
-                    ? window.$t('Analyze this image and recommend relevant products from the store if applicable.')
+                const defaultPrompt = typeof this.t === 'function'
+                    ? this.t('analyze_image_prompt')
                     : 'Analyze this image and recommend relevant products from the store if applicable.';
                 parts.push({ text: cleanText || defaultPrompt });
 
@@ -592,8 +592,8 @@
                             purpose: 'vision'
                         });
                     } else {
-                        const errMsg = typeof window.$t === 'function'
-                            ? window.$t('Upload attachment failed. Please try sending the image again.')
+                        const errMsg = typeof this.t === 'function'
+                            ? this.t('upload_attachment_failed')
                             : 'Upload attachment failed. Please try sending the image again.';
                         this.uploadError = errMsg;
                         throw new Error('Attachment upload failed');
@@ -605,8 +605,8 @@
             buildOutgoingUserParts(text, attachments = []) {
                 const parts = [];
                 const cleanText = (text || '').trim();
-                const defaultPrompt = typeof window.$t === 'function'
-                    ? window.$t('Analyze this image and recommend relevant products from the store if applicable.')
+                const defaultPrompt = typeof this.t === 'function'
+                    ? this.t('analyze_image_prompt')
                     : 'Analyze this image and recommend relevant products from the store if applicable.';
                 parts.push({ text: cleanText || defaultPrompt });
                 attachments.forEach((attachment) => {

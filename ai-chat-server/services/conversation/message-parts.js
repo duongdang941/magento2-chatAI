@@ -8,9 +8,12 @@ const ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp
 const IMAGE_PLACEHOLDER_TEXTS = new Set([
     normalizeSearchableText('Sent a product image'),
     normalizeSearchableText('Sent an image'),
+    normalizeSearchableText('Bild gesendet'),
+    normalizeSearchableText('Bilder gesendet'),
     normalizeSearchableText('Đã gửi hình ảnh'),
     normalizeSearchableText('Analyze this product image and find matching items in the store.'),
     normalizeSearchableText('Analyze this image and recommend relevant products from the store if applicable.'),
+    normalizeSearchableText('Analysieren Sie dieses Bild und empfehlen Sie gegebenenfalls passende Produkte aus dem Shop.'),
     normalizeSearchableText('Mô tả nội dung hình ảnh này và nếu phù hợp hãy tìm sản phẩm tương ứng trong cửa hàng.'),
     normalizeSearchableText(DEFAULT_IMAGE_PROMPT)
 ]);
