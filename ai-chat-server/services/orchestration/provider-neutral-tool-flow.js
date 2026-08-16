@@ -88,20 +88,22 @@ export function createProviderNeutralToolFlow({
             }
             if (result.outcome?.name === 'searchProducts'
                 && !state.catalogIdentityResolved
-                && isTerminalCatalogMiss(result.outcome.content)) {
+                && isTerminalCatalogMiss(result.outcome.content)
+                && !result.productPresentation) {
                 state.terminalCatalog = true;
                 state.pendingProductPresentation = null;
                 state.hasVisibleProducts = false;
             }
-            if (result.productPresentation && !state.terminalCatalog) {
+            if (result.productPresentation) {
                 state.pendingProductPresentation = result.productPresentation;
                 state.hasVisibleProducts = true;
+                state.terminalCatalog = false;
             }
             if (result.visibleImage) state.hasVisibleImages = true;
             if (result.error) state.toolErrorMessage = result.error;
         }
 
-        state.hasVisibleProducts = Boolean(state.pendingProductPresentation && !state.terminalCatalog);
+        state.hasVisibleProducts = Boolean(state.pendingProductPresentation);
         return getState();
     };
 
@@ -369,18 +371,21 @@ function registerResult({
     if (!blocked) options.onToolOutcome?.(outcome);
 
     if (isResolvedCatalogIdentity(outcome)) state.catalogIdentityResolved = true;
+    const presentation = presentToolResult({ name, args, content, shopperMessage, options });
+
     if (outcome.name === 'searchProducts'
         && !state.catalogIdentityResolved
-        && isTerminalCatalogMiss(outcome.content)) {
+        && isTerminalCatalogMiss(outcome.content)
+        && !presentation.productPresentation) {
         state.terminalCatalog = true;
         state.pendingProductPresentation = null;
         state.hasVisibleProducts = false;
     }
 
-    const presentation = presentToolResult({ name, args, content, shopperMessage, options });
-    if (presentation.productPresentation && !state.terminalCatalog) {
+    if (presentation.productPresentation) {
         state.pendingProductPresentation = presentation.productPresentation;
         state.hasVisibleProducts = true;
+        state.terminalCatalog = false;
     }
     if (presentation.visibleImage) state.hasVisibleImages = true;
     if (blockingToolFailure) {
