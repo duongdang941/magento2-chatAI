@@ -1267,6 +1267,7 @@ async function handleChat(ws, data, client, requestConfig = null) {
     const { history = [], conversation_id } = data;
     const aiConfig = requestConfig || await getAiConfig(runtime, client.catalogScope?.storeCode || '');
     const isResumedAction = data.resume_pending_action === true;
+    const isContinuation = data.is_continuation === true;
     const replaceFromMessageId = Math.max(0, Math.floor(Number(data.replace_from_message_id) || 0));
     const currentUser = buildUserMessageDescriptor(data, {
         imageDisplayText: 'Sent an image'
@@ -1404,9 +1405,8 @@ async function handleChat(ws, data, client, requestConfig = null) {
 
             // Save user message
             try {
-                if (isResumedAction) {
-                    // The original user message was persisted before OTP. A
-                    // resumed action must execute it, not create a duplicate.
+                if (isResumedAction || isContinuation) {
+                    // A continuation or resumed action must execute it, not create a duplicate user message.
                     await db.touchConversation(conversationId, client.customerId, catalogScope);
                 } else {
                     const userMessageContent = currentUser.displayText || currentUser.text || '';
@@ -1493,7 +1493,7 @@ async function handleChat(ws, data, client, requestConfig = null) {
                 }
             }
 
-            if (isResumedAction) {
+            if (isResumedAction || isContinuation) {
                 if (guestMode === 'database') {
                     await db.touchGuestConversation(conversationId, guestHistoryIdentity(client), catalogScope);
                 }

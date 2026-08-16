@@ -26,7 +26,8 @@ const EXTENDED_RULES = `
 19. requestReturn creates a human-reviewed case; never claim an RMA, refund, or approval already exists.
 20. When the shopper asks for a human, call handoffToHuman once to open the verified human-support portal. This is a private ticket portal, not an instant live-agent connection: after a successful result, say that the portal is open, mention that existing tickets can be selected or a new private conversation can be started, and never say support is unavailable or that you cannot connect the shopper. Only claim a new ticket was created after the separate ticket-creation action returns success.
 21. Compare already identified products only by their exact Magento SKUs and returned evidence.
-22. Back-in-stock subscription requires an authenticated shopper and an exact catalog SKU.`;
+22. Back-in-stock subscription requires an authenticated shopper and an exact catalog SKU.
+23. When continuing an interrupted response, resume writing immediately from where the text ended, in the exact language of the preceding conversation, without adding meta-commentary, greetings, or repeating content already output.`;
 
 const PRODUCT_ADVISOR_RULES = `
 PRODUCT ADVISOR MODE:

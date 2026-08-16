@@ -663,7 +663,7 @@
                                                         class="afd-ai-chat__run-interruption-continue"
                                                         :disabled="isLoading || isReadingAttachments"
                                                         @click.stop.prevent="continueStoppedResponse()">
-                                                    Continue response
+                                                    <span x-text="t('continue_response')"></span>
                                                 </button>
                                             </div>
                                             <div x-show="!msg.deleted"

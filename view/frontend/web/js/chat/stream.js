@@ -1186,17 +1186,62 @@ const {
 
             stoppedResponseLabel(message) {
                 const seconds = Math.max(0, Number(message?.stoppedAfterSeconds) || 0);
+                if (typeof this.t === 'function') {
+                    return this.t('you_stopped_after', { 1: seconds });
+                }
                 return `You stopped after ${seconds}s`;
             },
 
             continueStoppedResponse() {
                 if (this.isLoading || this.isReadingAttachments) return;
-                this.sendMessagePayload(
-                    'Continue your previous response from where you stopped. Do not repeat content that is already visible.',
-                    [],
-                    'Continue response',
-                    true
-                );
+
+                let lastAssistantIndex = -1;
+                for (let i = this.messages.length - 1; i >= 0; i--) {
+                    if (this.messages[i]?.role === 'assistant') {
+                        lastAssistantIndex = i;
+                        break;
+                    }
+                }
+                if (lastAssistantIndex < 0) return;
+
+                const targetMessage = this.messages[lastAssistantIndex];
+                targetMessage.interrupted = false;
+                targetMessage.stoppedAfterSeconds = null;
+
+                this.currentAiMessageIndex = lastAssistantIndex;
+                this.isLoading = true;
+                this.statusMessage = '';
+                this.responseStartedAt = Date.now();
+                this.thinkingEvents = [];
+                this.toolActivities = [];
+
+                const requestId = this.createRequestId();
+                this.activeRequestId = requestId;
+                this.armResponseWatchdog();
+
+                const history = this.buildModelHistory();
+                const continuationPrompt = 'Continue your previous response from where you stopped. Continue naturally in the same language without repeating what was already written.';
+
+                if (this.socket && this.wsConnected) {
+                    try {
+                        this.socket.send(JSON.stringify({
+                            action: 'chat',
+                            request_id: requestId,
+                            conversation_id: this.activeConversationId,
+                            is_continuation: true,
+                            text: continuationPrompt,
+                            parts: [{ text: continuationPrompt }],
+                            history: history,
+                            images: []
+                        }));
+                    } catch (e) {
+                        this.isLoading = false;
+                        this.currentAiMessageIndex = -1;
+                        this.clearResponseWatchdog();
+                    }
+                }
+                this.scheduleGuestSessionSnapshot();
+                this.scrollToBottom();
             },
 
             stopCurrentResponse() {
