@@ -572,6 +572,22 @@
                 }
             },
 
+            base64ToFile(base64, mimeType = 'image/jpeg', filename = 'product-image.jpg') {
+                try {
+                    const cleanBase64 = String(base64 || '').includes(',') ? String(base64).split(',')[1] : String(base64 || '');
+                    if (!cleanBase64) return null;
+                    const binaryString = atob(cleanBase64);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    const blob = new Blob([bytes], { type: mimeType });
+                    return new File([blob], filename, { type: mimeType });
+                } catch (e) {
+                    return null;
+                }
+            },
+
             async prepareOutgoingUserParts(text, attachments = []) {
                 const parts = [];
                 const cleanText = (text || '').trim();
@@ -581,23 +597,50 @@
                 parts.push({ text: cleanText || defaultPrompt });
 
                 for (const attachment of attachments) {
-                    const uploadedRef = await this.uploadAttachment(attachment);
-                    if (uploadedRef) {
-                        parts.push(uploadedRef);
-                    } else if (attachment.attachment_id) {
+                    if (!attachment) continue;
+
+                    if (attachment.attachment_id) {
                         parts.push({
                             type: 'attachment_ref',
                             attachment_id: attachment.attachment_id,
                             kind: 'image',
                             purpose: 'vision'
                         });
-                    } else {
-                        const errMsg = typeof this.t === 'function'
-                            ? this.t('upload_attachment_failed')
-                            : 'Upload attachment failed. Please try sending the image again.';
-                        this.uploadError = errMsg;
-                        throw new Error('Attachment upload failed');
+                        continue;
                     }
+
+                    if (!attachment.file && (attachment.base64 || attachment.data)) {
+                        attachment.file = this.base64ToFile(
+                            attachment.base64 || attachment.data,
+                            attachment.type || 'image/jpeg',
+                            attachment.name || 'product-image.jpg'
+                        );
+                    }
+
+                    if (attachment.file) {
+                        const uploadedRef = await this.uploadAttachment(attachment);
+                        if (uploadedRef) {
+                            parts.push(uploadedRef);
+                            continue;
+                        }
+                    }
+
+                    if (attachment.base64 || attachment.data) {
+                        parts.push({
+                            type: 'image',
+                            inline_data: {
+                                mime_type: attachment.type || 'image/jpeg',
+                                data: attachment.base64 || attachment.data
+                            }
+                        });
+                        continue;
+                    }
+
+                    const errMsg = typeof this.t === 'function'
+                        ? this.t('upload_attachment_failed')
+                        : 'Upload attachment failed. Please try sending the image again.';
+                    this.uploadError = errMsg;
+                    throw new Error('Attachment upload failed');
                 }
                 return parts;
             },
@@ -610,12 +653,21 @@
                     : 'Analyze this image and recommend relevant products from the store if applicable.';
                 parts.push({ text: cleanText || defaultPrompt });
                 attachments.forEach((attachment) => {
+                    if (!attachment) return;
                     if (attachment.attachment_id) {
                         parts.push({
                             type: 'attachment_ref',
                             attachment_id: attachment.attachment_id,
                             kind: 'image',
                             purpose: 'vision'
+                        });
+                    } else if (attachment.base64 || attachment.data) {
+                        parts.push({
+                            type: 'image',
+                            inline_data: {
+                                mime_type: attachment.type || 'image/jpeg',
+                                data: attachment.base64 || attachment.data
+                            }
                         });
                     }
                 });

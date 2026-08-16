@@ -1004,6 +1004,18 @@ const {
                     this.uploadError = this.uploadError || 'Attachment upload failed. Please try again.';
                     return;
                 }
+
+                const sentUserMessage = this.messages[this.messages.length - 1];
+                if (sentUserMessage && Array.isArray(sentUserMessage.attachments)) {
+                    sentUserMessage.attachments.forEach((att, idx) => {
+                        const sourceAtt = outgoingAttachments[idx];
+                        if (sourceAtt?.attachment_id) {
+                            att.attachment_id = sourceAtt.attachment_id;
+                            att.previewUrl = `/afd_ai/chat/attachment?id=${encodeURIComponent(sourceAtt.attachment_id)}`;
+                        }
+                    });
+                }
+                this.scheduleGuestSessionSnapshot();
                 const history = this.buildModelHistory();
                 const guestHistory = this.isLoggedIn ? [] : this.buildGuestHistorySnapshot();
                 const chatPayload = {
