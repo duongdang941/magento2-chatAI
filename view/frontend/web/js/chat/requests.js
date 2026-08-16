@@ -125,12 +125,17 @@ const {
             copyMessageAttachments(attachments) {
                 return (Array.isArray(attachments) ? attachments : [])
                     .map((attachment) => {
-                        const previewUrl = String(attachment && attachment.previewUrl || '');
+                        const attachmentId = attachment?.attachment_id || null;
+                        let previewUrl = String(attachment && attachment.previewUrl || attachment && attachment.url || '');
+                        if (attachmentId && (!previewUrl || previewUrl.startsWith('blob:'))) {
+                            previewUrl = `/afd_ai/chat/attachment?id=${encodeURIComponent(attachmentId)}`;
+                        }
                         if (!previewUrl) return null;
                         return {
                             name: String(attachment.name || 'product-image'),
                             size: Number(attachment.size) || 0,
-                            type: String(attachment.type || attachment.mime_type || '').toLowerCase(),
+                            type: String(attachment.type || attachment.mime_type || 'image/jpeg').toLowerCase(),
+                            attachment_id: attachmentId,
                             previewUrl
                         };
                     })
@@ -157,7 +162,22 @@ const {
             },
 
             async prepareAttachmentForResend(attachment) {
-                const previewUrl = String(attachment && attachment.previewUrl || '');
+                const attachmentId = attachment?.attachment_id || null;
+                let previewUrl = String(attachment && attachment.previewUrl || attachment && attachment.url || '');
+                if (attachmentId && (!previewUrl || previewUrl.startsWith('blob:'))) {
+                    previewUrl = `/afd_ai/chat/attachment?id=${encodeURIComponent(attachmentId)}`;
+                }
+
+                if (attachmentId) {
+                    return {
+                        name: String(attachment.name || 'product-image'),
+                        size: Number(attachment.size) || 0,
+                        type: String(attachment.type || attachment.mime_type || 'image/jpeg').toLowerCase(),
+                        attachment_id: attachmentId,
+                        previewUrl
+                    };
+                }
+
                 if (!previewUrl) throw new Error('An original image is unavailable.');
 
                 let dataUrl = previewUrl;
@@ -169,8 +189,13 @@ const {
                     let imageUrl;
                     let response;
                     if (previewUrl.startsWith('blob:')) {
-                        response = await fetch(previewUrl);
-                    } else {
+                        try {
+                            response = await fetch(previewUrl);
+                        } catch (e) {
+                            // blob might be revoked
+                        }
+                    }
+                    if (!response) {
                         try {
                             imageUrl = new URL(previewUrl, window.location.origin);
                         } catch (e) {
@@ -185,7 +210,7 @@ const {
                             cache: 'force-cache'
                         });
                     }
-                    if (!response.ok) throw new Error('The original image could not be loaded.');
+                    if (!response || !response.ok) throw new Error('The original image could not be loaded.');
 
                     const blob = await response.blob();
                     if (blob.size > IMAGE_UPLOAD_MAX_BYTES) {

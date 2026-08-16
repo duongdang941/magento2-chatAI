@@ -63,13 +63,14 @@ const {
                     const attachments = attachmentCandidates
                         .map((attachment) => {
                             if (!attachment || typeof attachment !== 'object') return null;
-                            const type = String(attachment.type || attachment.mime_type || 'image/jpeg');
-                            const previewUrl = String(
-                                attachment.previewUrl ||
-                                attachment.url ||
-                                (attachment.attachment_id ? `/afd_ai/chat/attachment?id=${encodeURIComponent(attachment.attachment_id)}` : '') ||
-                                (attachment.data ? `data:${type};base64,${attachment.data}` : '')
-                            );
+                            const attachmentId = attachment.attachment_id || null;
+                            let previewUrl = String(attachment.previewUrl || attachment.url || '');
+                            if (attachmentId && (!previewUrl || previewUrl.startsWith('blob:'))) {
+                                previewUrl = `/afd_ai/chat/attachment?id=${encodeURIComponent(attachmentId)}`;
+                            }
+                            if (!previewUrl && attachment.data) {
+                                previewUrl = `data:${type};base64,${attachment.data}`;
+                            }
                             if (!previewUrl) return null;
                             return {
                                 name: String(attachment.name || 'image'),

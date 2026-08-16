@@ -353,6 +353,10 @@
         return parseBasicMarkdownFallback(cleanText);
     }
 
+    function normalizeMalformedMarkdownLinks(text) {
+        return String(text || '').replace(/\[([^\]]+)\]\s+\((https?:\/\/[^\s)]+)\)/g, '[$1]($2)');
+    }
+
     function sanitizeHtml(rawText) {
         try {
             const normalizedText = normalizeMalformedMarkdownLinks(rawText);
