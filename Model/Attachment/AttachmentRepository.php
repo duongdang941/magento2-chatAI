@@ -47,22 +47,66 @@ class AttachmentRepository
         ]);
     }
 
+    /**
+     * Atomically consumes an issued ticket before any staged file is created.
+     * The nonce is retained only as a hash, so a replay cannot claim it twice.
+     */
+    public function claimForUpload(
+        string $attachmentId,
+        string $ownerKey,
+        string $nonce,
+        int $now = 0
+    ): bool {
+        $connection = $this->resource->getConnection();
+        $table = $this->resource->getTableName(self::TABLE_ATTACHMENT);
+        $now = $now > 0 ? $now : time();
+
+        $affected = $connection->update($table, [
+            'state' => 'uploading',
+            'updated_at' => gmdate('Y-m-d H:i:s', $now)
+        ], [
+            'attachment_id = ?' => $attachmentId,
+            'owner_key = ?' => $ownerKey,
+            'nonce_hash = ?' => hash('sha256', $nonce),
+            'state = ?' => 'issued',
+            'expires_at >= ?' => gmdate('Y-m-d H:i:s', $now)
+        ]);
+
+        return $affected === 1;
+    }
+
+    public function releaseUploadClaim(string $attachmentId): void
+    {
+        $connection = $this->resource->getConnection();
+        $table = $this->resource->getTableName(self::TABLE_ATTACHMENT);
+        $connection->update($table, [
+            'state' => 'issued',
+            'updated_at' => gmdate('Y-m-d H:i:s')
+        ], [
+            'attachment_id = ?' => $attachmentId,
+            'state = ?' => 'uploading'
+        ]);
+    }
+
     public function recordStaged(
         string $attachmentId,
         string $stagedPath,
         int $actualBytes,
         string $sha256
-    ): void {
+    ): bool {
         $connection = $this->resource->getConnection();
         $table = $this->resource->getTableName(self::TABLE_ATTACHMENT);
 
-        $connection->update($table, [
+        return $connection->update($table, [
             'state' => 'staged',
             'staged_path' => $stagedPath,
             'bytes' => $actualBytes,
             'sha256' => $sha256,
             'updated_at' => gmdate('Y-m-d H:i:s')
-        ], ['attachment_id = ?' => $attachmentId]);
+        ], [
+            'attachment_id = ?' => $attachmentId,
+            'state = ?' => 'uploading'
+        ]) === 1;
     }
 
     public function tryMarkFinalizing(string $attachmentId, int $leaseSeconds = 30): bool

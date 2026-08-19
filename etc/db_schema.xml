@@ -271,7 +271,7 @@
         <column xsi:type="varchar" name="owner_type" nullable="false" length="16" comment="customer or guest"/>
         <column xsi:type="varchar" name="owner_key" nullable="false" length="64" comment="Owner Identifier"/>
         <column xsi:type="int" name="conversation_id" unsigned="true" nullable="true" comment="Conversation ID"/>
-        <column xsi:type="varchar" name="state" nullable="false" length="16" default="issued" comment="State: issued, staged, committed, failed, expired"/>
+        <column xsi:type="varchar" name="state" nullable="false" length="16" default="issued" comment="State: issued, uploading, staged, finalizing, committed, failed, expired"/>
         <column xsi:type="varchar" name="staged_path" nullable="true" length="255" comment="Temporary Staged Relative Path"/>
         <column xsi:type="varchar" name="final_path" nullable="true" length="255" comment="Final Conversation Relative Path"/>
         <column xsi:type="varchar" name="mime_type" nullable="false" length="32" default="image/jpeg" comment="MIME Type"/>

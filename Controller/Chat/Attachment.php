@@ -29,7 +29,8 @@ class Attachment implements HttpGetActionInterface
         private readonly GuestChatIdentity $guestChatIdentity,
         private readonly ConversationIdentity $conversationIdentity,
         private readonly Filesystem $filesystem,
-        private readonly \Magento\Framework\App\Response\Http\FileFactory $fileFactory
+        private readonly \Magento\Framework\App\Response\Http\FileFactory $fileFactory,
+        private readonly ?\Afd\AI\Model\Attachment\AttachmentRepository $attachmentRepository = null
     ) {
     }
 
@@ -54,17 +55,24 @@ class Attachment implements HttpGetActionInterface
 
         if ($attachmentId !== '' && preg_match('/^att_[a-f0-9]{32}$/', $attachmentId)) {
             $finalDir = 'afd_ai/chat/' . $ownerPath . '/final';
-            $stagedDir = 'afd_ai/chat/' . $ownerPath . '/staged';
+            $record = $this->attachmentRepository?->getAttachment($attachmentId);
+            $recordOwner = hash('sha256', (string)$this->resolveOwnerId($customerId, $guestId));
+            $recordPath = (string)($record['final_path'] ?? '');
+
+            if ($this->attachmentRepository && (!$record
+                || ($record['state'] ?? '') !== 'committed'
+                || (string)($record['owner_key'] ?? '') !== $recordOwner
+                || !str_starts_with($recordPath, $finalDir . '/')
+            )) {
+                return $this->notFound();
+            }
+
             foreach (['jpg', 'png', 'webp'] as $ext) {
                 $checkFinal = $finalDir . '/' . $attachmentId . '.' . $ext;
-                if ($directory->isFile($checkFinal)) {
+                if ($directory->isFile($checkFinal)
+                    && (!$this->attachmentRepository || $recordPath === $checkFinal)
+                ) {
                     $relativeFile = $checkFinal;
-                    $extension = $ext;
-                    break;
-                }
-                $checkStaged = $stagedDir . '/' . $attachmentId . '.' . $ext;
-                if ($directory->isFile($checkStaged)) {
-                    $relativeFile = $checkStaged;
                     $extension = $ext;
                     break;
                 }
@@ -96,6 +104,19 @@ class Attachment implements HttpGetActionInterface
             DirectoryList::VAR_DIR,
             $mimeType
         );
+    }
+
+    private function resolveOwnerId(?int $customerId, ?string $guestId): string|int
+    {
+        if ($customerId && $customerId > 0) {
+            return $customerId;
+        }
+
+        if ($guestId !== null && preg_match('/^[a-f0-9]{32,64}$/i', $guestId)) {
+            return $guestId;
+        }
+
+        return hash('sha256', (string)($this->customerSession->getSessionId() ?: 'guest'));
     }
 
     private function notFound(): Raw

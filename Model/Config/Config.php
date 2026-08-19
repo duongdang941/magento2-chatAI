@@ -730,10 +730,9 @@ class Config
             return '';
         }
 
-        // New Admin fields are intentionally stored as visible plain text.
-        // Decrypt only values created by the previous encrypted field type so
-        // existing installations retain their configuration after the UI
-        // change.
+        // Magento's encrypted backend normally returns ciphertext from the
+        // raw scope config reader. Keep plaintext compatibility for legacy
+        // local values while decrypting encrypted values consistently.
         if (!preg_match('/^\d+:\d+:[A-Za-z0-9+\/=]+$/', $value)) {
             return $value;
         }

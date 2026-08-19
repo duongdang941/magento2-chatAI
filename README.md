@@ -65,6 +65,7 @@ Magento service contracts / ownership policies
 ## 🔒 Security Invariants
 
 - Integration ACL is limited to `Afd_AI::chat_gateway`; never grant `Magento_Backend::all`.
+- Provider API keys and Magento OAuth credentials use Magento encrypted configuration storage at rest.
 - Anonymous-looking internal REST endpoints call `NodeRequestAuthorizer` and require timestamped HMAC + nonce replay protection.
 - Customer and guest ownership is rechecked in Magento for every private resource.
 - Guest OTP is limited by email hash, stable session, network identity, and a global delivery budget.

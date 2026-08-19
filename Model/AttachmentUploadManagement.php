@@ -90,7 +90,7 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
             $this->attachmentRepository->recordIssued(
                 $attachmentId,
                 (int)$this->customerSession->getCustomerId() > 0 ? 'customer' : 'guest',
-                (string)$ownerId,
+                hash('sha256', (string)$ownerId),
                 $reserveBytes,
                 $normalizedMime,
                 $expiresAt,

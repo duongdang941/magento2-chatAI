@@ -3,38 +3,13 @@ declare(strict_types=1);
 
 namespace Afd\AI\Model\Config\Backend;
 
-use Magento\Framework\App\ObjectManager;
-use Magento\Framework\Encryption\EncryptorInterface;
-
 /**
- * Renders values encrypted by the legacy field definition as ordinary text.
- * New saves use Magento's default value backend and are intentionally stored
- * as plain text, matching the local-development configuration policy.
+ * Backwards-compatible alias for Magento's encrypted configuration backend.
+ *
+ * Older installations used this class for values that were rendered as
+ * visible text. Keeping the alias lets those installations upgrade without a
+ * config-path change while ensuring every subsequent save is encrypted.
  */
-class VisibleValue extends \Magento\Framework\App\Config\Value
+class VisibleValue extends \Magento\Config\Model\Config\Backend\Encrypted
 {
-    protected function _afterLoad()
-    {
-        $value = (string)$this->getValue();
-        if ($value === '' || !preg_match('/^\d+:\d+:[A-Za-z0-9+\/=]+$/', $value)) {
-            return;
-        }
-
-        try {
-            $decrypted = (string)ObjectManager::getInstance()
-                ->get(EncryptorInterface::class)
-                ->decrypt($value);
-            if ($decrypted !== '') {
-                $this->setValue($decrypted);
-            }
-        } catch (\Throwable $exception) {
-            // Preserve the stored value if a legacy ciphertext cannot be
-            // decrypted with this Magento installation's crypt key.
-        }
-    }
-
-    public function beforeSave()
-    {
-        return parent::beforeSave();
-    }
 }

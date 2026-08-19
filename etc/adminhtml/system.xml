@@ -205,7 +205,7 @@
                     <label>Google Gemini</label>
                     <comment>Google Gemini credentials and models.</comment>
                     <depends><field id="provider">gemini</field></depends>
-                    <field id="gemini_api_key" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <field id="gemini_api_key" translate="label" type="obscure" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
                         <label>Gemini API Key</label>
                         <config_path>afd_ai/general/gemini_api_key</config_path>
                         <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
@@ -239,7 +239,7 @@
                     <label>OpenAI</label>
                     <comment>OpenAI chat, transcription and optional Realtime voice settings.</comment>
                     <depends><field id="provider">openai</field></depends>
-                    <field id="openai_api_key" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <field id="openai_api_key" translate="label" type="obscure" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
                         <label>OpenAI API Key</label>
                         <config_path>afd_ai/general/openai_api_key</config_path>
                         <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
@@ -260,7 +260,7 @@
                         <config_path>afd_ai/voice/live_enabled</config_path>
                         <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
                     </field>
-                    <field id="live_voice_openai_api_key" translate="label comment" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <field id="live_voice_openai_api_key" translate="label comment" type="obscure" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
                         <label>Live Voice API Key</label>
                         <comment>Sent only to the Node gateway and never to the shopper browser.</comment>
                         <config_path>afd_ai/voice/live_openai_api_key</config_path>
@@ -293,7 +293,7 @@
                     <label>OpenRouter</label>
                     <comment>OpenRouter credentials and model.</comment>
                     <depends><field id="provider">openrouter</field></depends>
-                    <field id="openrouter_api_key" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <field id="openrouter_api_key" translate="label" type="obscure" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
                         <label>OpenRouter API Key</label>
                         <config_path>afd_ai/general/openrouter_api_key</config_path>
                         <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
@@ -314,7 +314,7 @@
                     <label>9router</label>
                     <comment>9router endpoint, credentials and model.</comment>
                     <depends><field id="provider">9router</field></depends>
-                    <field id="nine_router_api_key" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <field id="nine_router_api_key" translate="label" type="obscure" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
                         <label>9router API Key</label>
                         <config_path>afd_ai/general/nine_router_api_key</config_path>
                         <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
@@ -340,7 +340,7 @@
                     <label>Cockpit</label>
                     <comment>Local or remote OpenAI-compatible Cockpit endpoint.</comment>
                     <depends><field id="provider">cockpit</field></depends>
-                    <field id="cockpit_api_key" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <field id="cockpit_api_key" translate="label" type="obscure" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
                         <label>Cockpit API Key</label>
                         <config_path>afd_ai/general/cockpit_api_key</config_path>
                         <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
@@ -611,22 +611,22 @@
 
             <group id="magento_oauth" translate="label" type="text" sortOrder="80" showInDefault="1" showInWebsite="0" showInStore="0">
                 <label>Magento OAuth</label>
-                <field id="consumer_key" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0">
+                <field id="consumer_key" translate="label" type="obscure" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0">
                     <label>Consumer Key</label>
                     <config_path>afd_ai/general/magento_consumer_key</config_path>
                     <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
                 </field>
-                <field id="consumer_secret" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0">
+                <field id="consumer_secret" translate="label" type="obscure" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0">
                     <label>Consumer Secret</label>
                     <config_path>afd_ai/general/magento_consumer_secret</config_path>
                     <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
                 </field>
-                <field id="access_token" translate="label" type="text" sortOrder="30" showInDefault="1" showInWebsite="0" showInStore="0">
+                <field id="access_token" translate="label" type="obscure" sortOrder="30" showInDefault="1" showInWebsite="0" showInStore="0">
                     <label>Access Token</label>
                     <config_path>afd_ai/general/magento_access_token</config_path>
                     <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
                 </field>
-                <field id="access_token_secret" translate="label" type="text" sortOrder="40" showInDefault="1" showInWebsite="0" showInStore="0">
+                <field id="access_token_secret" translate="label" type="obscure" sortOrder="40" showInDefault="1" showInWebsite="0" showInStore="0">
                     <label>Access Token Secret</label>
                     <config_path>afd_ai/general/magento_access_token_secret</config_path>
                     <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>

@@ -98,7 +98,9 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
         $tempRelativeDir = 'afd_ai/chat/temp';
         $varDir->create($tempRelativeDir);
 
-        $tempFilePath = $varDir->getAbsolutePath($tempRelativeDir . '/' . $attachmentId . '.tmp');
+        $tempFilePath = $varDir->getAbsolutePath(
+            $tempRelativeDir . '/' . $attachmentId . '.' . bin2hex(random_bytes(8)) . '.tmp'
+        );
         $hashContext = hash_init('sha256');
         $totalBytes = 0;
 
@@ -226,6 +228,19 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
 
         $sha256 = hash_final($hashContext);
         $ext = self::MIME_TO_EXTENSION[$detectedMime];
+
+        if ($this->attachmentRepository && !$this->attachmentRepository->claimForUpload(
+            $attachmentId,
+            $expectedOwner,
+            (string)($ticketPayload['nonce'] ?? '')
+        )) {
+            @unlink($tempFilePath);
+            return $result->setHttpResponseCode(409)->setData([
+                'success' => false,
+                'error' => 'Upload ticket has already been used or is no longer valid.'
+            ]);
+        }
+
         $ownerTargetDir = 'afd_ai/chat/' . $ownerPath . '/staged';
         $varDir->create($ownerTargetDir);
         $finalRelativePath = $ownerTargetDir . '/' . $attachmentId . '.' . $ext;
@@ -234,19 +249,29 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
         // Atomic rename from temp to staged path
         if (!rename($tempFilePath, $finalAbsolutePath)) {
             @unlink($tempFilePath);
+            if ($this->attachmentRepository !== null) {
+                $this->attachmentRepository->releaseUploadClaim($attachmentId);
+            }
             return $result->setHttpResponseCode(500)->setData([
                 'success' => false,
                 'error' => 'Failed to stage uploaded attachment.'
             ]);
         }
 
-        if ($this->attachmentRepository) {
-            $this->attachmentRepository->recordStaged(
-                $attachmentId,
-                $finalRelativePath,
-                $totalBytes,
-                $sha256
-            );
+        if ($this->attachmentRepository && !$this->attachmentRepository->recordStaged(
+            $attachmentId,
+            $finalRelativePath,
+            $totalBytes,
+            $sha256
+        )) {
+            @unlink($finalAbsolutePath);
+            if ($this->attachmentRepository !== null) {
+                $this->attachmentRepository->releaseUploadClaim($attachmentId);
+            }
+            return $result->setHttpResponseCode(409)->setData([
+                'success' => false,
+                'error' => 'Attachment upload state could not be committed.'
+            ]);
         }
 
         return $result->setData([

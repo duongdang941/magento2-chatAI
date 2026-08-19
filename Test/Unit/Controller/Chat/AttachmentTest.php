@@ -137,6 +137,86 @@ class AttachmentTest extends TestCase
         $this->assertSame($rawResult, $result);
     }
 
+    public function testAttachmentIdCannotServeStagedRecordWhenRepositoryIsAvailable(): void
+    {
+        $attachmentId = 'att_0123456789abcdef0123456789abcdef';
+        $this->request->method('getParam')->willReturnCallback(function (string $param) use ($attachmentId) {
+            return in_array($param, ['id', 'attachment_id'], true) ? $attachmentId : null;
+        });
+        $this->customerSession->method('isLoggedIn')->willReturn(true);
+        $this->customerSession->method('getCustomerId')->willReturn(42);
+
+        $repository = $this->createMock(\Afd\AI\Model\Attachment\AttachmentRepository::class);
+        $repository->expects($this->once())->method('getAttachment')->with($attachmentId)->willReturn([
+            'attachment_id' => $attachmentId,
+            'owner_key' => hash('sha256', '42'),
+            'state' => 'staged',
+            'final_path' => 'afd_ai/chat/42/staged/' . $attachmentId . '.png',
+        ]);
+
+        $rawResult = $this->createMock(Raw::class);
+        $rawResult->expects($this->once())->method('setHttpResponseCode')->with(404)->willReturnSelf();
+        $this->resultFactory->method('create')->with(ResultFactory::TYPE_RAW)->willReturn($rawResult);
+
+        $controller = new Attachment(
+            $this->request,
+            $this->resultFactory,
+            $this->customerSession,
+            $this->guestChatIdentity,
+            $this->conversationIdentity,
+            $this->filesystem,
+            $this->fileFactory,
+            $repository
+        );
+
+        $this->assertSame($rawResult, $controller->execute());
+    }
+
+    public function testAttachmentIdRequiresCanonicalOwnerAndCommittedState(): void
+    {
+        $attachmentId = 'att_0123456789abcdef0123456789abcdef';
+        $this->request->method('getParam')->willReturnCallback(function (string $param) use ($attachmentId) {
+            return in_array($param, ['id', 'attachment_id'], true) ? $attachmentId : null;
+        });
+        $this->customerSession->method('isLoggedIn')->willReturn(true);
+        $this->customerSession->method('getCustomerId')->willReturn(42);
+
+        $path = 'afd_ai/chat/42/final/' . $attachmentId . '.png';
+        $repository = $this->createMock(\Afd\AI\Model\Attachment\AttachmentRepository::class);
+        $repository->method('getAttachment')->with($attachmentId)->willReturn([
+            'attachment_id' => $attachmentId,
+            'owner_key' => hash('sha256', '42'),
+            'state' => 'committed',
+            'final_path' => $path,
+        ]);
+
+        $readDir = $this->createMock(ReadInterface::class);
+        $readDir->method('isFile')->willReturnCallback(static function (string $candidate) use ($path): bool {
+            return $candidate === $path;
+        });
+        $this->filesystem->method('getDirectoryRead')->willReturn($readDir);
+        $response = $this->createMock(\Magento\Framework\App\ResponseInterface::class);
+        $this->fileFactory->expects($this->once())->method('create')->with(
+            $attachmentId . '.png',
+            $this->anything(),
+            \Magento\Framework\App\Filesystem\DirectoryList::VAR_DIR,
+            'image/png'
+        )->willReturn($response);
+
+        $controller = new Attachment(
+            $this->request,
+            $this->resultFactory,
+            $this->customerSession,
+            $this->guestChatIdentity,
+            $this->conversationIdentity,
+            $this->filesystem,
+            $this->fileFactory,
+            $repository
+        );
+
+        $this->assertSame($response, $controller->execute());
+    }
+
     public function testExecuteSetsCorrectMimeTypesForJpgPngWebp(): void
     {
         foreach ([
