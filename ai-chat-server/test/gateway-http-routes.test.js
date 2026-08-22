@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
-import { registerGatewayHttpRoutes, verifyConfigPush } from '../services/gateway/gateway-http-routes.js';
+import {
+    registerGatewayHttpRoutes,
+    validateSyncProviderPayload,
+    verifyConfigPush
+} from '../services/gateway/gateway-http-routes.js';
 
 function signedRequest(body, secret, timestamp = Math.floor(Date.now() / 1000).toString(), path = '/internal/config') {
     const signature = crypto
@@ -41,6 +45,58 @@ test('accepts only a fresh configuration signature bound to method, path and raw
     assert.equal(verifyConfigPush(proxiedRequest, secret), true);
 });
 
+test('requires the synchronized provider to match the Magento-selected provider', () => {
+    const base = {
+        version: 2,
+        sync_id: 'a'.repeat(32),
+        sync_provider: { provider_id: 7, provider_code: 'gemini' },
+        config: {
+            default: {
+                provider: 'gemini',
+                providers: {
+                    gemini: { provider_id: 7, is_active: true }
+                }
+            }
+        }
+    };
+
+    assert.doesNotThrow(() => validateSyncProviderPayload(base));
+    assert.throws(
+        () => validateSyncProviderPayload({
+            ...base,
+            sync_provider: { provider_id: 8, provider_code: 'cockpit' }
+        }),
+        (error) => error.code === 'CONFIG_PROVIDER_MISMATCH' && error.status === 409
+    );
+    assert.throws(
+        () => validateSyncProviderPayload({
+            ...base,
+            sync_provider: { provider_id: 8, provider_code: 'gemini' }
+        }),
+        (error) => error.code === 'CONFIG_PROVIDER_ID_MISMATCH' && error.status === 409
+    );
+    assert.throws(
+        () => validateSyncProviderPayload({
+            ...base,
+            sync_provider: undefined
+        }),
+        (error) => error.code === 'CONFIG_PROVIDER_MISMATCH' && error.status === 409
+    );
+    assert.doesNotThrow(() => validateSyncProviderPayload({
+        ...base,
+        sync_provider: { provider_code: 'gemini' },
+        config: { default: { provider: 'gemini', providers: {} } }
+    }));
+    assert.throws(
+        () => validateSyncProviderPayload({
+            ...base,
+            sync_provider: { provider_id: 9, provider_code: 'custom-ai' },
+            config: { default: { provider: 'custom-ai', providers: {} } }
+        }),
+        (error) => error.code === 'CONFIG_PROVIDER_NOT_REGISTERED' && error.status === 409
+    );
+});
+
 test('health route exposes only status and caches the Magento probe', async () => {
     const routes = new Map();
     const app = {
@@ -72,8 +128,8 @@ test('health route exposes only status and caches the Magento probe', async () =
     assert.equal(typeof proxiedHealth, 'function');
 
     assert.deepEqual(responses, [
-        { statusCode: 200, payload: { status: 'ok' } },
-        { statusCode: 200, payload: { status: 'ok' } }
+        { statusCode: 200, payload: { status: 'ok', providers: [] } },
+        { statusCode: 200, payload: { status: 'ok', providers: [] } }
     ]);
     assert.equal(probeCount, 1);
 });

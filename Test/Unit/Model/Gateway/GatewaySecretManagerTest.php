@@ -15,18 +15,21 @@ class GatewaySecretManagerTest extends TestCase
     public function testUsesExistingValidSecretWithoutWritingAnotherOne(): void
     {
         $secret = str_repeat('a', 64);
+        $storedValue = '0:3:' . base64_encode($secret);
         $scopeConfig = $this->createMock(ScopeConfigInterface::class);
         $scopeConfig->expects(self::exactly(2))
             ->method('getValue')
             ->with(AiConfig::XML_PATH_NODE_SYNC_SECRET, ScopeConfigInterface::SCOPE_TYPE_DEFAULT, 0)
-            ->willReturn($secret);
+            ->willReturn($storedValue);
         $writer = $this->createMock(WriterInterface::class);
         $writer->expects(self::never())->method('save');
+        $encryptor = $this->createMock(EncryptorInterface::class);
+        $encryptor->expects(self::exactly(2))->method('decrypt')->with($storedValue)->willReturn($secret);
 
         $manager = new GatewaySecretManager(
             $scopeConfig,
             $writer,
-            $this->createMock(EncryptorInterface::class)
+            $encryptor
         );
 
         self::assertSame($secret, $manager->getNodeSyncSecret());
@@ -38,11 +41,15 @@ class GatewaySecretManagerTest extends TestCase
         $scopeConfig = $this->createMock(ScopeConfigInterface::class);
         $scopeConfig->expects(self::once())->method('getValue')->willReturn('');
         $writer = $this->createMock(WriterInterface::class);
+        $encryptor = $this->createMock(EncryptorInterface::class);
+        $encryptor->expects(self::once())
+            ->method('encrypt')
+            ->willReturnCallback(static fn (string $value): string => '0:3:' . base64_encode($value));
         $writer->expects(self::once())
             ->method('save')
             ->with(
                 AiConfig::XML_PATH_WS_TICKET_SECRET,
-                self::callback(static fn (string $value): bool => strlen($value) === 64 && ctype_xdigit($value)),
+                self::callback(static fn (string $value): bool => str_starts_with($value, '0:3:')),
                 ScopeConfigInterface::SCOPE_TYPE_DEFAULT,
                 0
             );
@@ -50,7 +57,7 @@ class GatewaySecretManagerTest extends TestCase
         $manager = new GatewaySecretManager(
             $scopeConfig,
             $writer,
-            $this->createMock(EncryptorInterface::class)
+            $encryptor
         );
 
         self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $manager->getWebSocketTicketSecret());
@@ -58,14 +65,21 @@ class GatewaySecretManagerTest extends TestCase
 
     public function testPreserveOrCreateIgnoresSubmittedAdminValue(): void
     {
+        $storedValue = '0:3:' . base64_encode(str_repeat('b', 64));
+        $encryptor = $this->createMock(EncryptorInterface::class);
+        $encryptor->expects(self::once())
+            ->method('decrypt')
+            ->with($storedValue)
+            ->willReturn(str_repeat('b', 64));
+        $encryptor->expects(self::once())
+            ->method('encrypt')
+            ->willReturnCallback(static fn (string $value): string => '0:3:' . base64_encode($value));
         $manager = new GatewaySecretManager(
             $this->createMock(ScopeConfigInterface::class),
             $this->createMock(WriterInterface::class),
-            $this->createMock(EncryptorInterface::class)
+            $encryptor
         );
-        $existingSecret = str_repeat('b', 64);
-
-        self::assertSame($existingSecret, $manager->preserveOrCreate($existingSecret));
-        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $manager->preserveOrCreate(''));
+        self::assertSame($storedValue, $manager->preserveOrCreate($storedValue));
+        self::assertMatchesRegularExpression('/^0:3:[A-Za-z0-9+\/=]+$/', $manager->preserveOrCreate(''));
     }
 }

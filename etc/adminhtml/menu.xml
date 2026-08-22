@@ -3,6 +3,7 @@
     <menu>
         <add id="Afd_AI::store_assistant" title="Store Assistant" module="Afd_AI" sortOrder="90"
              parent="Magento_Backend::content" resource="Magento_Backend::content"/>
+        <add id="Afd_AI::providers" title="Model Providers" module="Afd_AI" sortOrder="5" parent="Afd_AI::store_assistant" action="afd_ai/provider/index" resource="Afd_AI::providers"/>
         <add id="Afd_AI::support_cases" title="Support Inbox" module="Afd_AI" sortOrder="10"
              parent="Afd_AI::store_assistant" action="afd_ai/supportcase/index" resource="Afd_AI::support_cases"/>
         <add id="Afd_AI::quality" title="Quality" module="Afd_AI" sortOrder="20"

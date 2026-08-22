@@ -61,6 +61,14 @@ export function normalizeSearchArguments(
         }
     }
 
+    const priceCurrency = String(normalized.priceCurrency ?? normalized.price_currency ?? '').trim().toUpperCase();
+    if ((normalized.minPrice || normalized.maxPrice) && /^[A-Z]{3}$/.test(priceCurrency)) {
+        normalized.priceCurrency = priceCurrency;
+    } else {
+        delete normalized.priceCurrency;
+    }
+    delete normalized.price_currency;
+
     const directAddOnly = normalized.directAddOnly ?? normalized.direct_add_only;
     if (directAddOnly === true || ['1', 'true'].includes(String(directAddOnly).toLowerCase())) {
         normalized.directAddOnly = true;

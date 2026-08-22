@@ -52,6 +52,31 @@ test('keeps an unavailable provider capability non-blocking for normal chat', as
     assert.match(buildFallbackMessage(), /AI response could not be completed/i);
 });
 
+test('explains insufficient stock instead of inventing a product-page option requirement', async () => {
+    const flow = createProviderNeutralToolFlow({
+        provider: 'gemini',
+        currentUserMessage: { text: 'Thêm 200 Sonnenschirm vào giỏ hàng.' },
+        options: {
+            requestBrowserCart: async () => ({
+                status: 'requires_customer_action',
+                reason: 'insufficient_stock',
+                requested_qty: 200,
+                sku: '023.F101'
+            })
+        }
+    });
+
+    const result = await flow.execute({
+        id: 'stock-limit-call',
+        name: 'addToCart',
+        args: { sku: '023.F101', qty: 200 }
+    });
+
+    assert.equal(result.outcome.content.reason, 'insufficient_stock');
+    assert.match(result.modelContext.instruction, /exceeds the currently available salable quantity/i);
+    assert.doesNotMatch(result.modelContext.instruction, /needs product-page configuration/i);
+});
+
 test('reconciles concurrent tool outcomes in model call order', () => {
     const flow = createProviderNeutralToolFlow({
         provider: 'gemini',

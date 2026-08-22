@@ -55,3 +55,19 @@ test('does not allow a temporary guest history branch to begin at an assistant r
     );
     assert.equal((await history.loadMessages(guestId, conversation.id)).messages.length, 2);
 });
+
+test('uses the stable guest identity as the shared key across independent sockets', async () => {
+    const runtime = createRuntime();
+    const firstSocketHistory = new GuestSessionHistory(runtime);
+    const secondSocketHistory = new GuestSessionHistory(runtime);
+    const guestIdentity = 'c'.repeat(64);
+
+    const conversation = await firstSocketHistory.create(guestIdentity, 'Shared chat');
+    await firstSocketHistory.append(guestIdentity, conversation.id, {
+        role: 'user',
+        content: 'Visible in every tab'
+    });
+
+    const page = await secondSocketHistory.loadMessages(guestIdentity, conversation.id);
+    assert.deepEqual(page.messages.map((message) => message.content), ['Visible in every tab']);
+});

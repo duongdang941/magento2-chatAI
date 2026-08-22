@@ -43,9 +43,14 @@ class GatewaySecretManager
      */
     public function preserveOrCreate(string $storedValue): string
     {
-        return $this->isValid($this->reveal($storedValue))
-            ? $storedValue
-            : $this->generate();
+        $secret = $this->reveal($storedValue);
+        if ($this->isValid($secret)) {
+            return $this->isEncrypted($storedValue)
+                ? $storedValue
+                : $this->encryptor->encrypt($secret);
+        }
+
+        return $this->encryptor->encrypt($this->generate());
     }
 
     /**
@@ -97,7 +102,16 @@ class GatewaySecretManager
             $secret = $this->generate();
             $this->configWriter->save(
                 $path,
-                $secret,
+                $this->encryptor->encrypt($secret),
+                ScopeConfigInterface::SCOPE_TYPE_DEFAULT,
+                0
+            );
+        } elseif (!$this->isEncrypted($storedValue)) {
+            // Migrate legacy plaintext installations on first read without
+            // changing the credential exposed to the Node runtime.
+            $this->configWriter->save(
+                $path,
+                $this->encryptor->encrypt($secret),
                 ScopeConfigInterface::SCOPE_TYPE_DEFAULT,
                 0
             );
@@ -115,5 +129,10 @@ class GatewaySecretManager
     {
         return mb_check_encoding($value, 'UTF-8')
             && !preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $value);
+    }
+
+    private function isEncrypted(string $value): bool
+    {
+        return preg_match(self::LEGACY_ENCRYPTED_VALUE_PATTERN, $value) === 1;
     }
 }

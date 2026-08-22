@@ -83,6 +83,29 @@
                 if (!this.hasStartedChat) return false;
                 return !this.activeConversationId;
             },
+            // A streamed message is replaced with its durable counterpart
+            // shortly after completion. Persist this view key on the message
+            // so Alpine retains its existing DOM node rather than removing
+            // and recreating the whole reply during that hydration.
+            messageRenderKey(message, index = -1) {
+                if (!message || typeof message !== 'object') {
+                    return 'message-missing-' + index;
+                }
+                if (message.render_key) return String(message.render_key);
+
+                const entityId = Number(message.entity_id) || 0;
+                if (entityId) {
+                    message.render_key = 'message-' + entityId;
+                    return message.render_key;
+                }
+
+                const role = String(message.role || 'message');
+                const requestId = String(message.request_id || '');
+                const createdAt = String(message.created_at || message.createdAt || '');
+                const suffix = requestId || createdAt || (Date.now() + '-' + Math.random().toString(36).slice(2, 8));
+                message.render_key = 'live-' + role + '-' + suffix;
+                return message.render_key;
+            },
             shouldShowMessage(msg, index = -1) {
                 if (!msg) return false;
                 if (msg.deleted === true) return true;
@@ -129,6 +152,35 @@
             shouldShowBadge() {
                 return !this.isOpen && this.showBubble;
             },
+
+            hasStreamingText(message) {
+                return Array.isArray(message?.parts)
+                    && message.parts.some(part => part?.type === 'text' && part.streaming === true);
+            },
+
+            shouldShowMessageActions(message, index) {
+                if (!message || message.deleted || message.role !== 'assistant') {
+                    return false;
+                }
+                // Never show actions while text is streaming
+                if (this.hasStreamingText(message)) {
+                    return false;
+                }
+                // Never show actions on the active turn while thinking or loading
+                if (this.isLoading && (index === this.currentAiMessageIndex || index === this.messages.length - 1)) {
+                    return false;
+                }
+                // Only show actions if there is actual customer-facing answer content
+                const parts = Array.isArray(message.parts) ? message.parts : [];
+                return parts.some(p => (
+                    (p?.type === 'text' && String(p.raw || p.html || '').trim().length > 0)
+                    || p?.type === 'products'
+                    || p?.type === 'image'
+                    || p?.type === 'order_address_form'
+                    || p?.type === 'guest_order_access'
+                ));
+            },
+
             openChat() {
                 // This is a user-visible history hydration. Keep the loading
                 // cover until the first history result is ready; background

@@ -35,9 +35,12 @@ test('customer conversation touch remains bound to the verified owner', () => {
 test('server composition root stays below the monolith regression budget', () => {
     const serverSource = read('server.js');
     const lines = serverSource.split('\n').length;
-    assert.ok(lines < 1900, `server.js has regressed to ${lines} lines`);
+    assert.ok(lines < 1650, `server.js has regressed to ${lines} lines`);
     assert.match(read('services', 'conversation', 'history-message-preparer.js'), /activeAddressFormCacheKey/);
+    assert.match(read('services', 'conversation', 'guest-history-sync.js'), /broadcastGuestConversation/);
+    assert.match(read('services', 'customer', 'verified-access-session.js'), /supportEmailVerificationCacheKey/);
     assert.doesNotMatch(read('server.js'), /async function prepareHistoryMessages/);
+    assert.doesNotMatch(read('server.js'), /async function hydrateGuestOrderAccess/);
     assert.doesNotMatch(serverSource, /async function handleVoiceTranscription/);
     assert.ok(
         serverSource.indexOf('const browserCartBridge = new BrowserCartBridge')
@@ -77,6 +80,16 @@ test('frontend composition root delegates state and feature behaviour', () => {
     assert.ok(compositionRoot.split('\n').length < 60);
     assert.match(compositionRoot, /createInitialState/);
     assert.doesNotMatch(compositionRoot, /pendingGuestOrderAccessParts:\s*\[/);
+});
+
+test('Thinking text and storefront actions use independent render regions', () => {
+    const template = read('..', 'view', 'frontend', 'templates', 'chat', 'partials', 'conversation.phtml');
+    assert.match(template, /x-for="step in reasoningSteps\(part\)"/);
+    assert.doesNotMatch(template, /x-if="!part\.events \|\| part\.events\.length === 0"/);
+
+    const textRegion = template.indexOf("key=\"'text-' + part.id\"");
+    const actionRegion = template.indexOf("key=\"'actions-' + part.id\"");
+    assert.ok(textRegion >= 0 && actionRegion > textRegion, 'actions must render after customer-facing text');
 });
 
 test('storefront transports image bytes once and reads selected files sequentially', () => {

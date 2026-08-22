@@ -7,6 +7,7 @@ import {
     formatProviderError,
     isBlockingToolFailure,
     isRetryableProviderError,
+    readOpenAiResponsesStream,
     resolveProviderConfig
 } from '../services/orchestration/openai-compatible-orchestrator.js';
 import {
@@ -18,6 +19,7 @@ import {
     MAX_CATALOG_TOOL_ROUNDS
 } from '../services/catalog/catalog-agent-guidance.js';
 import { RESPONSE_LANGUAGE_AGENT_GUIDANCE } from '../services/conversation/response-language-guidance.js';
+import { buildAgentSystemInstruction } from '../services/orchestration/agent-system-guidance.js';
 import {
     normalizeAvailabilityArguments,
     normalizeAddToCartArguments,
@@ -25,6 +27,41 @@ import {
     normalizeSearchArguments
 } from '../services/catalog/catalog-tool-arguments.js';
 import { normalizeCustomerAddressArguments } from '../services/customer/customer-order-tool-arguments.js';
+
+test('forwards OpenAI Responses reasoning summary deltas as thinking events', async () => {
+    const payload = [
+        'data: {"type":"response.reasoning_summary_text.delta","delta":"Phân tích "}\n\n',
+        'data: {"type":"response.reasoning_summary_text.delta","delta":"đang chạy"}\n\n',
+        'data: {"type":"response.output_text.delta","delta":"Kết luận"}\n\n',
+        'data: {"type":"response.completed","response":{"status":"completed"}}\n\n'
+    ].join('');
+    let read = false;
+    const response = {
+        body: {
+            getReader() {
+                return {
+                    async read() {
+                        if (read) return { done: true, value: undefined };
+                        read = true;
+                        return { done: false, value: Buffer.from(payload) };
+                    }
+                };
+            }
+        }
+    };
+    const deltas = [];
+
+    await readOpenAiResponsesStream(response, {
+        onDelta: delta => deltas.push(delta),
+        isCancelled: () => false
+    });
+
+    assert.deepEqual(deltas, [
+        { reasoning: 'Phân tích ' },
+        { reasoning: 'đang chạy' },
+        { content: 'Kết luận' }
+    ]);
+});
 
 test('buildBaseUrlCandidates always includes the public 9router endpoint', () => {
     const originalBase = process.env.NINE_ROUTER_BASE_URL;
@@ -205,6 +242,8 @@ test('uses a bounded, language-neutral catalogue retrieval protocol', () => {
     assert.doesNotMatch(CATALOG_AGENT_GUIDANCE, /hoodie|beachflag|fahnen|vật phẩm/i);
     assert.match(CATALOG_AGENT_GUIDANCE, /unavailable_query_match/);
     assert.match(CATALOG_AGENT_GUIDANCE, /requires a fresh "searchProducts" call in the current turn/i);
+    assert.match(CATALOG_AGENT_GUIDANCE, /PRODUCT CARD CONTRACT/i);
+    assert.match(buildAgentSystemInstruction(), /plain text\/Markdown only/i);
     assert.match(RESPONSE_LANGUAGE_AGENT_GUIDANCE, /grammatical\/request words/i);
     assert.match(RESPONSE_LANGUAGE_AGENT_GUIDANCE, /product name.*must never change/i);
 });

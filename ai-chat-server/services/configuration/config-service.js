@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { sealConfig, unsealConfig } from './config-seal.js';
 import { getProviderCapabilities, validateProviderConfiguration } from '../providers/provider-capabilities.js';
+import { defaultImageTransport, normalizeImageTransport } from '../media/image-transport.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // `__dirname` is `services/configuration`; configuration is operational state
@@ -11,7 +12,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // snapshot that Magento last synchronized.
 const CONFIG_DIRECTORY = process.env.AI_CONFIG_DIRECTORY || path.join(__dirname, '../../.local');
 const CONFIG_FILE = process.env.AI_CONFIG_FILE || path.join(CONFIG_DIRECTORY, 'ai-config.json');
-const VALID_PROVIDERS = new Set(['gemini', 'openai', 'openrouter', '9router', 'cockpit']);
 const MAGENTO_OAUTH_FIELDS = [
     'consumer_key',
     'consumer_secret',
@@ -20,6 +20,8 @@ const MAGENTO_OAUTH_FIELDS = [
 ];
 const IMAGE_SIZES = new Set(['1024x1024', '1536x1024', '1024x1536']);
 const IMAGE_QUALITIES = new Set(['low', 'medium', 'high']);
+const API_FORMATS = new Set(['anthropic-messages', 'openai-chat-completions', 'openai-responses']);
+const THOUGHT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh']);
 
 let cachedConfig = null;
 const STORE_CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
@@ -73,6 +75,81 @@ function readString(value, fallback = '') {
     return typeof value === 'string' ? value.trim() : fallback;
 }
 
+function normalizeProviderModels(value) {
+    if (!Array.isArray(value)) return [];
+    return value.map((model) => {
+        const source = model && typeof model === 'object' && !Array.isArray(model) ? model : {};
+        const id = readString(source.id || source.model_id || source.modelId);
+        if (!id) return null;
+        const reasoningEnabled = normalizeBoolean(source.reasoning_enabled ?? source.reasoning, false);
+        const levels = Array.isArray(source.reasoning_levels ?? source.thought_levels)
+            ? (source.reasoning_levels ?? source.thought_levels)
+                .map((level) => readString(level).toLowerCase())
+                .filter((level, index, all) => THOUGHT_LEVELS.has(level) && all.indexOf(level) === index)
+            : [];
+        const imageTransport = normalizeImageTransport(
+            source.image_transport
+            ?? source.imageTransport
+            ?? source.image_generation?.transport
+        );
+        const supportsImages = normalizeBoolean(source.supports_images ?? source.supportsImages, false);
+        const rawMaxOutputTokens = source.max_output_tokens ?? source.maxOutputTokens;
+        const hasMaxOutputTokens = rawMaxOutputTokens !== undefined
+            && rawMaxOutputTokens !== null
+            && String(rawMaxOutputTokens).trim() !== '';
+        const maxOutputConfigured = Object.prototype.hasOwnProperty.call(source, 'max_output_tokens_configured')
+            ? normalizeBoolean(source.max_output_tokens_configured, false)
+            : (hasMaxOutputTokens && Number(rawMaxOutputTokens) !== 8192);
+        return {
+            id,
+            name: readString(source.name, id),
+            context_window: clampInteger(source.context_window ?? source.contextWindow, 128000, 1000, 2_000_000),
+            max_output_tokens: maxOutputConfigured
+                ? clampInteger(rawMaxOutputTokens, 0, 256, 128000)
+                : null,
+            max_output_tokens_configured: maxOutputConfigured,
+            reasoning_enabled: reasoningEnabled,
+            reasoning_levels: reasoningEnabled && levels.length > 0
+                ? levels
+                : (reasoningEnabled ? ['low', 'medium', 'high', 'xhigh'] : []),
+            reasoning_default_level: THOUGHT_LEVELS.has(readString(source.reasoning_default_level).toLowerCase())
+                ? readString(source.reasoning_default_level).toLowerCase()
+                : '',
+            supports_tools: normalizeBoolean(source.supports_tools ?? source.supportsTools, true),
+            supports_images: supportsImages,
+            image_transport: supportsImages ? imageTransport : '',
+            image_model: readString(source.image_model ?? source.imageModel)
+        };
+    }).filter(Boolean);
+}
+
+function normalizeProviderEntry(value, code = '') {
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    const providerCode = readString(source.provider_code || source.code || source.id, code);
+    const apiFormat = readString(source.api_format || source.apiFormat, 'openai-chat-completions');
+    return {
+        provider_id: Number.isFinite(Number(source.provider_id)) ? Number(source.provider_id) : null,
+        name: readString(source.name, providerCode || 'Custom Provider'),
+        code: providerCode,
+        provider_code: providerCode,
+        base_url: readString(source.base_url || source.baseURL),
+        api_key: readString(source.api_key || source.apiKey),
+        api_format: API_FORMATS.has(apiFormat) ? apiFormat : 'openai-chat-completions',
+        models: normalizeProviderModels(source.models),
+        is_active: normalizeBoolean(source.is_active, true)
+    };
+}
+
+function normalizeProviderRegistry(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const result = {};
+    for (const [code, entry] of Object.entries(value)) {
+        const normalized = normalizeProviderEntry(entry, readString(code));
+        if (normalized.code && normalized.is_active) result[normalized.code] = normalized;
+    }
+    return result;
+}
+
 function hasOwn(object, property) {
     return Object.prototype.hasOwnProperty.call(object, property);
 }
@@ -98,17 +175,30 @@ function normalizeMagentoOauth(value) {
     );
 }
 
-function normalizeImageGeneration(value, provider) {
+function normalizeImageGeneration(value, provider, selectedModel = null, config = {}) {
     const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
     const size = readString(source.size, process.env.COCKPIT_IMAGE_SIZE || '1024x1024');
     const quality = readString(source.quality, process.env.COCKPIT_IMAGE_QUALITY || 'medium');
     const defaultModel = provider === 'gemini'
         ? process.env.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image'
         : process.env.COCKPIT_IMAGE_MODEL || 'gpt-image-2';
+    const explicitTransport = normalizeImageTransport(source.transport);
+    const modelTransport = normalizeImageTransport(selectedModel?.image_transport);
+    const transport = hasOwn(source, 'transport')
+        ? explicitTransport
+        : explicitTransport
+            || (selectedModel?.supports_images ? modelTransport : '')
+            || defaultImageTransport({ ...config, provider });
+    const configuredModel = hasOwn(source, 'model') ? readString(source.model) : '';
 
     return {
         enabled: hasOwn(source, 'enabled') ? Boolean(source.enabled) : process.env.IMAGE_GENERATION_ENABLED !== '0',
-        model: readString(source.model, defaultModel),
+        // The Responses image tool chooses its GPT Image model internally;
+        // direct Images/Gemini adapters instead use this explicit image model.
+        model: configuredModel
+            || (hasOwn(source, 'model') ? '' : readString(selectedModel?.image_model))
+            || defaultModel,
+        transport,
         size: IMAGE_SIZES.has(size) ? size : '1024x1024',
         quality: IMAGE_QUALITIES.has(quality) ? quality : 'medium',
         timeout_ms: clampInteger(source.timeout_ms, 180000, 30000, 300000),
@@ -225,34 +315,66 @@ function normalizeFeatures(value) {
     };
 }
 
-export function normalizeConfig(config = {}) {
-    const requestedProvider = readString(config.provider, process.env.AI_PROVIDER || 'cockpit');
-    const provider = VALID_PROVIDERS.has(requestedProvider) ? requestedProvider : 'cockpit';
-    const configuredApiKey = readString(config.api_key) || getProviderApiKey(provider);
+function resolveThoughtLevel(value, models, selectedModel) {
+    const selected = Array.isArray(models)
+        ? models.find((model) => model?.id === selectedModel)
+        : null;
+    if (!selected?.reasoning_enabled) return '';
 
-    const model = readString(config.model, defaultModelForProvider(provider));
+    const available = Array.isArray(selected.reasoning_levels) && selected.reasoning_levels.length > 0
+        ? selected.reasoning_levels
+        : [];
+    const configured = readString(value).toLowerCase();
+    if (available.includes(configured)) return configured;
+    if (available.includes(selected.reasoning_default_level)) return selected.reasoning_default_level;
+    return available[0] || '';
+}
+
+export function normalizeConfig(config = {}) {
+    const providers = normalizeProviderRegistry(config.providers);
+    const requestedProvider = readString(config.provider, process.env.AI_PROVIDER || 'custom');
+    const provider = requestedProvider || 'custom';
+    const selectedProvider = providers[provider] || null;
+    const selectedConfig = selectedProvider ? { ...config, ...selectedProvider, provider } : config;
+    const configuredApiKey = readString(selectedConfig.api_key) || getProviderApiKey(provider);
+
+    const model = readString(selectedConfig.model, selectedProvider?.models?.[0]?.id || defaultModelForProvider(provider));
+    const models = selectedProvider?.models || [];
+    const thoughtLevel = resolveThoughtLevel(selectedConfig.thought_level, models, model);
+    const selectedModel = models.find((entry) => entry?.id === model) || null;
     const normalized = {
-        enabled: hasOwn(config, 'enabled') ? Boolean(config.enabled) : true,
-        persist_guest_history: hasOwn(config, 'persist_guest_history') ? Boolean(config.persist_guest_history) : false,
+        enabled: hasOwn(selectedConfig, 'enabled') ? Boolean(selectedConfig.enabled) : true,
+        persist_guest_history: hasOwn(selectedConfig, 'persist_guest_history') ? Boolean(selectedConfig.persist_guest_history) : false,
         provider,
         model,
         api_key: configuredApiKey,
-        base_url: configuredBaseUrlForProvider(provider, readString(config.base_url)),
+        name: readString(selectedConfig.name, selectedProvider?.name || provider),
+        provider_id: selectedProvider?.provider_id || null,
+        api_format: readString(selectedConfig.api_format, selectedProvider?.api_format || ''),
+        models,
+        thought_level: thoughtLevel,
+        providers,
+        base_url: configuredBaseUrlForProvider(provider, readString(selectedConfig.base_url)),
         grounding_model: provider === 'gemini'
-            ? readString(config.grounding_model, process.env.GEMINI_MODEL_GROUNDING || model)
+            ? readString(selectedConfig.grounding_model, process.env.GEMINI_MODEL_GROUNDING || model)
             : '',
         // Magento is the source of truth for the storefront URL.  The
         // environment value remains only as a backwards-compatible local
         // bootstrap when no Admin snapshot has been synchronized yet.
-        magento_base_url: readString(config.magento_base_url, process.env.MAGENTO_API_URL || ''),
-        agent: normalizeAgent(config.agent),
-        image_generation: normalizeImageGeneration(config.image_generation, provider),
-        rate_limits: normalizeRateLimits(config.rate_limits),
-        capacity: normalizeCapacity(config.capacity),
-        attachments: normalizeAttachments(config.attachments),
-        voice: normalizeVoice(config.voice, provider, model),
-        features: normalizeFeatures(config.features),
-        magento_oauth: normalizeMagentoOauth(config.magento_oauth)
+        magento_base_url: readString(selectedConfig.magento_base_url, process.env.MAGENTO_API_URL || ''),
+        agent: normalizeAgent(selectedConfig.agent),
+        image_generation: normalizeImageGeneration(selectedConfig.image_generation, provider, selectedModel, {
+            api_format: readString(selectedConfig.api_format, selectedProvider?.api_format || ''),
+            base_url: configuredBaseUrlForProvider(provider, readString(selectedConfig.base_url)),
+            models,
+            model
+        }),
+        rate_limits: normalizeRateLimits(selectedConfig.rate_limits),
+        capacity: normalizeCapacity(selectedConfig.capacity),
+        attachments: normalizeAttachments(selectedConfig.attachments),
+        voice: normalizeVoice(selectedConfig.voice, provider, model),
+        features: normalizeFeatures(selectedConfig.features),
+        magento_oauth: normalizeMagentoOauth(selectedConfig.magento_oauth)
     };
 
     return {
@@ -360,16 +482,24 @@ export const applyPushedConfig = async (config, runtime = null) => {
 
     const rawDefault = config.default && typeof config.default === 'object' ? config.default : config;
     const requestedProvider = readString(rawDefault.provider);
-    if (!VALID_PROVIDERS.has(requestedProvider)) {
-        throw new Error('Default configuration provider is not supported.');
+    const rawProviders = rawDefault.providers && typeof rawDefault.providers === 'object' && !Array.isArray(rawDefault.providers)
+        ? rawDefault.providers
+        : null;
+    // A synchronized Magento registry is authoritative. Reject a selection
+    // that is missing or inactive instead of falling back to a different
+    // provider and potentially sending its credentials to the model API.
+    if (requestedProvider && rawProviders && !Object.prototype.hasOwnProperty.call(rawProviders, requestedProvider)) {
+        const error = new Error('Selected provider is not present in the active Magento provider registry.');
+        error.code = 'CONFIG_PROVIDER_NOT_CONFIGURED';
+        error.status = 422;
+        throw error;
     }
 
     const rawStores = config.stores && typeof config.stores === 'object' && !Array.isArray(config.stores)
         ? config.stores
         : {};
     for (const [storeCode, storeConfig] of Object.entries(rawStores)) {
-        if (!STORE_CODE_PATTERN.test(storeCode)
-            || !VALID_PROVIDERS.has(readString(storeConfig?.provider))) {
+        if (!STORE_CODE_PATTERN.test(storeCode)) {
             throw new Error('Store configuration is invalid.');
         }
     }

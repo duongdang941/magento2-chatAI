@@ -78,6 +78,21 @@ test('keeps response language out of Magento search parameters', () => {
     );
 });
 
+test('keeps a valid explicit price currency while rejecting malformed currency input', () => {
+    assert.deepEqual(
+        normalizeSearchArguments({ query: '', minPrice: 100, priceCurrency: 'usd' }),
+        { query: '', minPrice: 100, priceCurrency: 'USD', limit: 5, pageSize: 5, page: 1 }
+    );
+    assert.deepEqual(
+        normalizeSearchArguments({ query: '', minPrice: 100, priceCurrency: 'US Dollar' }),
+        { query: '', minPrice: 100, limit: 5, pageSize: 5, page: 1 }
+    );
+    assert.deepEqual(
+        normalizeSearchArguments({ query: '', priceCurrency: 'USD' }),
+        { query: '', limit: 5, pageSize: 5, page: 1 }
+    );
+});
+
 test('creates a signed next-page token only while the chat card limit permits it', () => {
     const content = {
         data: Array.from({ length: 5 }, (_, index) => ({ id: index + 1, sku: `SKU-${index + 1}` })),
@@ -148,6 +163,27 @@ test('retains a direct-add-only constraint when loading a later catalogue page',
     });
 });
 
+test('retains signed price constraints and currency on later catalogue pages', () => {
+    const page = buildCatalogProductsPayload({
+        data: [{ id: 9, sku: 'SKU-9' }],
+        meta: {
+            pagination: { total: 2, page: 1, page_size: 1, returned: 1, has_more: true, next_page: 2 },
+            scope: {}
+        }
+    }, { query: '', minPrice: 100, priceCurrency: 'USD', limit: 1 });
+
+    assert.equal(page.payload.min_price, 100);
+    assert.equal(page.payload.price_currency, 'USD');
+    assert.deepEqual(verifyCatalogPageToken(page.payload.continuation), {
+        query: '',
+        categoryId: 0,
+        page: 2,
+        pageSize: 1,
+        minPrice: 100,
+        priceCurrency: 'USD'
+    });
+});
+
 test('never exposes more structured items than the bounded page size', () => {
     const page = buildCatalogProductsPayload({
         data: Array.from({ length: 31 }, (_, index) => ({ id: index + 1 })),
@@ -194,7 +230,8 @@ test('normalizes Magento Web API positional metadata into named pagination field
         data: [],
         meta: [
             '{"total":11,"page":1,"page_size":5,"returned":5,"has_more":true,"next_page":2}',
-            '{"category_id":112,"category_name":"Plakate & Poster","category_url":"https://example.test/posters","includes_descendants":true}'
+            '{"category_id":112,"category_name":"Plakate & Poster","category_url":"https://example.test/posters","includes_descendants":true}',
+            '{"store_currency":"EUR","filter_currency":"EUR","requested_currency":"USD","conversion_rate":0.7067,"applied_min_price":70.67}'
         ]
     });
 
@@ -212,6 +249,13 @@ test('normalizes Magento Web API positional metadata into named pagination field
             category_name: 'Plakate & Poster',
             category_url: 'https://example.test/posters',
             includes_descendants: true
+        },
+        currency: {
+            store_currency: 'EUR',
+            filter_currency: 'EUR',
+            requested_currency: 'USD',
+            conversion_rate: 0.7067,
+            applied_min_price: 70.67
         }
     });
 });

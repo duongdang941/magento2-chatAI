@@ -1,0 +1,422 @@
+import { summarizeError } from '../gateway/error-summary.js';
+import { createSmoothChunkEmitter } from '../conversation/smooth-chunk-emitter.js';
+import { emitProductPresentation } from '../catalog/product-presentation.js';
+import { MAX_CATALOG_TOOL_ROUNDS } from '../catalog/catalog-agent-guidance.js';
+import { createCustomerTurnBuffer } from '../conversation/customer-turn-buffer.js';
+import { createResponseProgressPulse } from '../conversation/response-progress-pulse.js';
+import { guestOrderAccessInstruction } from '../customer/guest-order-access-guidance.js';
+import { anthropicToolDefinitions } from '../tools/tool-registry.js';
+import { buildAgentSystemInstruction } from './agent-system-guidance.js';
+import { pageContextInstruction } from '../catalog/page-context.js';
+import {
+    formatProviderError,
+    readProviderErrorResponse
+} from '../providers/provider-error.js';
+import {
+    buildFallbackMessage,
+    createProviderNeutralToolFlow,
+    isBlockingToolFailure
+} from './provider-neutral-tool-flow.js';
+import {
+    addProviderCitations,
+    createProviderResponseEnvelope,
+    finalizeProviderResponseEnvelope,
+    mergeProviderUsage
+} from './provider-response-envelope.js';
+
+const DEFAULT_ANTHROPIC_BASE_URL = 'https://api.anthropic.com';
+const configuredProviderStreamTimeout = Number(process.env.AI_PROVIDER_STREAM_TIMEOUT_MS || 120000);
+const PROVIDER_STREAM_TIMEOUT_MS = Number.isFinite(configuredProviderStreamTimeout)
+    ? Math.max(15000, Math.min(Math.trunc(configuredProviderStreamTimeout), 300000))
+    : 120000;
+
+function normalizeEndpointUrl(baseUrl) {
+    let url = String(baseUrl || DEFAULT_ANTHROPIC_BASE_URL).trim().replace(/\/+$/, '');
+    if (url.endsWith('/v1/messages') || url.endsWith('/messages')) {
+        return url;
+    }
+    if (url.endsWith('/v1')) {
+        return `${url}/messages`;
+    }
+    return `${url}/v1/messages`;
+}
+
+function formatAnthropicHistory(history) {
+    if (!Array.isArray(history)) return [];
+    const messages = [];
+
+    for (const msg of history) {
+        const role = (msg.role === 'model' || msg.role === 'assistant') ? 'assistant' : 'user';
+        let textContent = '';
+        if (typeof msg.content === 'string') {
+            textContent = msg.content;
+        } else if (typeof msg.text === 'string') {
+            textContent = msg.text;
+        } else if (Array.isArray(msg.parts)) {
+            textContent = msg.parts.map(p => p.text || '').join('');
+        }
+
+        if (textContent.trim()) {
+            messages.push({
+                role,
+                content: textContent.trim()
+            });
+        }
+    }
+
+    return messages;
+}
+
+export const streamChatResponse = async (userMessage, ws, history = [], customerToken = null, config = {}, options = {}) => {
+    const signal = options.signal || null;
+    const isCancelled = () => signal?.aborted || (typeof options.isCancelled === 'function' && options.isCancelled());
+
+    const apiKey = config.api_key || process.env.ANTHROPIC_API_KEY || '';
+    const model = config.model || process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022';
+    const baseUrl = config.base_url || DEFAULT_ANTHROPIC_BASE_URL;
+    const endpointUrl = normalizeEndpointUrl(baseUrl);
+    const agentConfig = config.agent || {};
+
+    const systemInstruction = [
+        buildAgentSystemInstruction({
+            extendedTools: true,
+            productAdvisorEnabled: config.features?.product_advisor_enabled === true
+        }),
+        `RUNTIME TOOL BUDGET: Use at most ${agentConfig.max_tool_rounds || 8} reasoning rounds. Finish from verified evidence.`,
+        pageContextInstruction(options.pageContext),
+        guestOrderAccessInstruction(options.customerId, options.guestOrderAccess)
+    ].filter(Boolean).join('\n\n');
+
+    const maxToolRounds = Math.max(1, Math.min(Number(agentConfig.max_tool_rounds) || MAX_CATALOG_TOOL_ROUNDS, 12));
+    const maxOutputTokens = Math.max(256, Math.min(Number(agentConfig.max_output_tokens) || 4096, 8192));
+    const thinking = anthropicThinkingConfig(config.thought_level);
+    const providerResponse = createProviderResponseEnvelope({
+        provider: config.provider || 'anthropic',
+        protocol: config.api_format || 'anthropic-messages',
+        model
+    });
+    let finishReason = '';
+    const providerStreamTimeoutMs = Math.max(15000, Math.min(Number(agentConfig.provider_stream_timeout_ms) || PROVIDER_STREAM_TIMEOUT_MS, 300000));
+
+    const currentUserMessage = typeof userMessage === 'object' && userMessage !== null
+        ? userMessage
+        : { text: userMessage };
+    const userText = currentUserMessage.text || currentUserMessage.content || '';
+
+    const messages = [
+        ...formatAnthropicHistory(history),
+        {
+            role: 'user',
+            content: userText
+        }
+    ];
+
+    const tools = anthropicToolDefinitions();
+    const toolFlow = createProviderNeutralToolFlow({
+        ws,
+        customerToken,
+        config,
+        options,
+        agentConfig,
+        currentUserMessage,
+        provider: config.provider || 'anthropic',
+        providerConnection: { baseUrl, apiKey, model },
+        signal,
+        isCancelled
+    });
+
+    let hasVisibleText = false;
+    let hasVisibleProducts = false;
+    let hasVisibleImages = false;
+    let lastToolOutcome = null;
+    let toolErrorMessage = '';
+    let pendingProductPresentation = null;
+    const progressPulse = createResponseProgressPulse({ ws, isCancelled });
+
+    try {
+        progressPulse.start();
+        for (let iteration = 0; iteration < maxToolRounds; iteration += 1) {
+            if (isCancelled()) return { cancelled: true };
+
+            const currentStepId = 'step-' + (iteration + 1) + '-' + Math.random().toString(36).slice(2, 7);
+            const smoothEmitter = createSmoothChunkEmitter({
+                emit: content => ws.send(JSON.stringify({ type: 'chunk', content })),
+                isCancelled
+            });
+            const thinkingEmitter = createSmoothChunkEmitter({
+                emit: delta => ws.send(JSON.stringify({
+                    type: 'thinking_delta',
+                    step_id: currentStepId,
+                    delta
+                })),
+                isCancelled,
+                intervalMs: 18,
+                targetFrames: 6,
+                minChars: 1,
+                maxChars: 24
+            });
+            const customerTurnBuffer = createCustomerTurnBuffer();
+
+            const currentBlocks = [];
+            let currentBlock = null;
+            let currentToolUse = null;
+
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), providerStreamTimeoutMs);
+            const forwardAbort = () => controller.abort(signal?.reason);
+            if (signal) signal.addEventListener('abort', forwardAbort, { once: true });
+
+            try {
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'anthropic-version': '2023-06-01',
+                    'Accept': 'text/event-stream'
+                };
+                if (apiKey) {
+                    headers['x-api-key'] = apiKey;
+                    headers['Authorization'] = `Bearer ${apiKey}`;
+                }
+
+                const response = await fetch(endpointUrl, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({
+                        model,
+                        messages,
+                        system: systemInstruction,
+                        max_tokens: thinking ? Math.max(maxOutputTokens, thinking.budget_tokens + 256) : maxOutputTokens,
+                        stream: true,
+                        ...(thinking ? { thinking } : {}),
+                        tools: tools.length > 0 ? tools : undefined
+                    }),
+                    signal: controller.signal
+                });
+
+                if (!response.ok) {
+                    throw await readProviderErrorResponse(response, 'AI provider');
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let sseBuffer = '';
+
+                while (true) {
+                    if (isCancelled()) return { cancelled: true };
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    sseBuffer += decoder.decode(value, { stream: true });
+                    const events = sseBuffer.split('\n\n');
+                    sseBuffer = events.pop() || '';
+
+                    for (const event of events) {
+                        if (isCancelled()) return { cancelled: true };
+                        const lines = event.split('\n').map(l => l.trim());
+                        let eventType = '';
+                        let dataStr = '';
+
+                        for (const line of lines) {
+                            if (line.startsWith('event:')) {
+                                eventType = line.slice(6).trim();
+                            } else if (line.startsWith('data:')) {
+                                dataStr = line.slice(5).trim();
+                            }
+                        }
+
+                        if (!dataStr) continue;
+
+                        try {
+                            const parsed = JSON.parse(dataStr);
+
+                            if (parsed.message?.usage) mergeProviderUsage(providerResponse, parsed.message.usage);
+                            if (parsed.usage) mergeProviderUsage(providerResponse, parsed.usage);
+                            if (parsed.delta?.usage) mergeProviderUsage(providerResponse, parsed.delta.usage);
+                            if (parsed.delta?.stop_reason) finishReason = parsed.delta.stop_reason;
+
+                            if (eventType === 'content_block_start' || parsed.type === 'content_block_start') {
+                                const cb = parsed.content_block || {};
+                                if (cb.type === 'tool_use') {
+                                    currentToolUse = {
+                                        id: cb.id,
+                                        name: cb.name,
+                                        input_json: ''
+                                    };
+                                    currentBlocks.push({
+                                        type: 'tool_use',
+                                        id: cb.id,
+                                        name: cb.name,
+                                        input: {}
+                                    });
+                                } else if (cb.type === 'text') {
+                                    currentBlock = { type: 'text', text: '' };
+                                    currentBlocks.push(currentBlock);
+                                } else if (cb.type === 'thinking') {
+                                    currentBlock = { type: 'thinking', thinking: '' };
+                                    currentBlocks.push(currentBlock);
+                                }
+                                addProviderCitations(providerResponse, cb.citations);
+                            } else if (eventType === 'content_block_delta' || parsed.type === 'content_block_delta') {
+                                const delta = parsed.delta || {};
+                                if (delta.type === 'text_delta') {
+                                    if (currentBlock) currentBlock.text += delta.text;
+                                    // Anthropic can narrate immediately before
+                                    // selecting a tool. Hold that prose until
+                                    // the turn boundary is known; if a tool is
+                                    // selected it belongs in Thinking, not in
+                                    // the final customer answer.
+                                    customerTurnBuffer.push(delta.text);
+                                } else if (delta.type === 'thinking_delta') {
+                                    if (currentBlock) currentBlock.thinking += delta.thinking;
+                                    thinkingEmitter.push(delta.thinking);
+                                } else if (delta.type === 'input_json_delta' && currentToolUse) {
+                                    currentToolUse.input_json += delta.partial_json;
+                                }
+                            } else if (eventType === 'content_block_stop' || parsed.type === 'content_block_stop') {
+                                if (currentToolUse) {
+                                    try {
+                                        const parsedArgs = JSON.parse(currentToolUse.input_json || '{}');
+                                        const matching = currentBlocks.find(b => b.type === 'tool_use' && b.id === currentToolUse.id);
+                                        if (matching) matching.input = parsedArgs;
+                                    } catch {}
+                                    currentToolUse = null;
+                                }
+                                currentBlock = null;
+                            }
+                        } catch (err) {
+                            console.warn('[Anthropic Adapter] Error parsing event:', err.message);
+                        }
+                    }
+                }
+
+            } finally {
+                clearTimeout(timeout);
+                if (signal) signal.removeEventListener('abort', forwardAbort);
+            }
+
+            await thinkingEmitter.drain();
+
+            const toolCalls = currentBlocks.filter(b => b.type === 'tool_use');
+            if (toolCalls.length === 0) {
+                const finalText = customerTurnBuffer.commit();
+                if (finalText) {
+                    smoothEmitter.push(finalText);
+                    hasVisibleText = true;
+                }
+                await smoothEmitter.drain();
+                // The final synthesis normally contains no new tool call.
+                // Do not return here: a previous searchProducts call may have
+                // prepared the shopper-facing grid and it must be emitted
+                // immediately before the terminal `done` event below.
+                break;
+            }
+
+            const toolNarration = customerTurnBuffer.commit().trim();
+            if (toolNarration) {
+                ws.send(JSON.stringify({
+                    type: 'thinking_step',
+                    step_id: currentStepId,
+                    content: toolNarration,
+                    tool: String(toolCalls[0]?.name || '')
+                }));
+            }
+
+            // Append assistant response with tool_use blocks to message history
+            messages.push({
+                role: 'assistant',
+                content: currentBlocks
+            });
+
+            // Execute tool calls
+            const toolResults = [];
+            for (const tc of toolCalls) {
+                const callName = tc.name;
+                const callArgs = tc.input || {};
+
+                ws.send(JSON.stringify({
+                    type: 'tool_call',
+                    name: callName,
+                    arguments: callArgs
+                }));
+
+                const outcome = await toolFlow.execute({
+                    name: callName,
+                    args: callArgs,
+                    id: tc.id,
+                    iteration
+                });
+
+                lastToolOutcome = outcome.outcome || lastToolOutcome;
+                const toolResponse = outcome.modelContext;
+
+                if (outcome.productPresentation) {
+                    // Internal retrieval can refine its result set in one
+                    // turn. The final accepted search is the only grid the
+                    // shopper should receive.
+                    pendingProductPresentation = outcome.productPresentation;
+                }
+                if (outcome.visibleProducts) {
+                    hasVisibleProducts = true;
+                }
+                if (outcome.visibleImage) {
+                    hasVisibleImages = true;
+                }
+
+                toolResults.push({
+                    type: 'tool_result',
+                    tool_use_id: tc.id,
+                    content: typeof toolResponse === 'string' ? toolResponse : JSON.stringify(toolResponse)
+                });
+
+                if (outcome.error) {
+                    toolErrorMessage = outcome.error;
+                }
+            }
+
+            if (toolErrorMessage) {
+                ws.send(JSON.stringify({
+                    type: 'error',
+                    content: `Magento tool failed: ${toolErrorMessage}`
+                }));
+                return { cancelled: false };
+            }
+
+            // Append tool results as user message in Anthropic format
+            messages.push({
+                role: 'user',
+                content: toolResults
+            });
+        }
+
+        if (!hasVisibleText) {
+            ws.send(JSON.stringify({
+                type: 'chunk',
+                content: buildFallbackMessage()
+            }));
+        }
+        emitProductPresentation(ws, pendingProductPresentation);
+        ws.send(JSON.stringify({
+            type: 'done',
+            provider_meta: finalizeProviderResponseEnvelope(providerResponse, finishReason || 'stop')
+        }));
+
+        return { cancelled: false, hasVisibleProse: hasVisibleText };
+    } catch (error) {
+        console.error('[Anthropic Adapter] Error during chat streaming:', summarizeError(error));
+        ws.send(JSON.stringify({
+            type: 'error',
+            error_code: error.code || 'provider_error',
+            content: formatProviderError(error, 'AI provider')
+        }));
+        return { cancelled: false, error };
+    } finally {
+        progressPulse.stop();
+    }
+};
+
+function anthropicThinkingConfig(value) {
+    const level = String(value || '').trim().toLowerCase();
+    const budgets = { low: 1024, medium: 4096, high: 8192, xhigh: 16384 };
+    return budgets[level]
+        ? { type: 'enabled', budget_tokens: budgets[level] }
+        : null;
+}

@@ -117,6 +117,23 @@ const {
                         return;
                     }
 
+                    // Guest history is now keyed by Magento's stable guest
+                    // identity, so a durable server conversation is canonical
+                    // across tabs. A per-tab sessionStorage snapshot can refer
+                    // to the old WebSocket/session-owned conversation; discard
+                    // that stale branch when the server exposes another one.
+                    if (!this.isLoggedIn
+                        && this.guestSessionSnapshotRestored
+                        && pageConversations.length > 0
+                        && restoredConversationId
+                        && !pageConversations.some(
+                            conversation => Number(conversation.id) === restoredConversationId
+                        )) {
+                        this.guestSessionSnapshotRestored = false;
+                        this.switchConversation(pageConversations[0].id, true);
+                        return;
+                    }
+
                     if (!this.isLoggedIn
                         && this.guestSessionSnapshotRestored
                         && this.activeConversationId
@@ -331,6 +348,16 @@ const {
                 }
                 this.hasOlderMessages = data.has_more === true;
                 this.nextMessageCursor = Number(data.next_before_message_id) || null;
+
+                // Passive history refreshes can race with a live response
+                // (for example guest/cross-tab synchronization). The durable
+                // page may not contain the in-flight reasoning/action parts
+                // yet, so merging it would replace the visible Thinking
+                // bubble with a text-only assistant message. Wait for the
+                // terminal stream event before hydrating that page.
+                if (data.refresh === true && this.activeRequestId && this.currentAiMessageIndex >= 0) {
+                    return false;
+                }
 
                 if (data.refresh === true) {
                     const existingIndexesByEntityId = new Map();

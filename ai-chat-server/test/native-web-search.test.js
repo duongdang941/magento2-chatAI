@@ -89,6 +89,87 @@ test('uses Gemini Google Search grounding through the shared web-search tool', a
     assert.deepEqual(result.sources, [{ title: 'Release notes', url: 'https://example.com/release' }]);
 });
 
+test('uses the selected 9router provider for ZCode-style search without separate configuration', async () => {
+    let requestUrl = '';
+    let requestBody = null;
+    let authorization = '';
+    const result = await searchWebWithAi({
+        provider: 'gemini',
+        baseUrl: 'https://9router.bingxgames.com/v1',
+        apiKey: 'selected-provider-key',
+        model: 'ag/gemini-3.6-flash-high',
+        query: 'official Magento security release notes',
+        dnsLookup: async () => [{ address: '93.184.216.34', family: 4 }],
+        fetchImpl: async (url, options) => {
+            requestUrl = url;
+            requestBody = JSON.parse(options.body);
+            authorization = options.headers.Authorization;
+            return new Response(JSON.stringify({
+                provider: 'gemini',
+                answer: null,
+                results: [
+                    {
+                        title: 'Magento security bulletin',
+                        url: 'https://example.com/security',
+                        snippet: 'The official bulletin lists the patched release and publication date.'
+                    },
+                    {
+                        title: 'Internal result',
+                        url: 'http://127.0.0.1:8080/admin',
+                        snippet: 'Must never reach the model.'
+                    }
+                ]
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+    });
+
+    assert.equal(requestUrl, 'https://9router.bingxgames.com/v1/search');
+    assert.equal(authorization, 'Bearer selected-provider-key');
+    assert.deepEqual(requestBody, {
+        provider: 'gemini',
+        query: 'official Magento security release notes',
+        max_results: 5
+    });
+    assert.equal(result.status, 'success');
+    assert.match(result.answer, /official bulletin lists the patched release/i);
+    assert.deepEqual(result.sources, [{
+        title: 'Magento security bulletin',
+        url: 'https://example.com/security',
+        excerpt: 'The official bulletin lists the patched release and publication date.'
+    }]);
+});
+
+test('uses the built-in host search when 9router has no dedicated search credential', async () => {
+    const requestedUrls = [];
+    const result = await searchWebWithAi({
+        provider: 'gemini',
+        baseUrl: 'https://9router.bingxgames.com/v1',
+        apiKey: 'selected-provider-key',
+        model: 'ag/gemini-3.6-flash-high',
+        query: 'current Magento release',
+        dnsLookup: async () => [{ address: '93.184.216.34', family: 4 }],
+        fetchImpl: async (url) => {
+            requestedUrls.push(url);
+            if (url.startsWith('https://9router.bingxgames.com/v1/search')) {
+                return new Response(JSON.stringify({ error: { message: 'No credentials for provider: gemini' } }), { status: 400 });
+            }
+            return new Response([
+                '<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexperienceleague.adobe.com%2Freleases">Adobe release notes</a>',
+                '<a class="result__snippet">Official release notes and supported versions.</a>'
+            ].join(''), { status: 200, headers: { 'Content-Type': 'text/html' } });
+        }
+    });
+
+    assert.equal(requestedUrls.length, 2);
+    assert.match(requestedUrls[1], /^https:\/\/html\.duckduckgo\.com\/html\/\?/);
+    assert.equal(result.status, 'success');
+    assert.deepEqual(result.sources, [{
+        title: 'Adobe release notes',
+        url: 'https://experienceleague.adobe.com/releases',
+        excerpt: 'Official release notes and supported versions.'
+    }]);
+});
+
 test('uses Codex indexed search through Cockpit and returns safe excerpts for synthesis', async () => {
     let requestedUrl = '';
     let requestBody = null;
@@ -127,7 +208,35 @@ test('uses Codex indexed search through Cockpit and returns safe excerpts for sy
     assert.equal(result.answer.includes('Internal formatted search output'), false);
     assert.deepEqual(result.sources, [{
         title: 'SJC gold price today',
-        url: 'https://example.com/gold'
+        url: 'https://example.com/gold',
+        excerpt: 'Buying price 136.5 million VND; selling price 140.5 million VND.'
+    }]);
+});
+
+test('uses the built-in host search when Cockpit cannot provide external results', async () => {
+    const requestedUrls = [];
+    const result = await searchWebWithAi({
+        ...BASE_OPTIONS,
+        query: 'Magento official release notes',
+        fetchImpl: async (url) => {
+            requestedUrls.push(url);
+            if (url.includes('duckduckgo.com')) {
+                return new Response([
+                    '<a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexperienceleague.adobe.com%2Freleases">Adobe release notes</a>',
+                    '<a class="result__snippet">Official release notes and version information.</a>'
+                ].join(''), { status: 200, headers: { 'Content-Type': 'text/html' } });
+            }
+            return new Response(JSON.stringify({ error: { message: 'Search unavailable' } }), { status: 404 });
+        }
+    });
+
+    assert.equal(requestedUrls.length, 3);
+    assert.match(requestedUrls[2], /^https:\/\/html\.duckduckgo\.com\/html\/\?/);
+    assert.equal(result.status, 'success');
+    assert.deepEqual(result.sources, [{
+        title: 'Adobe release notes',
+        url: 'https://experienceleague.adobe.com/releases',
+        excerpt: 'Official release notes and version information.'
     }]);
 });
 
@@ -239,7 +348,7 @@ test('keeps normal chat safe when the responses endpoint is missing', async () =
     });
 
     assert.equal(result.status, 'unavailable');
-    assert.equal(result.reason, 'provider_web_search_unavailable');
+    assert.equal(result.reason, 'provider_web_search_temporarily_unavailable');
 });
 
 test('blocks private account and order data from a web query', async () => {

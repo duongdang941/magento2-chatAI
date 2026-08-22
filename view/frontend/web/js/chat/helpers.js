@@ -128,6 +128,75 @@
         return false;
     }
 
+    function findUnclosedMarkdownDelimiter(source, delimiter) {
+        let openingIndex = -1;
+        let cursor = 0;
+
+        while (cursor < source.length) {
+            const index = source.indexOf(delimiter, cursor);
+            if (index === -1) break;
+            if (isEscaped(source, index)) {
+                cursor = index + delimiter.length;
+                continue;
+            }
+
+            if (delimiter === '*' || delimiter === '_') {
+                const before = source[index - 1] || '\n';
+                const after = source[index + delimiter.length] || '';
+                // A '**'/'__' run is owned by the double-delimiter scan.
+                // Counting its inner characters as single emphasis flagged
+                // closed bold spans as unterminated and truncated them
+                // mid-stream ("Second **complete**" → "Second **complete").
+                if (before === delimiter || source[index + 1] === delimiter) {
+                    cursor = index + delimiter.length;
+                    continue;
+                }
+                // A list marker (`* item`) only occurs at the start of a
+                // line; a closing emphasis delimiter followed by a space is
+                // valid mid-sentence. Underscores inside an identifier
+                // (`snake_case`) are not emphasis delimiters either.
+                if ((/\s/u.test(after) && (index === 0 || before === '\n'))
+                    || (delimiter === '_' && /[\p{L}\p{M}\p{N}]/u.test(before)
+                        && /[\p{L}\p{M}\p{N}]/u.test(after))) {
+                    cursor = index + delimiter.length;
+                    continue;
+                }
+            }
+
+            // A triple-backtick fence owns its three characters. Do not
+            // count those same characters again as three inline code spans.
+            if (delimiter === '`' && source.startsWith('```', index)) {
+                cursor = index + 3;
+                continue;
+            }
+
+            openingIndex = openingIndex === -1 ? index : -1;
+            cursor = index + delimiter.length;
+        }
+
+        return openingIndex;
+    }
+
+    /**
+     * Keep Markdown delimiters out of the live DOM until their pair arrives.
+     * The final renderer can safely parse the complete source, while the
+     * streaming fallback must not briefly show `**`, backticks, or `~~` as
+     * customer-visible text and then rewrite them after the next delta.
+     */
+    function findIncompleteMarkdownFormatting(source) {
+        const starts = [
+            findUnclosedMarkdownDelimiter(source, '```'),
+            findUnclosedMarkdownDelimiter(source, '`'),
+            findUnclosedMarkdownDelimiter(source, '**'),
+            findUnclosedMarkdownDelimiter(source, '__'),
+            findUnclosedMarkdownDelimiter(source, '~~'),
+            findUnclosedMarkdownDelimiter(source, '*'),
+            findUnclosedMarkdownDelimiter(source, '_')
+        ].filter(index => index >= 0);
+
+        return starts.length > 0 ? Math.min(...starts) : -1;
+    }
+
     /**
      * Markdown is delivered token-by-token. Keep an entity in a buffer
      * until its complete syntax is present, then render its whole range as
@@ -141,6 +210,11 @@
         const incompleteEntityStart = findIncompleteMarkdownEntity(source);
         if (incompleteEntityStart !== -1) {
             cutoff = Math.min(cutoff, incompleteEntityStart);
+        }
+
+        const incompleteFormattingStart = findIncompleteMarkdownFormatting(source);
+        if (incompleteFormattingStart !== -1) {
+            cutoff = Math.min(cutoff, incompleteFormattingStart);
         }
 
         const unfinishedAutolink = source.match(/<https?:\/\/[^\s>]*$/i);
@@ -159,7 +233,8 @@
             }
         }
 
-        return source.slice(0, cutoff);
+        let stableSource = source.slice(0, cutoff);
+        return stableSource;
     }
 
     // Copy the customer-facing text, not the transport Markdown or the
@@ -327,6 +402,8 @@
         result = result.replace(/(<strong>.+?<\/strong>)\s*<br\s*\/?>\s*<br\s*\/?>/gi, '$1<br>');
         result = result.replace(/\r?\n/g, '<br>');
         result = result.replace(/(?:<br\s*\/?>\s*){3,}/gi, '<br><br>');
+        // Horizontal rule: ---
+        result = result.replace(/(?:^|<br\s*\/?>)\s*---+\s*(?=<br\s*\/?>|$)/gi, '<hr class="afd-ai-chat__hr">');
         return result;
     }
 
@@ -359,7 +436,8 @@
 
     function sanitizeHtml(rawText) {
         try {
-            const normalizedText = normalizeMalformedMarkdownLinks(rawText);
+            const customerText = sanitizeCustomerResponseText(rawText);
+            const normalizedText = normalizeMalformedMarkdownLinks(customerText);
             let html = renderMarkdownWithParser(normalizedText);
             const purify = getDomPurify();
             if (purify && typeof purify.sanitize === 'function') {
@@ -377,13 +455,164 @@
     }
 
     function sanitizeStreamingHtml(rawText) {
-        return sanitizeHtml(stabilizeStreamingMarkdown(rawText));
+        // Streaming is intentionally rendered with the dependency-free
+        // fallback. Re-running Marked, DOMPurify, link enhancement and syntax
+        // highlighting over the complete response for every small chunk makes
+        // the bubble repaint and reflow increasingly expensive as the answer
+        // grows. The source is escaped before the fallback adds its small,
+        // allow-listed Markdown subset; the completed response still goes
+        // through the full sanitizer in `sanitizeHtml`.
+        try {
+            const customerText = sanitizeCustomerResponseText(rawText);
+            const stableText = normalizeMalformedMarkdownLinks(stabilizeStreamingMarkdown(customerText));
+            // `parseBasicMarkdownFallback` already handles complete HTTPS
+            // Markdown links. Defer DOM-based bare-link enhancement until the
+            // final render; constructing a temporary container and walking it
+            // on every animation frame was a measurable source of jank for
+            // long answers.
+            return parseBasicMarkdownFallback(stableText);
+        } catch (error) {
+            console.error('[AFD-AI-CHAT] sanitizeStreamingHtml error:', error);
+            return parseBasicMarkdownFallback(sanitizeCustomerResponseText(rawText));
+        }
+    }
+
+    // Codex-style block streaming: markdown before the first incomplete
+    // entity is stable, so blocks can be rendered independently. Splitting
+    // must respect markdown structure, though — a blank line inside a ```
+    // fence or between loose list items does not start a new block.
+    function splitStreamingBlocks(text) {
+        const segments = normalizeMarkdownWhitespace(text)
+            .split(/\n{2,}/)
+            .map(segment => segment.trim())
+            .filter(segment => segment.length > 0);
+
+        // Fold fence-internal blank lines back into one segment.
+        const fenceAware = [];
+        let inFence = false;
+        let fenceBuffer = [];
+        segments.forEach((segment) => {
+            const fenceMarkers = (segment.match(/^```/gm) || []).length;
+            if (inFence) {
+                fenceBuffer.push(segment);
+                if (fenceMarkers % 2 === 1) {
+                    inFence = false;
+                    fenceAware.push(fenceBuffer.join('\n\n'));
+                    fenceBuffer = [];
+                }
+                return;
+            }
+            if (fenceMarkers % 2 === 1) {
+                inFence = true;
+                fenceBuffer = [segment];
+                return;
+            }
+            fenceAware.push(segment);
+        });
+        if (fenceBuffer.length > 0) {
+            fenceAware.push(fenceBuffer.join('\n\n'));
+        }
+
+        // A loose list ("1. a\n\n2. b") is one list in the final render;
+        // splitting it would restart numbering and re-style each item.
+        const listMarker = /^(\s*)(?:[-*+]|\d+[.)])\s+/;
+        const merged = [];
+        fenceAware.forEach((segment) => {
+            const previous = merged[merged.length - 1];
+            if (previous !== undefined && listMarker.test(segment) && listMarker.test(previous)) {
+                merged[merged.length - 1] = previous + '\n\n' + segment;
+                return;
+            }
+            merged.push(segment);
+        });
+        return merged;
+    }
+
+    // Streaming blocks are parsed with the real Markdown parser — the way
+    // Codex streams — so headings, lists and fences are styled while the
+    // answer is still arriving, not only after `done`. Stable blocks hit
+    // the cache, so each frame only re-parses the growing last block.
+    const streamingBlockCache = new Map();
+
+    function renderStreamingBlockHtml(rawBlock) {
+        const source = String(rawBlock || '');
+        const cached = streamingBlockCache.get(source);
+        if (cached !== undefined) return cached;
+
+        let html;
+        try {
+            const customerText = sanitizeCustomerResponseText(source);
+            html = renderMarkdownWithParser(normalizeMarkdownWhitespace(customerText));
+            const purify = getDomPurify();
+            if (purify && typeof purify.sanitize === 'function') {
+                html = purify.sanitize(html, {
+                    ADD_ATTR: ['data-code-copy', 'data-code-language']
+                });
+            }
+            // Match the final render's outerHTML byte-for-byte so the
+            // streaming→done diff keeps unchanged blocks' DOM untouched.
+            html = String(html || '').trim();
+        } catch (error) {
+            html = parseBasicMarkdownFallback(source);
+        }
+
+        if (streamingBlockCache.size > 300) {
+            streamingBlockCache.clear();
+        }
+        streamingBlockCache.set(source, html);
+        return html;
+    }
+
+    function sanitizeStreamingHtmlBlocks(rawText) {
+        try {
+            const customerText = sanitizeCustomerResponseText(rawText);
+            const stableText = normalizeMalformedMarkdownLinks(stabilizeStreamingMarkdown(customerText));
+            return splitStreamingBlocks(stableText)
+                .map(block => renderStreamingBlockHtml(block))
+                .filter(blockHtml => String(blockHtml || '').trim().length > 0);
+        } catch (error) {
+            console.error('[AFD-AI-CHAT] sanitizeStreamingHtmlBlocks error:', error);
+            return [parseBasicMarkdownFallback(sanitizeCustomerResponseText(rawText))];
+        }
+    }
+
+    // Split fully sanitized HTML into top-level block HTML strings so the
+    // final render can be diffed against the streamed blocks: paragraphs
+    // whose HTML did not change keep their DOM node and never re-animate.
+    function splitHtmlBlocks(htmlText) {
+        const source = String(htmlText || '');
+        if (typeof document === 'undefined' || typeof document.createElement !== 'function') {
+            return source ? [source] : [];
+        }
+        const container = document.createElement('div');
+        container.innerHTML = source;
+        const children = Array.from(container.childNodes);
+        // The dependency-free fallback (no Marked available yet) produces
+        // inline runs — top-level text with <strong>/<br> mixed in. Those
+        // must stay one block, otherwise a single paragraph scatters into
+        // fragment "blocks" that each fade in separately.
+        const hasTopLevelText = children.some(node => (
+            node.nodeType === Node.TEXT_NODE
+            && String(node.textContent || '').trim().length > 0
+        ));
+        if (hasTopLevelText) {
+            return source.trim() ? [source] : [];
+        }
+        return children
+            .filter(node => node.nodeType === Node.ELEMENT_NODE)
+            .map(node => node.outerHTML);
     }
     function sanitizeCustomerResponseText(value) {
         return String(value || '')
             .replace(/\b(?:searchWeb|searchStoreKnowledge|getProductAvailability|compareProducts|searchProducts|listCategories|updateCartItem|removeFromCart|getCustomerInfo|getRecentOrders|getGuestOrders|getGuestOrderDetails|getOrderDetails|getOrderFulfillment|cancelOrder|requestReturn|handoffToHuman|subscribeBackInStock|updateGuestOrderAddress|updateOrderAddress|getCustomerAddresses|updateCustomerAddress|getActiveCoupons|addToCart|CATALOG_CONTEXT)\b/gi, '')
             .replace(/\bwith (?:categoryId|category_id)\s*\d+/gi, '')
             .replace(/\b(?:categoryId|category_id|storeCode|customer_id|customerToken|website_id|store_id)\s*[:=]?\s*\d*\b/gi, '')
+            // The legacy message table may be utf8mb3. Keep model prose
+            // ASCII-safe and clean malformed replacement marks already stored
+            // immediately before a Markdown link; UI Material Symbols remain
+            // available through their dedicated HTML elements.
+            .replace(/[\u{10000}-\u{10FFFF}]/gu, '')
+            .replace(/\?{2,}(?=\s*(?:\[[^\]\n]+\]\(|https?:\/\/))/gu, '')
             .replace(/[ \t]{2,}/g, ' ')
             .replace(/\s+([,.;:!?])/g, '$1');
     }
@@ -510,6 +739,8 @@
     modules.helpers = {
         sanitizeHtml,
         sanitizeStreamingHtml,
+        sanitizeStreamingHtmlBlocks,
+        splitHtmlBlocks,
         normalizeMarkdownForCopy,
         sanitizeCustomerResponseText,
         escapeHtml,

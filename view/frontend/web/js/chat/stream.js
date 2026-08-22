@@ -7,6 +7,7 @@ const { config, urls } = context;
 const {
     sanitizeHtml,
     escapeHtml,
+    sanitizeCustomerResponseText,
     sanitizeStreamingHtml,
     hydrateProductGridHtml,
     getBrowserFormKey,
@@ -501,6 +502,20 @@ const {
                 return part;
             },
 
+            handleGeneratedImageError(part, event) {
+                if (!part) return;
+                part.status = 'error';
+                const fallback = 'The generated image could not be loaded. Please try again.';
+                const translated = typeof this.t === 'function'
+                    ? this.t('generated_image_load_failed')
+                    : '';
+                part.error = translated && translated !== 'generated_image_load_failed' ? translated : fallback;
+                if (event?.target) {
+                    event.target.removeAttribute('src');
+                }
+                this.scheduleGuestSessionSnapshot?.();
+            },
+
             async setMessageFeedback(index, value) {
                 const message = this.messages[index];
                 const messageId = Number(message?.entity_id) || 0;
@@ -584,17 +599,348 @@ const {
 
             toggleReasoning(part) {
                 if (part) {
-                    part.isExpanded = !part.isExpanded;
+                    const nextExpanded = part.isExpanded === false;
+                    // Keep the disclosure state separate from the stream
+                    // projection. Incoming thinking/action events may update
+                    // the same reasoning object many times; they must not
+                    // reinterpret a previous automatic state as a shopper
+                    // click. This mirrors Codex's local accordion state.
+                    part.wasManuallyToggled = true;
+                    part.isManuallyCollapsed = !nextExpanded;
+                    part.isExpanded = nextExpanded;
                     this.scheduleGuestSessionSnapshot?.();
                 }
             },
 
-            reasoningTitle(part) {
+            // Codex reasoning lifecycle: while the model works the header is
+            // a shimmering "Thinking"; the first answer chunk collapses the
+            // section, later thinking/tool events open it again, and `done`
+            // freezes the elapsed time into "Thought for Ns" (collapsed
+            // unless the shopper toggled it manually).
+            freezeReasoningElapsed(part) {
+                if (!part || part.elapsedMs != null) return;
+                const startedAt = Number(part.startedAt) || 0;
+                if (startedAt > 0) {
+                    part.elapsedMs = Math.max(0, Date.now() - startedAt);
+                }
+            },
+
+            collapseReasoningForAnswer(message = null) {
+                const target = message || (this.currentAiMessageIndex >= 0
+                    ? this.messages[this.currentAiMessageIndex]
+                    : null);
+                if (!target || target.role !== 'assistant' || !Array.isArray(target.parts)) return;
+
+                target.parts.forEach((part) => {
+                    if (part?.type === 'reasoning') {
+                        this.freezeReasoningElapsed(part);
+                        part.isExpanded = false;
+                        part.isManuallyCollapsed = false;
+                    }
+                });
+            },
+
+            currentLiveReasoningPart() {
+                const message = this.currentAiMessageIndex >= 0
+                    ? this.messages[this.currentAiMessageIndex]
+                    : null;
+                if (!message || message.role !== 'assistant' || !Array.isArray(message.parts)) return null;
+                return message.parts.find(part => part?.type === 'reasoning') || null;
+            },
+
+            // A new reasoning/tool event after the answer started re-opens
+            // the section the same way Codex spawns a fresh "Thinking" item.
+            markReasoningResumed() {
+                const part = this.currentLiveReasoningPart();
+                if (part) {
+                    part.autoCollapsed = false;
+                    // Thinking resumed after the previous section closed:
+                    // drop the frozen "Thought for Ns" so the shimmering
+                    // "Thinking" header comes back until it closes again.
+                    part.elapsedMs = null;
+                    if (part.isManuallyCollapsed !== true) {
+                        part.isExpanded = true;
+                    }
+                }
+            },
+
+            syncLiveReasoningPart() {
+                const events = Array.isArray(this.thinkingEvents) ? this.thinkingEvents : [];
+                const steps = Array.isArray(this.thinkingSteps) ? this.thinkingSteps : [];
+                const activities = Array.isArray(this.toolActivities) ? this.toolActivities : [];
+                const hasReasoning = events.length > 0 || steps.length > 0 || activities.length > 0;
+                let message = this.currentAiMessageIndex >= 0
+                    ? this.messages[this.currentAiMessageIndex]
+                    : null;
+
+                if (!hasReasoning) {
+                    if (!message || message.role !== 'assistant' || !Array.isArray(message.parts)) return null;
+                    const reasoningIndex = message.parts.findIndex(part => part?.type === 'reasoning');
+                    if (reasoningIndex !== -1) message.parts.splice(reasoningIndex, 1);
+                    if (message.parts.length === 0) {
+                        this.messages.splice(this.currentAiMessageIndex, 1);
+                        this.currentAiMessageIndex = -1;
+                    }
+                    return null;
+                }
+
+                // Create the assistant bubble as soon as the first reasoning
+                // event arrives. The old implementation rendered a separate
+                // full-width thinking card, then rebuilt the same content in a
+                // message bubble when the first answer chunk arrived.
+                if (!message || message.role !== 'assistant' || !Array.isArray(message.parts)) {
+                    message = {
+                        role: 'assistant',
+                        request_id: this.activeRequestId || '',
+                        feedbackEnabled: false,
+                        feedbackBusy: false,
+                        parts: []
+                    };
+                    this.messages.push(message);
+                    this.currentAiMessageIndex = this.messages.length - 1;
+                }
+
+                let reasoningPart = message.parts.find(part => part?.type === 'reasoning');
+                if (!reasoningPart) {
+                    reasoningPart = {
+                        id: 'reasoning-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+                        type: 'reasoning',
+                        events: [],
+                        steps: [],
+                        activities: [],
+                        startedAt: Date.now(),
+                        // Keep live actions visible. The shopper can collapse
+                        // them manually, and subsequent deltas preserve that.
+                        isExpanded: true,
+                        isManuallyCollapsed: false,
+                        wasManuallyToggled: false,
+                        autoCollapsed: false
+                    };
+                    message.parts.unshift(reasoningPart);
+                }
+
+                // A stream is authoritative while it is active. Do not let
+                // an action update, a legacy snapshot, or a history refresh
+                // turn the live Thinking panel into a completed-looking
+                // header. Only an explicit shopper collapse can keep it shut.
+                // `autoCollapsed` marks the Codex-style handoff moment when
+                // the answer text started; later reasoning events clear it.
+                if (this.isLoading
+                    && reasoningPart.isManuallyCollapsed !== true
+                    && reasoningPart.autoCollapsed !== true) {
+                    reasoningPart.isExpanded = true;
+                }
+
+                reasoningPart.events = [...events];
+                reasoningPart.steps = [...steps];
+                reasoningPart.activities = [...activities];
+                return reasoningPart;
+            },
+
+            isReasoningLive(part, index = null) {
+                if (!this.isLoading || !part) return false;
+                if (part.elapsedMs != null) return false;
+                if (index !== null && index !== this.currentAiMessageIndex) return false;
+                const livePart = this.currentLiveReasoningPart();
+                return livePart === part || livePart === null;
+            },
+
+            // Codex duration formatting: hidden under one second, then
+            // "12s", "3m 24s", "1h 2m 3s".
+            formatElapsedMs(elapsedMs, { underOneSecond = 'hidden' } = {}) {
+                const totalSeconds = Math.max(0, Math.floor(Number(elapsedMs) / 1000));
+                if (totalSeconds < 1) {
+                    return underOneSecond === 'zero' ? '0s' : '';
+                }
+                if (totalSeconds < 60) {
+                    return `${totalSeconds}s`;
+                }
+                const hours = 3600;
+                const days = Math.floor(totalSeconds / (hours * 24));
+                const hourPart = Math.floor(totalSeconds / hours) % 24;
+                const minutePart = Math.floor((totalSeconds % hours) / 60);
+                const secondPart = totalSeconds % 60;
+                if (days > 0 || hourPart > 0) {
+                    const parts = [];
+                    if (days > 0) parts.push(`${days}d`);
+                    if (hourPart > 0) parts.push(`${hourPart}h`);
+                    if (minutePart > 0) parts.push(`${minutePart}m`);
+                    if (secondPart > 0) parts.push(`${secondPart}s`);
+                    return parts.join(' ');
+                }
+                return secondPart === 0 ? `${minutePart}m` : `${minutePart}m ${secondPart}s`;
+            },
+
+            reasoningTitle(part, index = null) {
                 if (!part) return this.t('thought_process');
+                if (part.elapsedMs != null) {
+                    return this.t('thought_for', { 1: this.formatElapsedMs(part.elapsedMs, { underOneSecond: 'zero' }) });
+                }
+                if (this.isReasoningLive(part, index)) {
+                    return this.t('thinking');
+                }
                 const events = Array.isArray(part.events) ? part.events : [];
                 const count = events.length || ((Array.isArray(part.steps) ? part.steps.length : 0) + (Array.isArray(part.activities) ? part.activities.length : 0));
                 if (count <= 1) return this.t('thought_process_1_step');
                 return this.t('thought_process_steps', { 1: count });
+            },
+
+            reasoningSummary(part) {
+                if (!part) return '';
+                const events = Array.isArray(part.events) ? part.events : [];
+                const activities = events.filter(event => event?.type === 'activity');
+                const fallback = Array.isArray(part.activities) ? part.activities : [];
+                const latest = (activities.length ? activities : fallback).slice(-1)[0];
+                return latest ? this.toolActivityLabel(latest) : '';
+            },
+
+            reasoningActivities(part) {
+                if (!part) return [];
+                const events = Array.isArray(part.events) ? part.events : [];
+                const activities = events.filter(event => event?.type === 'activity');
+                return activities.length
+                    ? activities
+                    : (Array.isArray(part.activities) ? part.activities : []);
+            },
+
+            reasoningSteps(part) {
+                if (!part) return [];
+                const events = Array.isArray(part.events) ? part.events : [];
+                const steps = events.filter(event => event?.type === 'step'
+                    && String(event.content || '').trim().length > 0);
+                // Some persisted turns contain the action timeline in
+                // `events` while their Thinking text is still in the legacy
+                // `steps` array. Do not let the presence of one activity hide
+                // the other representation.
+                return steps.length
+                    ? steps
+                    : (Array.isArray(part.steps) ? part.steps : []);
+            },
+
+            // Codex renders one ordered timeline of reasoning text and tool
+            // rows. `events` already preserves arrival order; legacy turns
+            // fall back to their separate step/activity arrays.
+            reasoningTimeline(part) {
+                if (!part) return [];
+                const events = Array.isArray(part.events) ? part.events : [];
+                if (events.length > 0) {
+                    return events.filter(event => event?.type === 'activity'
+                        || (event?.type === 'step' && String(event.content || '').trim().length > 0));
+                }
+                const steps = (Array.isArray(part.steps) ? part.steps : [])
+                    .map(step => ({ ...step, type: 'step' }));
+                const activities = (Array.isArray(part.activities) ? part.activities : [])
+                    .map(activity => ({ ...activity, type: 'activity' }));
+                return [...steps, ...activities];
+            },
+
+            // Codex shows "Running command for 3s" while a tool works and
+            // freezes the duration into the completed row label.
+            activityElapsedMs(activity) {
+                if (!activity || activity.state === 'running') {
+                    const startedAt = Number(activity?.startedAt) || 0;
+                    if (!startedAt) return null;
+                    return Math.max(0, (activity.state === 'running' ? this.streamNow : Date.now()) - startedAt);
+                }
+                const startedAt = Number(activity.startedAt) || 0;
+                const completedAt = Number(activity.completedAt) || 0;
+                if (!startedAt || !completedAt || completedAt < startedAt) return null;
+                return completedAt - startedAt;
+            },
+
+            // Codex shows a trailing "8s" right after the row label, on the
+            // same line — no "for" prefix, hidden while under one second.
+            activityDurationLabel(activity) {
+                const elapsed = this.activityElapsedMs(activity);
+                if (elapsed === null) return '';
+                return this.formatElapsedMs(elapsed);
+            },
+
+            activitySummaryLabel(part) {
+                const activities = this.reasoningActivities(part);
+                const count = activities.length;
+                if (count <= 1) return this.t('actions_checked_1');
+                return this.t('actions_checked', { 1: count });
+            },
+
+            isActivityListOpen(msg, part) {
+                if (!part) return false;
+                return part.activitiesExpanded === true;
+            },
+
+            toggleActivityList(part) {
+                if (!part) return;
+                part.activitiesExpanded = part.activitiesExpanded !== true;
+                this.scheduleGuestSessionSnapshot?.();
+            },
+
+            workedForLabel(message) {
+                const elapsedMs = Number(message?.workedForMs) || 0;
+                if (elapsedMs < 1000) return '';
+                return this.t('worked_for', { 1: this.formatElapsedMs(elapsedMs) });
+            },
+
+            // Codex turn footer: while the turn runs the divider reads
+            // "Working" (no timer under one second), then "Working for Ns"
+            // ticking once per second; `done` freezes it into
+            // "Worked for Ns".
+            turnDividerLabel(msg, index = null) {
+                if (!msg || msg.deleted) return '';
+                const isLiveTurn = this.isLoading
+                    && index !== null
+                    && index === this.currentAiMessageIndex;
+                if (isLiveTurn) {
+                    const startedAt = Number(this.responseStartedAt) || 0;
+                    if (!startedAt) return '';
+                    const elapsedMs = Math.max(0, this.streamNow - startedAt);
+                    if (elapsedMs < 1000) return this.t('working');
+                    return this.t('working_for', { 1: this.formatElapsedMs(elapsedMs) });
+                }
+                return this.workedForLabel(msg);
+            },
+
+            // ZCode separates internal work history from the customer-facing
+            // answer. A running turn starts open; after completion, the same
+            // duration row remains visible but the details are folded away.
+            isTurnHistoryOpen(msg, index = null) {
+                if (!msg) return false;
+                const isLiveTurn = this.isLoading
+                    && index !== null
+                    && index === this.currentAiMessageIndex;
+                if (isLiveTurn) return msg.historyExpanded !== false;
+                return msg.historyExpanded === true;
+            },
+
+            toggleTurnHistory(msg, index = null) {
+                if (!msg) return;
+                const nextExpanded = !this.isTurnHistoryOpen(msg, index);
+                msg.historyExpanded = nextExpanded;
+                (Array.isArray(msg.parts) ? msg.parts : []).forEach((part) => {
+                    if (part?.type !== 'reasoning') return;
+                    part.isExpanded = nextExpanded;
+                    part.isManuallyCollapsed = !nextExpanded;
+                    part.wasManuallyToggled = true;
+                    part.activitiesExpanded = nextExpanded;
+                });
+                this.scheduleGuestSessionSnapshot?.();
+            },
+
+            messageTimeLabel(message) {
+                const raw = message?.created_at || message?.createdAt || '';
+                if (!raw) return '';
+                let timestamp = raw instanceof Date ? raw.getTime() : Date.parse(raw);
+                if (!Number.isFinite(timestamp) && typeof raw === 'number') {
+                    timestamp = raw < 1000000000000 ? raw * 1000 : raw;
+                }
+                if (!Number.isFinite(timestamp)) return '';
+                try {
+                    return new Intl.DateTimeFormat(undefined, {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    }).format(new Date(timestamp));
+                } catch (error) {
+                    return '';
+                }
             },
 
             renderMarkdown(content) {
@@ -625,27 +971,41 @@ const {
                 const payload = part?.payload || {};
                 const pagination = payload.pagination || {};
                 const coverage = payload.coverage || {};
-                const total = Number(coverage.total ?? pagination.total);
+                // `total` is duplicated in the v2 product contract so the
+                // summary remains truthful when a legacy/history adapter
+                // omits coverage or pagination while preserving the payload.
+                const total = Number(coverage.total ?? pagination.total ?? payload.total);
                 const visible = Number(coverage.shown
                     ?? (Array.isArray(payload.items) ? payload.items.length : pagination.returned || 0));
 
                 if (!Number.isFinite(total) || total < 0 || !visible) return '';
-                if (visible >= total) return `Showing all ${total} product${total === 1 ? '' : 's'}`;
-                return `Showing ${visible} of ${total} matching products`;
+                const hasMore = pagination.has_more === true
+                    || pagination.can_load_more === true
+                    || Boolean(payload.continuation);
+                if (visible >= total && !hasMore) {
+                    return typeof this.t === 'function'
+                        ? this.t('catalog_showing_all', { 1: total })
+                        : `Showing all ${total} product${total === 1 ? '' : 's'}`;
+                }
+                return typeof this.t === 'function'
+                    ? this.t('catalog_showing_page', { 1: visible, 2: total })
+                    : `Showing ${visible} of ${total} matching products`;
             },
 
             productLoadMoreLabel(part) {
                 const payload = part?.payload || {};
                 const pagination = payload.pagination || {};
-                const total = Number(pagination.total);
+                const total = Number(pagination.total ?? payload.total);
                 const visible = Array.isArray(payload.items) ? payload.items.length : 0;
                 const pageSize = Math.max(1, Number(pagination.page_size) || 5);
                 const remaining = Number.isFinite(total) ? Math.max(0, total - visible) : pageSize;
                 const nextCount = Math.min(pageSize, remaining || pageSize);
 
                 return this.isProductPageLoading(part)
-                    ? 'Loading products…'
-                    : `Show ${nextCount} more`;
+                    ? (typeof this.t === 'function' ? this.t('catalog_loading') : 'Loading products…')
+                    : (typeof this.t === 'function'
+                        ? this.t('catalog_show_more', { 1: nextCount })
+                        : `Show ${nextCount} more`);
             },
 
             async loadMoreProducts(part) {
@@ -660,8 +1020,10 @@ const {
                 if (!this.socket || !this.wsConnected) {
                     this.setTransportNotice(
                         'catalog-page-unavailable',
-                        'More products are unavailable',
-                        'The secure chat connection is reconnecting. Please try again in a moment.'
+                        typeof this.t === 'function' ? this.t('catalog_page_unavailable_title') : 'More products are unavailable',
+                        typeof this.t === 'function'
+                            ? this.t('catalog_page_unavailable_copy')
+                            : 'The secure chat connection is reconnecting. Please try again in a moment.'
                     );
                     return;
                 }
@@ -995,6 +1357,8 @@ const {
                 this.pendingProductParts = [];
                 this.pendingOrderAddressFormParts = [];
                 this.pendingGuestOrderAccessParts = [];
+                this.thinkingEvents = [];
+                this.thinkingSteps = [];
                 this.toolActivities = [];
                 this.armResponseWatchdog();
                 this.$nextTick(() => this.scrollToBottom(true));
@@ -1115,9 +1479,67 @@ const {
             },
 
             shouldIgnoreStreamMessage(data) {
-                if (!data || !data.request_id) return false;
-                if (this.cancelledRequestIds[data.request_id]) return true;
-                return !!this.activeRequestId && data.request_id !== this.activeRequestId;
+                if (!data) return false;
+                // `message_saved` is an asynchronous persistence acknowledgement.
+                // It may arrive after `done` (or while the shopper has already
+                // started the next turn), so it must still be allowed to attach
+                // the durable message id to the visible response.
+                if (data.type === 'message_saved') return false;
+
+                // Product pagination is an independent, signed request. Its
+                // response intentionally has no chat request_id, because it
+                // must not reopen or mutate the active assistant turn. Do not
+                // classify these frames as stale lifecycle events; otherwise
+                // the button remains stuck on "Loading products…" forever.
+                if (data.type === 'products_page' || data.type === 'product_page_error') return false;
+
+                const requestId = String(data.request_id || '');
+                if (requestId && this.cancelledRequestIds[requestId]) return true;
+
+                // Older gateway frames (and the progress pulse during a rolling
+                // deploy) may not carry a request id. Once the active turn has
+                // ended, those lifecycle frames are stale too; accepting them
+                // would turn the completed Send button back into Stop.
+                if (!requestId && !this.activeRequestId) {
+                    return this.isResponseLifecycleMessage(data.type);
+                }
+
+                if (this.activeRequestId) {
+                    return requestId && requestId !== this.activeRequestId;
+                }
+
+                // A WebSocket can already have queued status/tool frames when
+                // the final `done` frame closes a turn. Without this guard a
+                // late `status` or `tool_activity` resurrects `isLoading`, which
+                // leaves the composer showing Stop even though the answer is
+                // complete. Non-stream events (cart updates and persistence
+                // acknowledgements) remain processable.
+                return this.isResponseLifecycleMessage(data.type);
+            },
+
+            isResponseLifecycleMessage(type) {
+                return [
+                    'stream_reset',
+                    'discard_thinking_text',
+                    'thinking_delta',
+                    'discard_tentative_step',
+                    'thinking_step',
+                    'chunk',
+                    'tool_activity',
+                    'image_generation_started',
+                    'image_generated',
+                    'image_generation_failed',
+                    'products_html',
+                    'products_page',
+                    'product_page_error',
+                    'guest_order_access_required',
+                    'order_address_form',
+                    'status',
+                    'busy',
+                    'error',
+                    'done',
+                    'cancelled'
+                ].includes(String(type || ''));
             },
 
             clearResponseWatchdog() {
@@ -1375,7 +1797,7 @@ const {
                     return;
                 }
 
-                if (['chunk', 'thinking_step', 'products_html', 'products_page', 'status', 'tool_activity', 'image_generation_started', 'image_generated', 'image_generation_failed', 'guest_order_access_required'].includes(data.type)) {
+                if (['chunk', 'thinking_delta', 'thinking_step', 'products_html', 'products_page', 'status', 'tool_activity', 'image_generation_started', 'image_generated', 'image_generation_failed', 'guest_order_access_required'].includes(data.type)) {
                     this.armResponseWatchdog();
                 }
 
@@ -1411,21 +1833,8 @@ const {
                         this.thinkingEvents.push(step);
                     }
                     step.content += String(data.delta || '');
-                    if (this.currentAiMessageIndex >= 0 && this.messages[this.currentAiMessageIndex]) {
-                        const msg = this.messages[this.currentAiMessageIndex];
-                        let reasoningPart = msg.parts.find(p => p?.type === 'reasoning');
-                        if (!reasoningPart) {
-                            reasoningPart = {
-                                id: 'reasoning-' + Date.now(),
-                                type: 'reasoning',
-                                events: [...this.thinkingEvents],
-                                isExpanded: false
-                            };
-                            msg.parts.unshift(reasoningPart);
-                        } else {
-                            reasoningPart.events = [...this.thinkingEvents];
-                        }
-                    }
+                    this.markReasoningResumed();
+                    this.syncLiveReasoningPart?.();
                     this.isLoading = true;
                     this.scheduleStreamingScroll();
 
@@ -1433,6 +1842,7 @@ const {
                     const stepId = String(data.step_id || '');
                     if (stepId && Array.isArray(this.thinkingEvents)) {
                         this.thinkingEvents = this.thinkingEvents.filter(e => e.id !== stepId);
+                        this.syncLiveReasoningPart?.();
                     }
 
                 } else if (data.type === 'thinking_step') {
@@ -1450,35 +1860,33 @@ const {
                                 tool: String(data.tool || '')
                             });
                         }
-                        if (this.currentAiMessageIndex >= 0 && this.messages[this.currentAiMessageIndex]) {
-                            const msg = this.messages[this.currentAiMessageIndex];
-                            let reasoningPart = msg.parts.find(p => p?.type === 'reasoning');
-                            if (!reasoningPart) {
-                                reasoningPart = {
-                                    id: 'reasoning-' + Date.now(),
-                                    type: 'reasoning',
-                                    events: [...this.thinkingEvents],
-                                    isExpanded: false
-                                };
-                                msg.parts.unshift(reasoningPart);
-                            } else {
-                                reasoningPart.events = [...this.thinkingEvents];
-                            }
-                        }
+                        this.markReasoningResumed();
+                        this.syncLiveReasoningPart?.();
                         this.isLoading = true;
                         this.scrollToBottom();
                     }
 
                 } else if (data.type === 'chunk') {
                     this.statusMessage = '';
+                    // A text delta is not a terminal signal. Providers can
+                    // emit provisional prose while a tool call is still in
+                    // flight, and Gemini can interleave text/thought parts in
+                    // the same response. Keep the live Thinking timeline
+                    // mounted until `done`, `error`, or `cancelled`.
                     if (this.currentAiMessageIndex === -1) {
                         const parts = [];
-                        if (Array.isArray(this.thinkingEvents) && this.thinkingEvents.length > 0) {
+                        if ((Array.isArray(this.thinkingEvents) && this.thinkingEvents.length > 0)
+                            || (Array.isArray(this.thinkingSteps) && this.thinkingSteps.length > 0)
+                            || (Array.isArray(this.toolActivities) && this.toolActivities.length > 0)) {
                             parts.push({
                                 id: 'reasoning-' + Date.now(),
                                 type: 'reasoning',
-                                events: [...this.thinkingEvents],
-                                isExpanded: false
+                                events: Array.isArray(this.thinkingEvents) ? [...this.thinkingEvents] : [],
+                                steps: Array.isArray(this.thinkingSteps) ? [...this.thinkingSteps] : [],
+                                activities: Array.isArray(this.toolActivities) ? [...this.toolActivities] : [],
+                                startedAt: this.responseStartedAt || Date.now(),
+                                isManuallyCollapsed: false,
+                                isExpanded: true
                             });
                         }
                         parts.push(this.createStreamingTextPart(data.content || ''));
@@ -1493,12 +1901,19 @@ const {
                     } else {
                         const msg = this.messages[this.currentAiMessageIndex];
                         if (msg) {
-                            if (Array.isArray(this.thinkingEvents) && this.thinkingEvents.length > 0 && !msg.parts.some(p => p?.type === 'reasoning')) {
+                            if (((Array.isArray(this.thinkingEvents) && this.thinkingEvents.length > 0)
+                                || (Array.isArray(this.thinkingSteps) && this.thinkingSteps.length > 0)
+                                || (Array.isArray(this.toolActivities) && this.toolActivities.length > 0))
+                                && !msg.parts.some(p => p?.type === 'reasoning')) {
                                 msg.parts.unshift({
                                     id: 'reasoning-' + Date.now(),
                                     type: 'reasoning',
-                                    events: [...this.thinkingEvents],
-                                    isExpanded: false
+                                    events: Array.isArray(this.thinkingEvents) ? [...this.thinkingEvents] : [],
+                                    steps: Array.isArray(this.thinkingSteps) ? [...this.thinkingSteps] : [],
+                                    activities: Array.isArray(this.toolActivities) ? [...this.toolActivities] : [],
+                                    startedAt: this.responseStartedAt || Date.now(),
+                                    isManuallyCollapsed: false,
+                                    isExpanded: true
                                 });
                             }
                             let lastPart = msg.parts[msg.parts.length - 1];
@@ -1509,21 +1924,80 @@ const {
                             this.appendStreamingText(lastPart, data.content || '');
                         }
                     }
+                    // Codex-style handoff: the moment answer text starts, the
+                    // live Thinking section folds to a static "Thought for
+                    // Ns" header. Later thinking/tool events re-open it via
+                    // `markReasoningResumed`; a manual toggle always wins.
+                    const liveReasoning = this.currentLiveReasoningPart();
+                    if (liveReasoning
+                        && liveReasoning.isManuallyCollapsed !== true
+                        && liveReasoning.wasManuallyToggled !== true) {
+                        this.freezeReasoningElapsed(liveReasoning);
+                        liveReasoning.autoCollapsed = true;
+                        liveReasoning.isExpanded = false;
+                    }
                     // Streaming snapshots are durability checkpoints, not a
                     // per-frame render concern. The final `done` event still
                     // persists immediately.
                     this.scheduleGuestSessionSnapshot(900);
-                    this.scheduleStreamingScroll();
 
                 } else if (data.type === 'tool_activity') {
                     const activityId = String(data.activity_id || 'tool-' + Date.now() + '-' + Math.random());
+                    const nextState = ['running', 'completed', 'failed'].includes(data.state) ? data.state : 'running';
+                    const now = Date.now();
+                    // Some gateway/provider combinations publish the next
+                    // tool's `running` frame before explicitly closing the
+                    // previous one. The UI is a serial work timeline: once a
+                    // new action starts, freeze every older running row so it
+                    // stops shimmering and its elapsed time no longer ticks.
+                    if (nextState === 'running') {
+                        const completePreviousActivity = (activity) => {
+                            if (activity?.type !== 'activity' || activity.id === activityId) {
+                                return activity;
+                            }
+                            // State can be completed before the assistant turn
+                            // is done, so keep a separate live-action marker.
+                            const noLongerCurrent = {
+                                ...activity,
+                                isCurrentAction: false
+                            };
+                            return activity.state === 'running'
+                                ? {
+                                    ...noLongerCurrent,
+                                    state: 'completed',
+                                    completedAt: Number(activity.completedAt) || now
+                                }
+                                : noLongerCurrent;
+                        };
+                        if (Array.isArray(this.thinkingEvents)) {
+                            this.thinkingEvents = this.thinkingEvents.map(completePreviousActivity);
+                        }
+                        if (Array.isArray(this.toolActivities)) {
+                            this.toolActivities = this.toolActivities.map(completePreviousActivity);
+                        }
+                    }
+                    const existingEvent = Array.isArray(this.thinkingEvents)
+                        ? this.thinkingEvents.find(item => item.type === 'activity' && item.id === activityId)
+                        : null;
                     const nextActivity = {
                         id: activityId,
                         type: 'activity',
                         tool: String(data.tool || ''),
-                        state: ['running', 'completed', 'failed'].includes(data.state) ? data.state : 'running',
-                        result_count: Number.isFinite(Number(data.result_count)) ? Number(data.result_count) : null
+                        state: nextState,
+                        result_count: Number.isFinite(Number(data.result_count)) ? Number(data.result_count) : null,
+                        // Client-side timestamps drive the Codex-style
+                        // "… for Ns" labels; the protocol carries states only.
+                        startedAt: Number(existingEvent?.startedAt) || now,
+                        completedAt: nextState === 'running'
+                            ? (Number(existingEvent?.completedAt) || null)
+                            : (Number(existingEvent?.completedAt) || now),
+                        // The current action keeps shimmering until a newer
+                        // action starts or the whole assistant turn completes.
+                        isCurrentAction: nextState === 'running'
+                            ? true
+                            : existingEvent?.isCurrentAction !== false
                     };
+                    this.markReasoningResumed();
                     if (!Array.isArray(this.thinkingEvents)) this.thinkingEvents = [];
                     const eventIndex = this.thinkingEvents.findIndex(item => item.type === 'activity' && item.id === activityId);
                     if (eventIndex === -1) {
@@ -1545,21 +2019,7 @@ const {
                         });
                     }
 
-                    if (this.currentAiMessageIndex >= 0 && this.messages[this.currentAiMessageIndex]) {
-                        const msg = this.messages[this.currentAiMessageIndex];
-                        let reasoningPart = msg.parts.find(p => p?.type === 'reasoning');
-                        if (!reasoningPart) {
-                            reasoningPart = {
-                                id: 'reasoning-' + Date.now(),
-                                type: 'reasoning',
-                                events: [...this.thinkingEvents],
-                                isExpanded: false
-                            };
-                            msg.parts.unshift(reasoningPart);
-                        } else {
-                            reasoningPart.events = [...this.thinkingEvents];
-                        }
-                    }
+                    this.syncLiveReasoningPart?.();
 
                     // A tool action belongs to the current assistant turn.
                     // Keeping its cursor intact means a later final chunk and
@@ -1611,8 +2071,10 @@ const {
                     this.completeProductPageRequest(data.product_part_id);
                     this.setTransportNotice(
                         'catalog-page-failed',
-                        'More products could not be loaded',
-                        data.content || 'Please try again in a moment.'
+                        typeof this.t === 'function' ? this.t('catalog_page_failed_title') : 'More products could not be loaded',
+                        data.content || (typeof this.t === 'function'
+                            ? this.t('catalog_page_failed_copy')
+                            : 'Could not load more products. Please try again.')
                     );
 
                 } else if (data.type === 'cart_updated') {
@@ -1801,6 +2263,7 @@ const {
 
                 } else if (data.type === 'error') {
                     this.statusMessage = '';
+                    this.collapseReasoningForAnswer?.();
                     this.finalizeStreamingMarkdown();
                     this.isLoading = false;
                     this.activeRequestId = null;
@@ -1822,12 +2285,43 @@ const {
                     });
                     this.scrollToBottom();
 
+                } else if (data.type === 'busy') {
+                    // Admission control rejects this turn before an adapter can
+                    // emit `done`. Treat it as a terminal event so the composer
+                    // immediately returns from Stop to Send.
+                    this.collapseReasoningForAnswer?.();
+                    this.finalizeStreamingMarkdown();
+                    this.isLoading = false;
+                    this.statusMessage = '';
+                    this.currentAiMessageIndex = -1;
+                    this.activeRequestId = null;
+                    this.responseStartedAt = 0;
+                    this.pendingProductParts = [];
+                    this.pendingOrderAddressFormParts = [];
+                    this.pendingGuestOrderAccessParts = [];
+                    this.clearResponseWatchdog();
+                    this.setTransportNotice?.(
+                        'ai-service-busy',
+                        'AI service is busy',
+                        data.content || 'The AI service is busy. Please try again shortly.'
+                    );
+                    this.scrollToBottom();
+
                 } else if (data.type === 'status') {
                     this.statusMessage = this.normalizeStatusMessage(data.content);
                     this.isLoading = true;
 
                 } else if (data.type === 'done') {
                     const completedRequestId = String(data.request_id || this.activeRequestId || '');
+                    // Codex closes a turn with a "Worked for Ns" marker; the
+                    // elapsed time must be captured before the turn state
+                    // resets below.
+                    const completedMessage = this.currentAiMessageIndex >= 0
+                        ? this.messages[this.currentAiMessageIndex]
+                        : null;
+                    if (completedMessage && completedMessage.role === 'assistant' && this.responseStartedAt) {
+                        completedMessage.workedForMs = Math.max(0, Date.now() - this.responseStartedAt);
+                    }
                     this.finalizeStreamingMarkdown();
                     this.flushPendingReasoningParts();
                     this.flushPendingProductParts();
@@ -1846,6 +2340,9 @@ const {
                         if (!completedRequestId
                             || String(message.request_id || '') !== completedRequestId) return;
                         message.feedbackBusy = false;
+                        if (data.provider_meta && typeof data.provider_meta === 'object') {
+                            message.provider_meta = data.provider_meta;
+                        }
                     });
                     if (data.request_id) {
                         delete this.cancelledRequestIds[data.request_id];
@@ -1860,6 +2357,7 @@ const {
                     }
 
                 } else if (data.type === 'cancelled') {
+                    this.collapseReasoningForAnswer?.();
                     this.recordInterruptedResponse(data.stopped_after_seconds);
                     this.isLoading = false;
                     this.statusMessage = '';
@@ -1908,14 +2406,46 @@ const {
                     events: [...(this.thinkingEvents || [])],
                     steps: [...(this.thinkingSteps || [])],
                     activities: [...(this.toolActivities || [])],
-                    isExpanded: false
+                    // Keep the completed reasoning/action timeline visible.
+                    // The shopper can collapse it manually from the header;
+                    // terminal state alone must not erase the evidence of
+                    // which actions were run for this answer.
+                    isExpanded: true,
+                    isManuallyCollapsed: false
                 };
 
                 const existingIndex = message.parts.findIndex(p => p?.type === 'reasoning');
                 if (existingIndex === -1) {
+                    const reasoningStart = this.responseStartedAt || Date.now();
+                    reasoningPart.startedAt = reasoningPart.startedAt || reasoningStart;
+                    this.freezeReasoningElapsed(reasoningPart);
+                    // Codex collapses the reasoning section as soon as the
+                    // turn completes; a manual shopper toggle wins over the
+                    // automatic state.
+                    reasoningPart.isExpanded = reasoningPart.wasManuallyToggled === true
+                        ? reasoningPart.isExpanded
+                        : false;
+                    reasoningPart.autoCollapsed = true;
                     message.parts.unshift(reasoningPart);
                 } else {
-                    message.parts[existingIndex] = reasoningPart;
+                    // Preserve the live part identity and disclosure state so
+                    // Alpine does not tear down and rebuild the action DOM at
+                    // `done`, which previously caused a visible container jump.
+                    const existingPart = message.parts[existingIndex];
+                    existingPart.events = reasoningPart.events;
+                    existingPart.steps = reasoningPart.steps;
+                    existingPart.activities = reasoningPart.activities;
+                    this.freezeReasoningElapsed(existingPart);
+                    if (existingPart.wasManuallyToggled === true) {
+                        if (existingPart.isManuallyCollapsed !== true) {
+                            existingPart.isExpanded = true;
+                        }
+                    } else {
+                        // Codex behavior: the completed Thinking section
+                        // folds to its "Thought for Ns" header.
+                        existingPart.autoCollapsed = true;
+                        existingPart.isExpanded = false;
+                    }
                 }
 
                 this.thinkingEvents = [];
@@ -1990,6 +2520,7 @@ const {
                     : null;
                 if (!message || message.role !== 'assistant' || !Array.isArray(message.parts)) return;
 
+                message.feedbackEnabled = true;
                 message.parts.forEach(part => {
                     if (part?.type === 'text') {
                         this.finalizeStreamingText(part);
@@ -2004,10 +2535,15 @@ const {
                     return;
                 }
 
-                this.disposeStreamingMessage(message);
-                this.messages.splice(index, 1);
-                this.currentAiMessageIndex = -1;
-                this.scheduleGuestSessionSnapshot();
+                // Older gateways used this frame to retract provisional
+                // narration before a tool call. Removing the entire
+                // assistant bubble here also removed real Thinking steps and
+                // actions, leaving only the later tool status visible. The
+                // current protocol has `discard_tentative_step` for the
+                // narrow case, so keep all customer-visible evidence when an
+                // old frame arrives.
+                this.finalizeStreamingMarkdown();
+                this.syncLiveReasoningPart?.();
             },
 
             // ==================== UTILITIES ====================

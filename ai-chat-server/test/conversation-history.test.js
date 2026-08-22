@@ -86,14 +86,71 @@ test('preserves safe message and feedback metadata required by the storefront', 
 test('serializes one canonical product presentation and generated image', () => {
     const stored = JSON.parse(codec.buildAssistantStoragePayload([
         { type: 'text', raw: 'Products:' },
-        { type: 'products', payload: { items: [{ sku: 'old' }] } },
-        { type: 'products', payload: { items: [{ sku: 'new' }] } },
+        { type: 'products', payload: { items: [{ sku: 'old' }] }, html: '<div data-result="old"></div>' },
+        { type: 'products', payload: { items: [{ sku: 'new' }] }, html: '<div data-result="new"></div>' },
         { type: 'image', url: 'http://afd.test/media/afd-ai/generated/image.png', prompt: 'image' }
     ]));
 
     assert.equal(stored.parts.filter((part) => part.type === 'products').length, 1);
-    assert.equal(stored.parts.find((part) => part.type === 'products').payload.items[0].sku, 'new');
+    const productPart = stored.parts.find((part) => part.type === 'products');
+    assert.equal(productPart.payload.items[0].sku, 'new');
+    assert.equal(productPart.html, '<div data-result="new"></div>');
     assert.equal(stored.parts.find((part) => part.type === 'image').prompt, 'image');
+});
+
+test('restores a persisted product grid together with its payload', () => {
+    const normalized = codec.normalizeStoredAssistantMessage({
+        entity_id: 42,
+        role: 'assistant',
+        content: JSON.stringify({
+            format: 'afd_ai_chat_message',
+            text: 'Here are the products.',
+            parts: [
+                { type: 'text', raw: 'Here are the products.' },
+                {
+                    type: 'products',
+                    html: '<div class="afd-ai-chat__product-grid"><img src="/media/product.jpg"></div>',
+                    payload: { items: [{ id: 7, sku: 'SKU-7' }] }
+                }
+            ]
+        })
+    });
+
+    const productPart = normalized.parts.find((part) => part.type === 'products');
+    assert.equal(productPart.payload.items[0].sku, 'SKU-7');
+    assert.match(productPart.html, /afd-ai-chat__product-grid/);
+    assert.match(productPart.html, /product\.jpg/);
+});
+
+test('persists customer-safe tool activity for the completed-turn timeline', () => {
+    const stored = JSON.parse(codec.buildAssistantStoragePayload([
+        {
+            type: 'reasoning',
+            events: [
+                { id: 'availability', type: 'activity', tool: 'getProductAvailability', state: 'completed', result_count: 1 },
+                { id: 'step-1', type: 'step', content: 'Checking current availability.' }
+            ]
+        },
+        { type: 'text', raw: 'There are 35 items available.' }
+    ]));
+
+    const reasoning = stored.parts.find((part) => part.type === 'reasoning');
+    assert.equal(reasoning.events.length, 2);
+    assert.deepEqual(reasoning.activities[0], {
+        id: 'availability',
+        type: 'activity',
+        tool: 'getProductAvailability',
+        state: 'completed',
+        result_count: 1
+    });
+
+    const restored = codec.normalizeStoredAssistantMessage({
+        entity_id: 43,
+        role: 'assistant',
+        content: JSON.stringify(stored)
+    });
+    assert.equal(restored.parts[0].type, 'reasoning');
+    assert.equal(restored.parts[0].activities[0].tool, 'getProductAvailability');
 });
 
 test('allows the synced Admin limit to trim model history per request', () => {

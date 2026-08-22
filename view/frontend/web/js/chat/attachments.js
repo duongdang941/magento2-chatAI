@@ -708,8 +708,12 @@
                                             position: index + 1,
                                             product_ref: item.product_ref || (item.id ? `product:${item.id}` : ''),
                                             sku: String(item.sku),
+                                            // Keep the catalogue name only as a
+                                            // stable identifier for an explicit
+                                            // follow-up; price/stock/count stay
+                                            // out of the private ledger because
+                                            // they are time-sensitive evidence.
                                             name: String(item.name),
-                                            price: String(item.price || ''),
                                             product_type: String(item.product_type || 'simple'),
                                             requires_variant_selection: item.requires_variant_selection === true,
                                             variant_options: options
@@ -720,12 +724,22 @@
                             const catalogMemoryEnabled = config.features?.candidate_memory_enabled !== false;
                             const catalogContext = catalogMemoryEnabled && catalogProducts.length
                                 ? `[CATALOG_CONTEXT:v2]\n${JSON.stringify({
-                                    instruction: 'Resolve unambiguous product references by product_ref or SKU. Check live stock with getProductAvailability before making an availability claim.',
+                                    instruction: 'PRIVATE REFERENCE LEDGER, NOT CURRENT CATALOGUE EVIDENCE. Use only to resolve an unambiguous follow-up that explicitly gives product_ref/SKU or singularly refers to exactly one immediately preceding card. For every new search, recommendation, list, count, filter, comparison, price, option, or availability claim, call the appropriate Magento tool in the current turn. Never copy this ledger into customer prose or use it to create a text-only product list.',
                                     products: catalogProducts
                                 })}`
                                 : '';
+                            // Product prose is intentionally omitted when a
+                            // structured grid exists. Otherwise a provider can
+                            // mistake the old Markdown list for fresh evidence
+                            // and answer a new catalogue request without
+                            // searchProducts, leaving the shopper without the
+                            // visual product cards. The compact ledger below
+                            // preserves only safe, explicit card references.
+                            const historyText = catalogProducts.length
+                                ? '[A previous response displayed a verified product grid. Its items are available only through the private reference ledger below.]'
+                                : assistantText.trim();
                             const fullText = [
-                                assistantText.trim(),
+                                historyText,
                                 m.interrupted === true
                                     ? '[The shopper stopped this response. Continue it only when the next shopper message explicitly asks to continue; otherwise answer the new request normally.]'
                                     : '',
@@ -756,7 +770,7 @@
 
                         const parts = (Array.isArray(message.parts) ? message.parts : [])
                             .map((part) => {
-                                if (part?.type === 'image' && /^https?:\/\//i.test(String(part.url || ''))) {
+                                if (part?.type === 'image' && /^(?:https?:\/\/|\/media\/afd-ai\/generated\/)/i.test(String(part.url || ''))) {
                                     return {
                                         type: 'image',
                                         url: String(part.url),
@@ -868,65 +882,67 @@
                 const count = Number(activity?.result_count);
                 const hasCount = Number.isFinite(count) && count >= 0;
 
+                // Labels come from the storefront translation table so the
+                // action timeline follows the shop locale, matching how the
+                // rest of the widget renders customer-facing copy.
                 if (tool === 'searchProducts') {
-                    if (state === 'running') return 'Checking products';
-                    return state === 'failed' ? 'Product check unavailable' : (hasCount ? `Products checked (${count})` : 'Products checked');
+                    if (state === 'running') return this.t('tool_checking_products');
+                    if (state === 'failed') return this.t('tool_products_unavailable');
+                    return hasCount && count > 0
+                        ? this.t('tool_products_checked_count', { 1: count })
+                        : this.t('tool_products_checked');
                 }
                 if (tool === 'searchWeb') {
-                    return state === 'running' ? 'Checking external information' : 'External information checked';
+                    if (state === 'running') return this.t('tool_checking_external');
+                    if (state === 'failed') return this.t('tool_external_unavailable');
+                    return this.t('tool_external_checked');
                 }
                 if (tool === 'searchStoreKnowledge') {
-                    return state === 'running' ? 'Checking store information' : 'Store information checked';
+                    return state === 'running' ? this.t('tool_checking_store') : this.t('tool_store_checked');
                 }
                 if (tool === 'listCategories') {
-                    return state === 'running' ? 'Checking categories' : 'Categories checked';
+                    return state === 'running' ? this.t('tool_checking_categories') : this.t('tool_categories_checked');
                 }
                 if (tool === 'getProductAvailability') {
-                    return state === 'running' ? 'Checking availability' : 'Availability checked';
+                    return state === 'running' ? this.t('tool_checking_availability') : this.t('tool_availability_checked');
                 }
                 if (tool === 'compareProducts') {
-                    return state === 'running' ? 'Comparing selected products' : 'Product comparison checked';
+                    return state === 'running' ? this.t('tool_comparing_products') : this.t('tool_product_comparison_checked');
                 }
-                if (tool === 'addToCart') {
-                    return state === 'running' ? 'Updating the cart' : 'Cart update checked';
-                }
-                if (tool === 'removeFromCart') {
-                    return state === 'running' ? 'Updating the cart' : 'Cart update checked';
+                if (tool === 'addToCart' || tool === 'removeFromCart') {
+                    return state === 'running' ? this.t('tool_updating_cart') : this.t('tool_cart_updated');
                 }
                 if (tool === 'getRecentOrders' || tool === 'getGuestOrders') {
-                    return state === 'running' ? 'Checking orders' : 'Orders checked';
+                    return state === 'running' ? this.t('tool_checking_orders') : this.t('tool_orders_checked');
                 }
                 if (tool === 'getOrderDetails' || tool === 'getGuestOrderDetails') {
-                    return state === 'running' ? 'Checking order details' : 'Order details checked';
+                    return state === 'running' ? this.t('tool_checking_order_details') : this.t('tool_order_details_checked');
                 }
                 if (tool === 'getOrderFulfillment') {
-                    return state === 'running' ? 'Checking delivery details' : 'Delivery details checked';
+                    return state === 'running' ? this.t('tool_checking_delivery') : this.t('tool_delivery_checked');
                 }
                 if (tool === 'cancelOrder') {
-                    return state === 'running' ? 'Checking the order request' : 'Order request checked';
+                    return state === 'running' ? this.t('tool_canceling_order') : this.t('tool_order_cancel_checked');
                 }
                 if (tool === 'requestReturn') {
-                    return state === 'running' ? 'Preparing the return request' : 'Return request checked';
+                    return state === 'running' ? this.t('tool_requesting_return') : this.t('tool_return_requested');
                 }
                 if (tool === 'handoffToHuman') {
-                    return state === 'running' ? 'Contacting support' : 'Support request checked';
+                    return state === 'running' ? this.t('tool_contacting_support') : this.t('tool_support_checked');
                 }
                 if (tool === 'subscribeBackInStock') {
-                    return state === 'running' ? 'Preparing the notification' : 'Notification request checked';
+                    return state === 'running' ? this.t('tool_subscribing_stock') : this.t('tool_stock_subscribed');
                 }
                 if (tool === 'updateOrderAddress' || tool === 'updateGuestOrderAddress') {
-                    return state === 'running' ? 'Checking the address request' : 'Address request checked';
+                    return state === 'running' ? this.t('tool_checking_address') : this.t('tool_address_checked');
                 }
-                if (tool === 'getCustomerAddresses') {
-                    return state === 'running' ? 'Checking account addresses' : 'Account address request checked';
-                }
-                if (tool === 'updateCustomerAddress') {
-                    return state === 'running' ? 'Checking account addresses' : 'Account address request checked';
+                if (tool === 'getCustomerAddresses' || tool === 'updateCustomerAddress') {
+                    return state === 'running' ? this.t('tool_checking_account_addresses') : this.t('tool_account_addresses_checked');
                 }
                 if (tool === 'generateImage') {
-                    return state === 'running' ? 'Preparing the image' : 'Image request checked';
+                    return state === 'running' ? this.t('tool_preparing_image') : this.t('tool_image_prepared');
                 }
-                return state === 'running' ? 'Checking your request' : 'Request checked';
+                return state === 'running' ? this.t('tool_checking_request') : this.t('tool_request_checked');
             },
 
             toolActivityIcon(activity) {
@@ -952,8 +968,10 @@
 
             imageGenerationLabel(part) {
                 const startedAt = Number(part?.startedAt || this.responseStartedAt || Date.now());
-                const elapsed = Math.max(0, Math.floor((Number(this.imageGenerationNow) - startedAt) / 1000));
-                return elapsed > 0 ? `Working for ${elapsed}s` : 'Generating image';
+                const elapsedSeconds = Math.max(0, Math.floor((Number(this.imageGenerationNow) - startedAt) / 1000));
+                return elapsedSeconds > 0
+                    ? this.t('working_for', { 1: `${elapsedSeconds}s` })
+                    : this.t('tool_preparing_image');
             },
 
         };

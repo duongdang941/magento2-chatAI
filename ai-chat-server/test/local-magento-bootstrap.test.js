@@ -6,7 +6,9 @@ import path from 'node:path';
 
 import {
     findLocalValetCa,
-    localGatewayTlsEnvironment
+    isGatewaySecret,
+    localGatewayTlsEnvironment,
+    magentoBootstrapPhpArguments
 } from '../services/configuration/local-magento-bootstrap.js';
 
 test('discovers a Valet CA relative to the current local home directory', () => {
@@ -43,4 +45,21 @@ test('uses local Valet certificate files only when the configured host has them'
     } finally {
         fs.rmSync(home, { recursive: true, force: true });
     }
+});
+
+test('suppresses local PHP deprecation output before reading Magento gateway credentials', () => {
+    assert.deepEqual(magentoBootstrapPhpArguments('echo "credential";'), [
+        '-d', 'display_errors=0',
+        '-d', 'error_reporting=8191',
+        '-r', 'echo "credential";'
+    ]);
+});
+
+test('accepts safe Magento gateway credentials, including legacy random secrets', () => {
+    assert.equal(isGatewaySecret('a'.repeat(64)), true);
+    assert.equal(isGatewaySecret('A'.repeat(64)), true);
+    assert.equal(isGatewaySecret('AbCdEf0123456789_-'.repeat(4)), true);
+    assert.equal(isGatewaySecret('a'.repeat(31)), false);
+    assert.equal(isGatewaySecret('warning: ' + 'a'.repeat(64)), false);
+    assert.equal(isGatewaySecret('a'.repeat(32) + '\n' + 'a'.repeat(32)), false);
 });

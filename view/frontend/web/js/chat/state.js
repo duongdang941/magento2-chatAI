@@ -39,6 +39,10 @@
             statusMessage: '',
             imageGenerationNow: Date.now(),
             imageGenerationTimer: null,
+            // Codex-style 1Hz clock: live "… for Ns" labels re-render from
+            // this timestamp while a response is streaming.
+            streamNow: Date.now(),
+            streamClockTimer: null,
             isComposerExpanded: false,
             richTextAssetsPromise: null,
             voiceEnabled: false,

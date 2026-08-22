@@ -2,6 +2,7 @@ import {
     toOpenAiContent
 } from '../conversation/message-parts.js';
 import { summarizeError } from '../gateway/error-summary.js';
+import { readProviderErrorResponse } from '../providers/provider-error.js';
 import { createSmoothChunkEmitter } from '../conversation/smooth-chunk-emitter.js';
 import { emitProductPresentation } from '../catalog/product-presentation.js';
 import {
@@ -20,6 +21,12 @@ import {
     createProviderNeutralToolFlow,
     isBlockingToolFailure
 } from './provider-neutral-tool-flow.js';
+import {
+    addProviderCitations,
+    createProviderResponseEnvelope,
+    finalizeProviderResponseEnvelope,
+    mergeProviderUsage
+} from './provider-response-envelope.js';
 
 const DEFAULT_BASE_URL = 'https://raud4eq.9router.com/v1';
 const DEFAULT_FALLBACK_BASE_URL = 'https://aud4eq.tailabefe9.ts.net/v1';
@@ -48,6 +55,13 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
     const provider = getOpenAiCompatibleProvider(config.provider);
     const providerConfig = resolveProviderConfig(provider, config);
     const { apiKey, model, candidates, label } = providerConfig;
+    const useResponsesApi = config.api_format === 'openai-responses';
+    const thoughtLevel = normalizeThoughtLevel(config.thought_level);
+    const providerResponse = createProviderResponseEnvelope({
+        provider: config.provider || provider,
+        protocol: config.api_format || (useResponsesApi ? 'openai-responses' : 'openai-chat-completions'),
+        model
+    });
     const agentConfig = config.agent || {};
     const systemInstruction = buildAgentSystemInstruction({
         extendedTools: true,
@@ -142,23 +156,52 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 emit: content => ws.send(JSON.stringify({ type: 'chunk', content })),
                 isCancelled
             });
+            const thinkingEmitter = createSmoothChunkEmitter({
+                emit: delta => ws.send(JSON.stringify({
+                    type: 'thinking_delta',
+                    step_id: currentStepId,
+                    delta
+                })),
+                isCancelled,
+                intervalMs: 18,
+                targetFrames: 6,
+                minChars: 1,
+                maxChars: 24
+            });
             let finishReason = '';
             for (let providerAttempt = 0; providerAttempt < 2; providerAttempt += 1) {
                 const streamRequest = createProviderStreamSignal(signal, providerStreamTimeoutMs);
                 try {
-                    const response = await fetch(`${baseUrl}/chat/completions`, {
+                    const endpoint = useResponsesApi ? `${baseUrl}/responses` : `${baseUrl}/chat/completions`;
+                    const requestMessages = useResponsesApi ? buildResponsesInput(messages) : messages;
+                    const requestTools = useResponsesApi
+                        ? tools.map(({ function: definition }) => ({ type: 'function', ...definition }))
+                        : tools;
+                    const response = await fetch(endpoint, {
                         method: 'POST',
                         headers: {
                             Authorization: `Bearer ${apiKey}`,
                             'Content-Type': 'application/json',
                             Accept: 'text/event-stream'
                         },
-                        body: JSON.stringify({
+                        body: JSON.stringify(useResponsesApi ? {
                             model,
-                            messages,
+                            input: requestMessages,
+                            stream: true,
+                            max_output_tokens: maxOutputTokens,
+                            ...(thoughtLevel ? { reasoning: { effort: thoughtLevel, summary: 'auto' } } : {}),
+                            tools: requestTools,
+                            tool_choice: toolFlow.shouldForceProductSearch()
+                                ? { type: 'function', name: 'searchProducts' }
+                                : 'auto'
+                        } : {
+                            model,
+                            messages: requestMessages,
                             stream: true,
                             max_tokens: maxOutputTokens,
-                            tools,
+                            stream_options: { include_usage: true },
+                            ...(thoughtLevel ? { reasoning_effort: thoughtLevel } : {}),
+                            tools: requestTools,
                             tool_choice: toolFlow.shouldForceProductSearch()
                                 ? { type: 'function', function: { name: 'searchProducts' } }
                                 : 'auto'
@@ -170,7 +213,20 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                         throw await buildHttpError(response);
                     }
 
-                    finishReason = await readOpenAiStream(response, {
+                    const parsedStream = useResponsesApi
+                        ? await readOpenAiResponsesStream(response, {
+                            onDelta: (delta) => {
+                                if (delta.content) assistantMessage.content += delta.content;
+                                if (typeof delta.reasoning === 'string' && delta.reasoning.length > 0) {
+                                    assistantMessage.reasoning += delta.reasoning;
+                                    thinkingEmitter.push(delta.reasoning);
+                                }
+                                if (delta.tool_calls) collectToolCalls(assistantMessage.tool_calls, delta.tool_calls);
+                                if (delta.finish_reason) finishReason = delta.finish_reason;
+                            },
+                            isCancelled
+                        })
+                        : await readOpenAiStream(response, {
                         onDelta: (delta) => {
                             if (isCancelled()) return;
 
@@ -180,19 +236,11 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
 
                             if (typeof delta.reasoning_content === 'string' && delta.reasoning_content.length > 0) {
                                 assistantMessage.reasoning += delta.reasoning_content;
-                                ws.send(JSON.stringify({
-                                    type: 'thinking_delta',
-                                    step_id: currentStepId,
-                                    delta: delta.reasoning_content
-                                }));
+                                thinkingEmitter.push(delta.reasoning_content);
                             }
                             if (typeof delta.reasoning === 'string' && delta.reasoning.length > 0) {
                                 assistantMessage.reasoning += delta.reasoning;
-                                ws.send(JSON.stringify({
-                                    type: 'thinking_delta',
-                                    step_id: currentStepId,
-                                    delta: delta.reasoning
-                                }));
+                                thinkingEmitter.push(delta.reasoning);
                             }
 
                             if (typeof delta.content === 'string' && delta.content.length > 0) {
@@ -200,7 +248,12 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                             }
                         },
                         isCancelled
-                    });
+                        });
+                    await thinkingEmitter.drain();
+                    if (parsedStream.cancelled) return { cancelled: true };
+                    finishReason = parsedStream.finishReason || finishReason;
+                    mergeProviderUsage(providerResponse, parsedStream.usage);
+                    addProviderCitations(providerResponse, parsedStream.citations);
                     break;
                 } catch (error) {
                     const effectiveError = streamRequest.timedOut()
@@ -311,7 +364,10 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         // Retrieval is internal model evidence. Publish exactly one final
         // product result after the customer-facing prose has completed.
         emitProductPresentation(ws, pendingProductPresentation);
-        ws.send(JSON.stringify({ type: 'done' }));
+        ws.send(JSON.stringify({
+            type: 'done',
+            provider_meta: finalizeProviderResponseEnvelope(providerResponse, finishReason || 'stop')
+        }));
         return { cancelled: false };
     } catch (error) {
         if (isCancelled() || error.name === 'AbortError' || /abort|aborted/i.test(error.message || '')) {
@@ -330,11 +386,24 @@ function normalizeBaseUrl(baseUrl) {
     return String(baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, '');
 }
 
+function normalizeThoughtLevel(value) {
+    const level = String(value || '').trim().toLowerCase();
+    return ['low', 'medium', 'high', 'xhigh'].includes(level) ? level : '';
+}
+
 function getOpenAiCompatibleProvider(value) {
     return ['openai', 'openrouter', '9router', 'cockpit'].includes(value) ? value : '9router';
 }
 
 function resolveProviderConfig(provider, config = {}) {
+    if (config.base_url) {
+        return {
+            apiKey: config.api_key || '',
+            model: config.model || 'default-model',
+            candidates: [config.base_url],
+            label: config.name || provider || 'Custom Provider'
+        };
+    }
     switch (provider) {
         case 'openai':
             return {
@@ -384,6 +453,9 @@ function buildCockpitBaseUrlCandidates(config = {}) {
 }
 
 async function resolveReachableBaseUrl({ apiKey, signal, candidates }) {
+    if (candidates.length === 1) {
+        return candidates[0];
+    }
     let lastError = null;
 
     for (const candidate of candidates) {
@@ -466,9 +538,11 @@ async function readOpenAiStream(response, { onDelta, isCancelled }) {
     const decoder = new TextDecoder();
     let buffer = '';
     let finishReason = '';
+    let usage = null;
+    let streamComplete = false;
 
-    while (true) {
-        if (isCancelled()) return;
+    while (!streamComplete) {
+        if (isCancelled()) return { cancelled: true };
 
         const { value, done } = await reader.read();
         if (done) break;
@@ -478,17 +552,22 @@ async function readOpenAiStream(response, { onDelta, isCancelled }) {
         buffer = events.pop() || '';
 
         for (const event of events) {
-            if (isCancelled()) return;
+            if (isCancelled()) return { cancelled: true };
 
             const lines = event.split('\n').map((line) => line.trim());
             for (const line of lines) {
                 if (!line.startsWith('data:')) continue;
 
                 const payload = line.slice(5).trim();
-                if (!payload || payload === '[DONE]') continue;
+                if (!payload) continue;
+                if (payload === '[DONE]') {
+                    streamComplete = true;
+                    break;
+                }
 
                 try {
                     const parsed = JSON.parse(payload);
+                    if (parsed.usage) usage = parsed.usage;
                     const choice = parsed.choices?.[0] || {};
                     const delta = choice.delta || {};
                     if (choice.finish_reason) finishReason = choice.finish_reason;
@@ -500,7 +579,100 @@ async function readOpenAiStream(response, { onDelta, isCancelled }) {
         }
     }
 
-    return finishReason;
+    return { finishReason, usage, citations: [] };
+}
+
+function buildResponsesInput(messages) {
+    return messages.flatMap((message) => {
+        if (message.role === 'tool') {
+            return [{
+                type: 'function_call_output',
+                call_id: message.tool_call_id,
+                output: String(message.content || '')
+            }];
+        }
+        if (message.role === 'assistant' && Array.isArray(message.tool_calls)) {
+            return message.tool_calls.map((call) => ({
+                type: 'function_call',
+                call_id: call.id,
+                name: call.function?.name || '',
+                arguments: call.function?.arguments || '{}'
+            }));
+        }
+        return [{ role: message.role, content: message.content }];
+    });
+}
+
+async function readOpenAiResponsesStream(response, { onDelta, isCancelled }) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finishReason = '';
+    const calls = new Map();
+    let usage = null;
+    let streamComplete = false;
+    const citations = [];
+
+    while (!streamComplete) {
+        if (isCancelled()) return { cancelled: true };
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split('\n\n');
+        buffer = events.pop() || '';
+        for (const event of events) {
+            if (isCancelled()) return { cancelled: true };
+            const dataLine = event.split('\n').map((line) => line.trim()).find((line) => line.startsWith('data:'));
+            if (!dataLine) continue;
+            const payload = dataLine.slice(5).trim();
+            if (!payload) continue;
+            if (payload === '[DONE]') {
+                streamComplete = true;
+                break;
+            }
+            try {
+                const parsed = JSON.parse(payload);
+                const type = String(parsed.type || '');
+                if (parsed.response?.usage) usage = parsed.response.usage;
+                if (parsed.usage) usage = parsed.usage;
+                if (type === 'response.output_text.delta') {
+                    onDelta({ content: String(parsed.delta || '') });
+                } else if (type === 'response.reasoning_summary_text.delta'
+                    || type === 'response.reasoning_text.delta'
+                    || type === 'response.reasoning_summary_part.delta') {
+                    onDelta({ reasoning: String(parsed.delta || parsed.text || '') });
+                } else if (type === 'response.reasoning_summary_part.added') {
+                    const summary = parsed.part?.text || parsed.part?.summary_text || '';
+                    if (summary) onDelta({ reasoning: String(summary) });
+                } else if (type === 'response.output_item.added' && parsed.item?.type === 'function_call') {
+                    const item = parsed.item;
+                    calls.set(item.call_id || item.id, {
+                        id: item.call_id || item.id,
+                        type: 'function',
+                        function: { name: item.name || '', arguments: item.arguments || '' }
+                    });
+                } else if (type === 'response.function_call_arguments.delta') {
+                    const call = calls.get(parsed.call_id);
+                    if (call) call.function.arguments += String(parsed.delta || '');
+                } else if (type === 'response.function_call_arguments.done') {
+                    const call = calls.get(parsed.call_id);
+                    if (call) call.function.arguments = String(parsed.arguments || call.function.arguments || '{}');
+                } else if (type === 'response.completed') {
+                    finishReason = parsed.response?.status || 'stop';
+                    const output = Array.isArray(parsed.response?.output) ? parsed.response.output : [];
+                    addProviderCitations({ citations }, output.flatMap((item) => (
+                        Array.isArray(item?.content) ? item.content.flatMap((part) => part?.annotations || []) : []
+                    )));
+                    streamComplete = true;
+                }
+            } catch (error) {
+                console.warn('[OpenAI Responses] Could not parse stream chunk:', error.message);
+            }
+        }
+    }
+
+    if (calls.size > 0) onDelta({ tool_calls: [...calls.values()] });
+    return { finishReason, usage, citations };
 }
 
 /**
@@ -523,6 +695,19 @@ async function emitFinalText(ws, content, isCancelled) {
             await new Promise((resolve) => setTimeout(resolve, 8));
         }
     }
+}
+
+function cleanThinkTags(text, onThinkingDelta) {
+    if (!text) return "";
+    let clean = text;
+    // Extract <think>...</think>
+    clean = clean.replace(/<think>([\s\S]*?)(?:<\/think>|$)/gi, (match, thinkContent) => {
+        if (thinkContent && typeof onThinkingDelta === "function") {
+            onThinkingDelta(thinkContent);
+        }
+        return "";
+    });
+    return clean;
 }
 
 function collectToolCalls(collected, deltas) {
@@ -556,16 +741,7 @@ function parseToolArguments(raw) {
 }
 
 async function buildHttpError(response) {
-    const text = await response.text();
-    let message = text;
-    try {
-        const parsed = JSON.parse(text);
-        message = parsed.error?.message || parsed.message || text;
-    } catch {}
-
-    const error = new Error(message || `Provider returned HTTP ${response.status}`);
-    error.status = response.status;
-    return error;
+    return readProviderErrorResponse(response, 'AI provider');
 }
 
 function formatProviderError(error, providerLabel = '9router') {
@@ -633,6 +809,8 @@ export {
     formatProviderError,
     isBlockingToolFailure,
     isRetryableProviderError,
+    readOpenAiResponsesStream,
+    readOpenAiStream,
     resolveReachableBaseUrl,
     resolveProviderConfig
 };

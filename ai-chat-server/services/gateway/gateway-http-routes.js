@@ -6,6 +6,7 @@ const CONFIG_SYNC_TTL_MS = 5 * 60 * 1000;
 const HEALTH_CACHE_TTL_MS = 5000;
 const SUPPORT_EVENT_TTL_MS = 5 * 60 * 1000;
 const GATEWAY_PUBLIC_PREFIX = '/ai-gateway';
+const BUILTIN_PROVIDER_CODES = new Set(['openai', 'openrouter', '9router', 'cockpit', 'gemini']);
 
 function normalizedRequestPath(req) {
     const rawPath = String(req.originalUrl || req.url || req.path || '/');
@@ -24,6 +25,59 @@ function normalizedRequestPath(req) {
 function registerGatewayRoute(app, method, path, handler) {
     app[method](path, handler);
     app[method](`${GATEWAY_PUBLIC_PREFIX}${path}`, handler);
+}
+
+export function validateSyncProviderPayload(payload) {
+    const config = payload?.config && typeof payload.config === 'object' && !Array.isArray(payload.config)
+        ? payload.config
+        : null;
+    const defaultConfig = config?.default && typeof config.default === 'object' && !Array.isArray(config.default)
+        ? config.default
+        : config;
+    const syncProvider = payload?.sync_provider && typeof payload.sync_provider === 'object'
+        && !Array.isArray(payload.sync_provider)
+        ? payload.sync_provider
+        : null;
+    const syncCode = String(syncProvider?.provider_code || '').trim();
+    const configuredCode = String(defaultConfig?.provider || '').trim();
+
+    if (!syncProvider || !syncCode || !configuredCode || syncCode !== configuredCode) {
+        const error = new Error('The synchronized provider must match the provider currently selected in Magento.');
+        error.status = 409;
+        error.code = 'CONFIG_PROVIDER_MISMATCH';
+        throw error;
+    }
+
+    const registry = defaultConfig?.providers && typeof defaultConfig.providers === 'object'
+        && !Array.isArray(defaultConfig.providers)
+        ? defaultConfig.providers
+        : {};
+    const entry = registry[syncCode];
+    if (!entry && !BUILTIN_PROVIDER_CODES.has(syncCode)) {
+        const error = new Error('The synchronized provider is not present in the Magento provider registry.');
+        error.status = 409;
+        error.code = 'CONFIG_PROVIDER_NOT_REGISTERED';
+        throw error;
+    }
+    if (entry) {
+        if (entry.is_active === false || entry.is_active === 0 || entry.is_active === '0') {
+            const error = new Error('The synchronized provider is not active in Magento.');
+            error.status = 409;
+            error.code = 'CONFIG_PROVIDER_INACTIVE';
+            throw error;
+        }
+
+        const providerId = Number(syncProvider.provider_id);
+        const registryId = Number(entry.provider_id);
+        if (Number.isInteger(providerId) && providerId > 0
+            && Number.isInteger(registryId) && registryId > 0
+            && providerId !== registryId) {
+            const error = new Error('The synchronized provider identity does not match the Magento provider registry.');
+            error.status = 409;
+            error.code = 'CONFIG_PROVIDER_ID_MISMATCH';
+            throw error;
+        }
+    }
 }
 
 export function verifyConfigPush(req, secret = process.env.AI_NODE_SYNC_SECRET || '') {
@@ -61,6 +115,7 @@ export function registerGatewayHttpRoutes({
     broadcastSupportMode = () => 0,
     revokeSession = () => 0,
     onConfigAccepted = () => {},
+    providerHealth = () => [],
     metricsToken = process.env.AI_METRICS_TOKEN || '',
     syncSecret = process.env.AI_NODE_SYNC_SECRET || ''
 }) {
@@ -80,14 +135,17 @@ export function registerGatewayHttpRoutes({
                 db.pingMagento(),
                 Promise.resolve(runtime.getHealth())
             ]);
+            const providerStates = providerHealth();
             healthSnapshot = {
-                healthy: magentoOk && runtimeHealth.connected,
+                healthy: magentoOk && runtimeHealth.connected && !providerStates.some((entry) => entry.state === 'open'),
+                providerStates,
                 expiresAt: now + HEALTH_CACHE_TTL_MS
             };
         }
 
         res.status(healthSnapshot.healthy ? 200 : 503).json({
-            status: healthSnapshot.healthy ? 'ok' : 'degraded'
+            status: healthSnapshot.healthy ? 'ok' : 'degraded',
+            providers: healthSnapshot.providerStates || []
         });
     };
     registerGatewayRoute(app, 'get', '/health', healthHandler);
@@ -116,6 +174,8 @@ export function registerGatewayHttpRoutes({
                 res.status(400).json({ status: 'error', message: 'Invalid configuration sync payload.' });
                 return;
             }
+
+            validateSyncProviderPayload(req.body);
 
             const syncId = String(req.body.sync_id);
             if (!/^[a-f0-9]{32}$/i.test(syncId)

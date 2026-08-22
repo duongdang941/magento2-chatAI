@@ -199,7 +199,12 @@ const {
                                 events: Array.isArray(part.events) ? part.events : [],
                                 steps: Array.isArray(part.steps) ? part.steps : [],
                                 activities: Array.isArray(part.activities) ? part.activities : [],
-                                isExpanded: Boolean(part.isExpanded)
+                                // `isExpanded` is UI state, not stream data. A
+                                // stale serialized false value must not hide a
+                                // newly hydrated Thinking timeline; only the
+                                // explicit manual flag is authoritative.
+                                isManuallyCollapsed: part.isManuallyCollapsed === true,
+                                isExpanded: part.isManuallyCollapsed !== true
                             };
                         }
 

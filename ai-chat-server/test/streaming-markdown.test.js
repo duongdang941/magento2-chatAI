@@ -87,6 +87,36 @@ test('withholds a bare URL until the streamed token has a stable boundary', () =
     );
 });
 
+test('streams words progressively without withholding partial trailing words', () => {
+    assert.equal(
+        stabilizeStreamingMarkdown('Một câu đang stream dở chữ'),
+        'Một câu đang stream dở chữ'
+    );
+    assert.equal(
+        stabilizeStreamingMarkdown('Một câu đã đủ chữ '),
+        'Một câu đã đủ chữ '
+    );
+    assert.equal(
+        stabilizeStreamingMarkdown('Một câu đã kết thúc.'),
+        'Một câu đã kết thúc.'
+    );
+});
+
+test('does not hide scripts that stream without inter-word whitespace', () => {
+    assert.equal(stabilizeStreamingMarkdown('犬の世話'), '犬の世話');
+});
+
+test('withholds incomplete emphasis and code delimiters from the live stream', () => {
+    assert.equal(stabilizeStreamingMarkdown('Đây là **một tiêu đề'), 'Đây là ');
+    assert.equal(stabilizeStreamingMarkdown('Đây là **một tiêu đề**'), 'Đây là **một tiêu đề**');
+    assert.equal(stabilizeStreamingMarkdown('Mã: `SKU-01'), 'Mã: ');
+    assert.equal(stabilizeStreamingMarkdown('Mã: `SKU-01`'), 'Mã: `SKU-01`');
+    assert.equal(stabilizeStreamingMarkdown('```js\nconst sku = "SKU-01";'), '');
+    assert.equal(stabilizeStreamingMarkdown('```js\nconst sku = "SKU-01";\n```'), '```js\nconst sku = "SKU-01";\n```');
+    assert.equal(stabilizeStreamingMarkdown('* Một lựa chọn'), '* Một lựa chọn');
+    assert.equal(stabilizeStreamingMarkdown('snake_case'), 'snake_case');
+});
+
 test('normalizes copied Markdown to the visible response text', () => {
     assert.equal(
         normalizeMarkdownForCopy('Xem [chi tiết](https://afd.test/item).\n\n`SKU-01`'),

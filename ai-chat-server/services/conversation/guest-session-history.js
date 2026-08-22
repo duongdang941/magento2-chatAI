@@ -61,17 +61,19 @@ export class GuestSessionHistory {
     }
 
     async create(guestId, title) {
-        const store = await this.read(guestId);
-        const existing = [...store.conversations]
-            .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))[0];
-        if (existing) return existing;
-        const now = new Date().toISOString();
-        const conversation = { id: conversationId(), title: titleFrom(title), created_at: now, updated_at: now };
-        store.conversations.unshift(conversation);
-        store.conversations = store.conversations.slice(0, MAX_CONVERSATIONS);
-        store.messages[String(conversation.id)] = [];
-        await this.write(guestId, store);
-        return conversation;
+        return this.withHistoryLock(guestId, async () => {
+            const store = await this.read(guestId);
+            const existing = [...store.conversations]
+                .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))[0];
+            if (existing) return existing;
+            const now = new Date().toISOString();
+            const conversation = { id: conversationId(), title: titleFrom(title), created_at: now, updated_at: now };
+            store.conversations.unshift(conversation);
+            store.conversations = store.conversations.slice(0, MAX_CONVERSATIONS);
+            store.messages[String(conversation.id)] = [];
+            await this.write(guestId, store);
+            return conversation;
+        });
     }
 
     async loadMessages(guestId, id, beforeMessageId = null) {
@@ -90,21 +92,23 @@ export class GuestSessionHistory {
     }
 
     async append(guestId, id, message) {
-        const store = await this.read(guestId);
-        const conversation = store.conversations.find((item) => Number(item.id) === Number(id));
-        if (!conversation) return false;
-        const key = String(id);
-        const messages = Array.isArray(store.messages[key]) ? store.messages[key] : [];
-        const persistedMessage = {
-            ...message,
-            entity_id: conversationId(),
-            created_at: new Date().toISOString()
-        };
-        messages.push(persistedMessage);
-        store.messages[key] = messages.slice(-MAX_MESSAGES_PER_CONVERSATION);
-        conversation.updated_at = new Date().toISOString();
-        await this.write(guestId, store);
-        return persistedMessage.entity_id;
+        return this.withHistoryLock(guestId, async () => {
+            const store = await this.read(guestId);
+            const conversation = store.conversations.find((item) => Number(item.id) === Number(id));
+            if (!conversation) return false;
+            const key = String(id);
+            const messages = Array.isArray(store.messages[key]) ? store.messages[key] : [];
+            const persistedMessage = {
+                ...message,
+                entity_id: conversationId(),
+                created_at: new Date().toISOString()
+            };
+            messages.push(persistedMessage);
+            store.messages[key] = messages.slice(-MAX_MESSAGES_PER_CONVERSATION);
+            conversation.updated_at = new Date().toISOString();
+            await this.write(guestId, store);
+            return persistedMessage.entity_id;
+        });
     }
 
     /**
@@ -112,46 +116,55 @@ export class GuestSessionHistory {
      * temporary guest history just as the database-backed implementation does.
      */
     async truncateFromMessage(guestId, id, fromMessageId) {
-        const store = await this.read(guestId);
-        const conversation = store.conversations.find((item) => Number(item.id) === Number(id));
-        if (!conversation) return false;
+        return this.withHistoryLock(guestId, async () => {
+            const store = await this.read(guestId);
+            const conversation = store.conversations.find((item) => Number(item.id) === Number(id));
+            if (!conversation) return false;
 
-        const key = String(id);
-        const messages = Array.isArray(store.messages[key]) ? store.messages[key] : [];
-        const branchIndex = messages.findIndex((message) => (
-            Number(message?.entity_id) === Number(fromMessageId)
-            && message?.role === 'user'
-        ));
-        if (branchIndex < 0) return false;
+            const key = String(id);
+            const messages = Array.isArray(store.messages[key]) ? store.messages[key] : [];
+            const branchIndex = messages.findIndex((message) => (
+                Number(message?.entity_id) === Number(fromMessageId)
+                && message?.role === 'user'
+            ));
+            if (branchIndex < 0) return false;
 
-        store.messages[key] = messages.slice(0, branchIndex);
-        conversation.updated_at = new Date().toISOString();
-        await this.write(guestId, store);
-        return true;
+            store.messages[key] = messages.slice(0, branchIndex);
+            conversation.updated_at = new Date().toISOString();
+            await this.write(guestId, store);
+            return true;
+        });
     }
 
     async delete(guestId, id) {
-        const store = await this.read(guestId);
-        const before = store.conversations.length;
-        store.conversations = store.conversations.filter((conversation) => Number(conversation.id) !== Number(id));
-        delete store.messages[String(id)];
-        if (store.conversations.length === before) return false;
-        await this.write(guestId, store);
-        return true;
+        return this.withHistoryLock(guestId, async () => {
+            const store = await this.read(guestId);
+            const before = store.conversations.length;
+            store.conversations = store.conversations.filter((conversation) => Number(conversation.id) !== Number(id));
+            delete store.messages[String(id)];
+            if (store.conversations.length === before) return false;
+            await this.write(guestId, store);
+            return true;
+        });
     }
 
     async clear(guestId) {
-        await this.runtime.deleteGuestSessionHistory(guestId);
+        return this.withHistoryLock(guestId, async () => {
+            await this.runtime.deleteGuestSessionHistory(guestId);
+            return true;
+        });
     }
 
     async rename(guestId, id, title) {
-        const store = await this.read(guestId);
-        const conversation = store.conversations.find((item) => Number(item.id) === Number(id));
-        if (!conversation) return false;
-        conversation.title = titleFrom(title);
-        conversation.updated_at = new Date().toISOString();
-        await this.write(guestId, store);
-        return true;
+        return this.withHistoryLock(guestId, async () => {
+            const store = await this.read(guestId);
+            const conversation = store.conversations.find((item) => Number(item.id) === Number(id));
+            if (!conversation) return false;
+            conversation.title = titleFrom(title);
+            conversation.updated_at = new Date().toISOString();
+            await this.write(guestId, store);
+            return true;
+        });
     }
 
     async read(guestId) {
@@ -161,5 +174,28 @@ export class GuestSessionHistory {
 
     async write(guestId, store) {
         await this.runtime.setGuestSessionHistory(guestId, store, ttlMs());
+    }
+
+    async withHistoryLock(guestId, callback) {
+        const identity = String(guestId || '').trim();
+        if (!identity || typeof this.runtime.acquireActionLock !== 'function') return callback();
+
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < 10_000) {
+            const lock = await this.runtime.acquireActionLock('guest-history', identity, 15_000);
+            if (lock) {
+                try {
+                    return await callback();
+                } finally {
+                    await lock.release();
+                }
+            }
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+
+        // A crashed holder must not make the guest chat unusable. Redis TTL
+        // will release the lock shortly; a final best-effort write keeps the
+        // local development gateway usable if the lock service is degraded.
+        return callback();
     }
 }

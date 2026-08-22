@@ -192,3 +192,132 @@ test('falls back to the gateway provider secret when copied Magento ciphertext i
         else process.env.GEMINI_API_KEY = previous;
     }
 });
+
+test('selects the Magento-synchronized custom provider and keeps the full registry', () => {
+    const config = normalizeConfig({
+        provider: 'gemini-custom',
+        thought_level: 'xhigh',
+        providers: {
+            'gemini-custom': {
+                provider_id: 2,
+                name: 'Gemini tunnel',
+                provider_code: 'gemini-custom',
+                base_url: 'https://example.test/v1',
+                api_key: 'custom-key',
+                api_format: 'anthropic-messages',
+                models: [{
+                    id: 'gemini-3.6-flash',
+                    context_window: 1000000,
+                    reasoning_enabled: true,
+                    reasoning_levels: ['low', 'high'],
+                    reasoning_default_level: 'high'
+                }],
+                is_active: 1
+            },
+            cockpit: {
+                name: 'Cockpit',
+                provider_code: 'cockpit',
+                base_url: 'http://127.0.0.1:49998/v1',
+                api_key: 'cockpit-key',
+                api_format: 'openai-chat-completions',
+                models: [{ id: 'gpt-5.6-terra' }],
+                is_active: 1
+            }
+        }
+    });
+
+    assert.equal(config.provider, 'gemini-custom');
+    assert.equal(config.api_format, 'anthropic-messages');
+    assert.equal(config.base_url, 'https://example.test/v1');
+    assert.equal(config.api_key, 'custom-key');
+    assert.equal(config.model, 'gemini-3.6-flash');
+    assert.equal(config.models[0].max_output_tokens, null);
+    assert.equal(config.models[0].max_output_tokens_configured, false);
+    assert.equal(config.thought_level, 'high');
+    assert.deepEqual(Object.keys(config.providers).sort(), ['cockpit', 'gemini-custom']);
+    assert.equal(config.capabilities.protocol, 'anthropic');
+});
+
+test('keeps image capability on the selected model instead of guessing from the provider name', () => {
+    const config = normalizeConfig({
+        provider: 'gemini-tunnel',
+        providers: {
+            'gemini-tunnel': {
+                provider_code: 'gemini-tunnel',
+                base_url: 'https://tunnel.example/v1',
+                api_key: 'provider-key',
+                api_format: 'anthropic-messages',
+                models: [{
+                    id: 'ag/gemini-3.6-flash-high',
+                    supports_images: false
+                }]
+            }
+        }
+    });
+
+    assert.equal(config.image_generation.transport, '');
+    assert.equal(config.capabilities.image_generation.reason, 'model_image_generation_unsupported');
+});
+
+test('treats a legacy provider-model 8192 default as no output limit', () => {
+    const config = normalizeConfig({
+        provider: 'legacy-provider',
+        providers: {
+            'legacy-provider': {
+                provider_code: 'legacy-provider',
+                base_url: 'https://provider.example/v1',
+                api_key: 'provider-key',
+                api_format: 'openai-chat-completions',
+                models: [{ id: 'legacy-model', max_output_tokens: 8192 }]
+            }
+        }
+    });
+
+    assert.equal(config.models[0].max_output_tokens, null);
+    assert.equal(config.models[0].max_output_tokens_configured, false);
+});
+
+test('uses Magento image transport configuration instead of model metadata', () => {
+    const config = normalizeConfig({
+        provider: 'gemini-custom',
+        model: 'gemini-image-capable',
+        providers: {
+            'gemini-custom': {
+                provider_code: 'gemini-custom',
+                base_url: 'https://provider.example/v1',
+                api_key: 'provider-key',
+                api_format: 'anthropic-messages',
+                models: [{
+                    id: 'gemini-image-capable',
+                    supports_images: true,
+                    image_transport: 'gemini-generate-content'
+                }]
+            }
+        },
+        image_generation: { enabled: true, transport: '' }
+    });
+
+    assert.equal(config.image_generation.transport, '');
+});
+
+test('syncs a Responses image-tool model without requiring a separate GPT Image model', () => {
+    const config = normalizeConfig({
+        provider: 'cockpit-tool',
+        providers: {
+            'cockpit-tool': {
+                provider_code: 'cockpit-tool',
+                base_url: 'https://provider.example/v1',
+                api_key: 'provider-key',
+                api_format: 'openai-responses',
+                models: [{
+                    id: 'gpt-5.6-terra',
+                    supports_images: true,
+                    image_transport: 'openai-responses'
+                }]
+            }
+        }
+    });
+
+    assert.equal(config.image_generation.transport, 'openai-responses');
+    assert.equal(config.capabilities.image_generation.available, true);
+});

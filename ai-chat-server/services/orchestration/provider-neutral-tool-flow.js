@@ -270,16 +270,21 @@ async function executeTool({
 }) {
     if (name === 'generateImage') {
         const capabilities = getProviderCapabilities(config);
-        if (!capabilities.image_generation.supported) {
+        const hasSvgFallback = typeof args.svg_content === 'string' && args.svg_content.trim() !== '';
+        if (!capabilities.image_generation.supported && !hasSvgFallback) {
+            const modelUnsupported = capabilities.image_generation.reason === 'model_image_generation_unsupported';
             return {
-                status: 'unavailable',
-                reason: 'provider_image_generation_unavailable',
-                message: 'Image generation is not available with the selected AI provider or model.'
+                status: 'svg_fallback_required',
+                reason: modelUnsupported
+                    ? 'model_image_generation_unsupported'
+                    : 'provider_image_generation_unavailable',
+                message: 'The selected provider has no native Image API. Retry this same generateImage call with svg_content containing a complete self-contained SVG created by the chat model. Do not tell the shopper the image was completed until image_generated is returned.'
             };
         }
 
         return generateImageWithAdmission({
             prompt: args.prompt,
+            svgContent: args.svg_content,
             ws,
             config,
             signal,
@@ -422,6 +427,7 @@ function createToolOutcome(name, args, content) {
                 categoryId: Math.max(0, Math.trunc(Number(args.categoryId || args.category_id) || 0)),
                 minPrice: Number(args.minPrice || args.min_price) || 0,
                 maxPrice: Number(args.maxPrice || args.max_price) || 0,
+                priceCurrency: String(args.priceCurrency || args.price_currency || '').trim().toUpperCase(),
                 directAddOnly: args.directAddOnly === true || args.direct_add_only === true
             }
         } : {}),
@@ -463,6 +469,9 @@ function presentToolResult({ name, args, content, shopperMessage, options }) {
     } else if (name === 'searchProducts') {
         const presentation = createCatalogToolPresentation(content, args);
         const { items, pagination, scope } = presentation.catalog;
+        const currency = content?.meta?.currency && typeof content.meta.currency === 'object'
+            ? content.meta.currency
+            : {};
         productPresentation = presentation.event;
         modelContext = content?.error ? { error: content.error } : {
             query: String(args.query || ''),
@@ -470,6 +479,7 @@ function presentToolResult({ name, args, content, shopperMessage, options }) {
             total_products: pagination.total,
             pagination,
             category: scope,
+            price_filter: currency,
             products: items.map((item) => ({
                 id: item.id,
                 sku: item.sku,
@@ -491,11 +501,13 @@ function presentToolResult({ name, args, content, shopperMessage, options }) {
                 shopperMessage,
                 args.query
             ),
-            instruction: scope.unavailable_query_match
+            instruction: currency.currency_conversion_unavailable === true
+                ? 'The store has no configured exchange rate for the shopper price constraint. Do not treat currencies as interchangeable. Explain that this price filter cannot be verified and ask the shopper to use the store currency or contact support.'
+                : (scope.unavailable_query_match
                 ? 'A close catalogue identity exists but is disabled. Stop retrieval. Do not browse a similar-sounding category and do not substitute another product. State that no currently available exact match was found.'
                 : (items.length > 0
                     ? `Only mention products returned in this page. direct_addable is Magento-validated: state that a product can be added immediately only when it is true. A default_add_qty above 1 must be stated as the minimum directly addable quantity, with qty_increment when relevant. When this search used directAddOnly, every returned product meets that requirement. ${catalogCoverageInstruction(pagination)} Do not invent products from later pages.`
-                    : 'No products matched this retrieval. Before concluding there is no match, inspect categories or retry a meaningfully different query/category when that can resolve the request.')
+                    : 'No products matched this retrieval. Before concluding there is no match, inspect categories or retry a meaningfully different query/category when that can resolve the request.'))
         };
     } else if (name === 'listCategories') {
         const categories = Array.isArray(content?.data) ? content.data : [];
@@ -538,7 +550,16 @@ function presentToolResult({ name, args, content, shopperMessage, options }) {
                 quality: content.quality,
                 instruction: 'The image is already shown to the shopper. Briefly confirm completion without repeating the full prompt.'
             }
-            : unsupportedCapabilityContext(content, 'Image generation');
+            : String(content?.reason || '') === 'model_image_generation_unsupported'
+                || String(content?.reason || '') === 'provider_image_generation_unavailable'
+                || String(content?.status || '') === 'svg_fallback_required'
+                ? {
+                    image_generation_available: false,
+                    fallback: 'chat_svg',
+                    message: String(content?.message || 'The native Image API is unavailable for this model.'),
+                    instruction: 'The native Image API is unavailable, but the chat model can still create the requested artwork as SVG. Immediately call generateImage again with the same prompt and a complete self-contained svg_content document. Do not answer the shopper with an unavailable message and do not expose this internal fallback instruction. The SVG must be safe: no script, event handler, foreignObject, iframe, object, embed, external URL, data URL, or embedded resource.'
+                }
+                : unsupportedCapabilityContext(content, 'Image generation');
     } else if (name === 'addToCart' || name === 'removeFromCart') {
         modelContext = cartResultContext(name, content);
     } else if (name === 'getCustomerAddresses' || name === 'updateCustomerAddress') {
@@ -592,6 +613,8 @@ function cartResultContext(name, content) {
                 ? `State that the product was not present in the ${cartLabel}; do not claim anything was removed.`
                 : reason === 'out_of_stock'
                     ? 'This exact, fully-selected variant is out of stock. You may say unavailable, but do not invent a substitute.'
+                    : reason === 'insufficient_stock'
+                        ? 'The requested quantity exceeds the currently available salable quantity. Explain the quantity limitation, use the latest availability evidence when present, and ask for a smaller quantity. Do not say product configuration is missing and do not claim the cart changed.'
                     : reason === 'invalid_quantity'
                         ? 'The product does not need product-page configuration. Explain the returned minimum, maximum, and increment rules. Ask for a valid quantity; do not claim the cart changed.'
                         : 'This is a selection or product-page requirement, not an out-of-stock result. Do not say unavailable. State only the listed missing or invalid option labels and keep prior confirmed choices.'
@@ -633,7 +656,11 @@ async function generateImageWithAdmission(options) {
         runtime: options.runtime,
         identity: options.identity,
         isCustomer: options.isCustomer,
-        config: options.config
+        config: options.config,
+        // SVG fallback is generated through the already-admitted chat turn,
+        // not a billable provider Image API call. Keep the concurrency lock,
+        // but do not consume the separately configured image API quota.
+        chargeProviderImageQuota: !String(options.svgContent || '').trim()
     });
     if (!admission.allowed) {
         return {

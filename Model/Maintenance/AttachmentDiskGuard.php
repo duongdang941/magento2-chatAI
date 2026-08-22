@@ -27,7 +27,11 @@ class AttachmentDiskGuard
         $this->assertCapacityUnlocked($minimumFreeBytes, $additionalBytes);
     }
 
-    /** @template T @param callable():T $write @return T */
+    /**
+     * @template T
+     * @param callable():T $write
+     * @return T
+     */
     public function reserveAndWrite(
         string $ownerPath,
         int $minimumFreeBytes,
@@ -76,9 +80,9 @@ class AttachmentDiskGuard
     {
         $directory = $this->filesystem->getDirectoryWrite(DirectoryList::VAR_DIR);
         $path = $directory->getAbsolutePath(self::ATTACHMENT_PATH);
-        $freeBytes = @disk_free_space($path);
+        $freeBytes = $this->diskFreeBytes($path);
         if ($freeBytes === false) {
-            $freeBytes = @disk_free_space($directory->getAbsolutePath());
+            $freeBytes = $this->diskFreeBytes($directory->getAbsolutePath());
         }
         if ($freeBytes === false || $freeBytes < max(0, $minimumFreeBytes) + max(0, $additionalBytes)) {
             throw new LocalizedException(__('Image uploads are temporarily unavailable because storage is low.'));
@@ -132,7 +136,20 @@ class AttachmentDiskGuard
     {
         $directory = $this->filesystem->getDirectoryWrite(DirectoryList::VAR_DIR);
         $path = $directory->getAbsolutePath(self::ATTACHMENT_PATH);
-        $freeBytes = @disk_free_space($path);
-        return $freeBytes === false ? @disk_free_space($directory->getAbsolutePath()) : $freeBytes;
+        $freeBytes = $this->diskFreeBytes($path);
+        return $freeBytes === false ? $this->diskFreeBytes($directory->getAbsolutePath()) : $freeBytes;
+    }
+
+    /** @return int|false */
+    private function diskFreeBytes(string $path): int|false
+    {
+        set_error_handler(static fn (): bool => true);
+        try {
+            $freeBytes = disk_free_space($path);
+        } finally {
+            restore_error_handler();
+        }
+
+        return $freeBytes === false ? false : max(0, (int)$freeBytes);
     }
 }

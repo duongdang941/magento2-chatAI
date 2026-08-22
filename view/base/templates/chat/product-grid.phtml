@@ -59,7 +59,7 @@ if (!$products || !$products->getSize()) {
                             <input type="hidden" name="form_key" value="__AFD_FORM_KEY__"/>
                             <button type="submit" class="afd-ai-chat__product-btn afd-ai-chat__product-btn--primary">
                                 <span class="material-symbols-outlined">shopping_cart</span>
-                                <span>Add to Cart</span>
+                                <span><?= $escaper->escapeHtml(__('Add to Cart')) ?></span>
                             </button>
                         </form>
                     <?php else: ?>
@@ -68,7 +68,7 @@ if (!$products || !$products->getSize()) {
                            rel="noopener noreferrer"
                            class="afd-ai-chat__product-btn afd-ai-chat__product-btn--primary">
                             <span class="material-symbols-outlined">tune</span>
-                            <span>Choose options</span>
+                            <span><?= $escaper->escapeHtml(__('Choose options')) ?></span>
                         </a>
                     <?php endif; ?>
                 </div>

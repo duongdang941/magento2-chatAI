@@ -16,6 +16,7 @@ use Magento\Framework\App\RequestInterface;
 use Magento\Framework\Controller\ResultFactory;
 use Magento\Framework\Controller\Result\Json;
 use Magento\Framework\Filesystem;
+use Magento\Framework\App\Request\Http as HttpRequest;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -32,6 +33,7 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
 
     public function __construct(
         private readonly RequestInterface $request,
+        private readonly HttpRequest $httpRequest,
         private readonly ResultFactory $resultFactory,
         private readonly CustomerSession $customerSession,
         private readonly GuestChatIdentity $guestChatIdentity,
@@ -125,7 +127,7 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
                 $chunk = fread($inputStream, self::CHUNK_SIZE);
                 if ($chunk === false) {
                     fclose($targetFile);
-                    @unlink($tempFilePath);
+                    $this->removeFile($tempFilePath);
                     return $result->setHttpResponseCode(400)->setData([
                         'success' => false,
                         'error' => 'Failed reading upload stream.'
@@ -139,7 +141,7 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
 
                 if ($totalBytes > $maxBytes) {
                     fclose($targetFile);
-                    @unlink($tempFilePath);
+                    $this->removeFile($tempFilePath);
                     return $result->setHttpResponseCode(413)->setData([
                         'success' => false,
                         'error' => 'Image exceeds maximum allowed size.'
@@ -150,7 +152,7 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
                 $written = fwrite($targetFile, $chunk);
                 if ($written !== $chunkLength) {
                     fclose($targetFile);
-                    @unlink($tempFilePath);
+                    $this->removeFile($tempFilePath);
                     return $result->setHttpResponseCode(507)->setData([
                         'success' => false,
                         'error' => 'Storage write failure.'
@@ -160,7 +162,7 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
             fclose($targetFile);
         } catch (\Throwable $e) {
             fclose($targetFile);
-            @unlink($tempFilePath);
+            $this->removeFile($tempFilePath);
             $this->logger->error('Attachment stream upload error: ' . $e->getMessage());
             return $result->setHttpResponseCode(500)->setData([
                 'success' => false,
@@ -173,7 +175,7 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
         }
 
         if ($totalBytes === 0) {
-            @unlink($tempFilePath);
+            $this->removeFile($tempFilePath);
             return $result->setHttpResponseCode(400)->setData([
                 'success' => false,
                 'error' => 'Uploaded file is empty.'
@@ -189,7 +191,7 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
         }
 
         if (!is_array($imageInfo)) {
-            @unlink($tempFilePath);
+            $this->removeFile($tempFilePath);
             return $result->setHttpResponseCode(400)->setData([
                 'success' => false,
                 'error' => 'The uploaded file is not a valid image.'
@@ -198,7 +200,7 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
 
         $detectedMime = strtolower((string)($imageInfo['mime'] ?? ''));
         if (!isset(self::MIME_TO_EXTENSION[$detectedMime])) {
-            @unlink($tempFilePath);
+            $this->removeFile($tempFilePath);
             return $result->setHttpResponseCode(400)->setData([
                 'success' => false,
                 'error' => 'Only JPG, PNG, or WebP images are supported.'
@@ -207,7 +209,7 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
 
         $expectedMime = strtolower((string)($ticketPayload['mime'] ?? ''));
         if ($expectedMime !== '' && $detectedMime !== $expectedMime) {
-            @unlink($tempFilePath);
+            $this->removeFile($tempFilePath);
             return $result->setHttpResponseCode(400)->setData([
                 'success' => false,
                 'error' => 'Uploaded file MIME type does not match ticket declaration.'
@@ -219,7 +221,7 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
         $pixels = $width * $height;
         $maxPixels = (int)($limits['max_total_pixels'] ?? 30000000);
         if ($width < 1 || $height < 1 || $pixels > $maxPixels) {
-            @unlink($tempFilePath);
+            $this->removeFile($tempFilePath);
             return $result->setHttpResponseCode(400)->setData([
                 'success' => false,
                 'error' => 'Image dimensions are too large.'
@@ -234,7 +236,7 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
             $expectedOwner,
             (string)($ticketPayload['nonce'] ?? '')
         )) {
-            @unlink($tempFilePath);
+            $this->removeFile($tempFilePath);
             return $result->setHttpResponseCode(409)->setData([
                 'success' => false,
                 'error' => 'Upload ticket has already been used or is no longer valid.'
@@ -248,7 +250,7 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
 
         // Atomic rename from temp to staged path
         if (!rename($tempFilePath, $finalAbsolutePath)) {
-            @unlink($tempFilePath);
+            $this->removeFile($tempFilePath);
             if ($this->attachmentRepository !== null) {
                 $this->attachmentRepository->releaseUploadClaim($attachmentId);
             }
@@ -264,7 +266,7 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
             $totalBytes,
             $sha256
         )) {
-            @unlink($finalAbsolutePath);
+            $this->removeFile($finalAbsolutePath);
             if ($this->attachmentRepository !== null) {
                 $this->attachmentRepository->releaseUploadClaim($attachmentId);
             }
@@ -287,10 +289,26 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
 
     private function getInputStream()
     {
-        if (isset($_FILES['file']['tmp_name']) && is_uploaded_file($_FILES['file']['tmp_name'])) {
-            return fopen($_FILES['file']['tmp_name'], 'rb');
+        $uploadedFile = $this->httpRequest->getFiles('file');
+        $temporaryPath = is_array($uploadedFile) ? (string)($uploadedFile['tmp_name'] ?? '') : '';
+        if ($temporaryPath !== '' && is_uploaded_file($temporaryPath)) {
+            return fopen($temporaryPath, 'rb');
         }
         return fopen('php://input', 'rb');
+    }
+
+    private function removeFile(string $path): void
+    {
+        if (!is_file($path)) {
+            return;
+        }
+
+        set_error_handler(static fn (): bool => true);
+        try {
+            unlink($path);
+        } finally {
+            restore_error_handler();
+        }
     }
 
     private function extractTicket(): string

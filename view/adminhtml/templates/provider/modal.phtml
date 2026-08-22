@@ -1,0 +1,196 @@
+<?php
+/** @var \Afd\AI\Block\Adminhtml\Provider\Modal $block */
+/** @var \Magento\Framework\Escaper $escaper */
+?>
+<div class="afd-ai-provider-app" id="zcodeProviderModalApp"
+     data-save-url="<?= $escaper->escapeUrl($block->getSaveUrl()) ?>"
+     data-fetch-url="<?= $escaper->escapeUrl($block->getFetchUrl()) ?>"
+     data-delete-url="<?= $escaper->escapeUrl($block->getDeleteUrl()) ?>"
+     data-health-url="<?= $escaper->escapeUrl($block->getHealthUrl()) ?>"
+     data-sync-url="<?= $escaper->escapeUrl($block->getSyncUrl()) ?>"
+     data-form-key="<?= $escaper->escapeHtmlAttr($block->getFormKey()) ?>">
+
+    <!-- Main Provider Modal -->
+    <div class="zcode-dialog-overlay" id="zcodeProviderOverlay" style="display: none;">
+        <div class="zcode-modal-dialog zcode-provider-dialog">
+            <div class="zcode-modal-header">
+                <div class="zcode-modal-header-content">
+                    <h3 class="zcode-dialog-title" id="zcodeProviderModalTitle"><?= $escaper->escapeHtml(__('Add model provider')) ?></h3>
+                    <p class="zcode-dialog-desc" id="zcodeProviderModalDesc"><?= $escaper->escapeHtml(__('Configure a custom API endpoint and initial model.')) ?></p>
+                </div>
+                <button type="button" class="zcode-modal-close" id="zcodeCloseProviderModalBtn" title="<?= $escaper->escapeHtml(__('Close')) ?>" aria-label="<?= $escaper->escapeHtmlAttr(__('Close')) ?>">
+                    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <path d="M6 6l12 12M18 6L6 18"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="zcode-provider-notice" id="zcodeProviderNotice" role="status" aria-live="polite" style="display: none;">
+                <span class="zcode-provider-notice__indicator" aria-hidden="true"></span>
+                <span class="zcode-provider-notice__message"></span>
+                <button type="button" class="zcode-provider-notice__close"
+                        aria-label="<?= $escaper->escapeHtmlAttr(__('Close')) ?>"
+                        title="<?= $escaper->escapeHtmlAttr(__('Close')) ?>">
+                    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <path d="M6 6l12 12M18 6L6 18"/>
+                    </svg>
+                </button>
+            </div>
+
+            <form id="zcodeProviderForm" autocomplete="off" onsubmit="return false;">
+                <input type="hidden" name="provider_id" id="zcodeFieldId" value="">
+                <input type="hidden" name="form_key" value="<?= $escaper->escapeHtmlAttr($block->getFormKey()) ?>">
+
+                <div class="zcode-modal-body">
+                    <!-- Name -->
+                    <div class="zcode-form-group">
+                        <label class="zcode-label" for="zcodeFieldName"><?= $escaper->escapeHtml(__('Name')) ?></label>
+                        <input type="text" class="zcode-input" id="zcodeFieldName" name="name" placeholder="e.g. DeepSeek" required>
+                    </div>
+
+                    <!-- Base URL -->
+                    <div class="zcode-form-group">
+                        <label class="zcode-label" for="zcodeFieldBaseUrl"><?= $escaper->escapeHtml(__('Base URL')) ?></label>
+                        <input type="text" class="zcode-input" id="zcodeFieldBaseUrl" name="base_url" placeholder="https://api.example.com/v1" required>
+                    </div>
+
+                    <!-- API Key with Eye Toggle -->
+                    <div class="zcode-form-group">
+                        <label class="zcode-label" for="zcodeFieldApiKey"><?= $escaper->escapeHtml(__('API key')) ?></label>
+                        <div class="zcode-input-password-wrapper">
+                            <input type="password" class="zcode-input" id="zcodeFieldApiKey" name="api_key" placeholder="Enter API key" autocomplete="new-password">
+                            <button type="button" class="zcode-eye-btn" id="zcodeToggleApiKeyVisibility" title="<?= $escaper->escapeHtmlAttr(__('Show/Hide API key')) ?>" tabindex="-1">
+                                <svg class="eye-icon eye-open" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
+                                    <circle cx="12" cy="12" r="3"/>
+                                </svg>
+                                <svg class="eye-icon eye-closed" style="display:none;" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="m9.88 9.88 4.24 4.24m-7.07-1.41C5.64 14.54 4 16 4 16s3 7 10 7a10.87 10.87 0 0 0 5.46-1.5M2 2l20 20M9.88 9.88A3 3 0 1 0 14.12 14.12"/>
+                                    <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/>
+                                </svg>
+                            </button>
+                        </div>
+                        <p class="zcode-input-help"><?= $escaper->escapeHtml(__('The key is never returned to the browser. Leave empty when editing to keep the stored key.')) ?></p>
+                    </div>
+
+                    <!-- API Format -->
+                    <div class="zcode-form-group">
+                        <label class="zcode-label" for="zcodeFieldApiFormat"><?= $escaper->escapeHtml(__('API format')) ?></label>
+                        <div class="zcode-select-wrapper">
+                            <select class="zcode-select" id="zcodeFieldApiFormat" name="api_format">
+                                <option value="anthropic-messages"><?= $escaper->escapeHtml(__('Anthropic messages (/v1/messages)')) ?></option>
+                                <option value="openai-chat-completions"><?= $escaper->escapeHtml(__('Chat completions (/v1/chat/completions)')) ?></option>
+                                <option value="openai-responses"><?= $escaper->escapeHtml(__('Responses (/responses)')) ?></option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Model List Section -->
+                    <div class="zcode-form-group zcode-models-section">
+                        <label class="zcode-label"><?= $escaper->escapeHtml(__('Model list')) ?></label>
+
+                        <div class="zcode-models-list" id="zcodeConfiguredModelsList">
+                            <!-- Models cards injected dynamically -->
+                        </div>
+
+                        <div class="zcode-models-add-action">
+                            <button type="button" class="zcode-btn zcode-btn--sm zcode-btn-secondary" id="zcodeBtnOpenAddModel">
+                                <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                                    <path d="M12 5v14M5 12h14"/>
+                                </svg>
+                                <span><?= $escaper->escapeHtml(__('Add model')) ?></span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Hidden inputs for POST serialization -->
+                    <div id="zcodeHiddenModelsContainer"></div>
+
+                    <!-- Status -->
+                    <div class="zcode-form-group zcode-status-group">
+                        <label class="zcode-checkbox-label">
+                            <input type="checkbox" id="zcodeFieldIsActive" name="is_active" value="1" checked>
+                            <span><?= $escaper->escapeHtml(__('Enable this provider')) ?></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="zcode-modal-footer">
+                    <button type="button" class="zcode-btn zcode-btn-secondary" id="zcodeBtnCheckProvider"><?= $escaper->escapeHtml(__('Test connection')) ?></button>
+                    <button type="button" class="zcode-btn zcode-btn-secondary" id="zcodeBtnSyncProvider" style="display:none;">
+                        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 11a8.1 8.1 0 0 0-14.8-3L3 11m0 0V5m0 6h6M4 13a8.1 8.1 0 0 0 14.8 3L21 13m0 0v6m0-6h-6"/>
+                        </svg>
+                        <span><?= $escaper->escapeHtml(__('Sync to Node')) ?></span>
+                    </button>
+                    <button type="submit" class="zcode-btn zcode-btn-primary" id="zcodeBtnSaveProvider">
+                        <span class="zcode-spinner" style="display:none;" aria-hidden="true"></span>
+                        <span id="zcodeBtnSaveProviderText"><?= $escaper->escapeHtml(__('Add provider')) ?></span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Sub-Modal: Add / Edit Model (Exact ZCode Match) -->
+    <div class="zcode-dialog-overlay zcode-submodal-overlay" id="zcodeModelOverlay" style="display: none;">
+        <div class="zcode-modal-dialog zcode-model-dialog">
+            <div class="zcode-modal-header">
+                <div class="zcode-modal-header-content">
+                    <h3 class="zcode-dialog-title" id="zcodeSubModalTitle"><?= $escaper->escapeHtml(__('Add model')) ?></h3>
+                </div>
+                <button type="button" class="zcode-modal-close" id="zcodeCloseModelBtn" title="<?= $escaper->escapeHtml(__('Close')) ?>" aria-label="<?= $escaper->escapeHtmlAttr(__('Close')) ?>">
+                    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <path d="M6 6l12 12M18 6L6 18"/>
+                    </svg>
+                </button>
+            </div>
+
+            <form id="zcodeModelSubForm" autocomplete="off" onsubmit="return false;">
+                <input type="hidden" id="zcodeEditingModelIndex" value="-1">
+
+                <div class="zcode-modal-body">
+                    <!-- Model ID -->
+                    <div class="zcode-form-group">
+                        <label class="zcode-label" for="zcodeSubModelId"><?= $escaper->escapeHtml(__('Model ID')) ?></label>
+                        <input type="text" class="zcode-input font-mono" id="zcodeSubModelId" placeholder="Model ID" required>
+                    </div>
+
+                    <!-- Context Window -->
+                    <div class="zcode-form-group">
+                        <label class="zcode-label" for="zcodeSubContextWindow"><?= $escaper->escapeHtml(__('Context window')) ?></label>
+                        <input type="number" class="zcode-input" id="zcodeSubContextWindow" value="200000" placeholder="200000" required>
+                    </div>
+
+                    <!-- Collapsible Advanced Section -->
+                    <div class="zcode-advanced-section">
+                        <button type="button" class="zcode-advanced-toggle-btn" id="zcodeAdvancedToggle">
+                            <svg class="zcode-chevron" id="zcodeAdvancedChevron" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="m9 18 6-6-6-6"/>
+                            </svg>
+                            <span><?= $escaper->escapeHtml(__('Advanced')) ?></span>
+                        </button>
+                        <div class="zcode-advanced-content" id="zcodeAdvancedContent" style="display:none;">
+                            <div class="zcode-form-group" style="margin-top: 10px;">
+                                <label class="zcode-label" for="zcodeSubMaxOutputTokens"><?= $escaper->escapeHtml(__('Max output tokens')) ?></label>
+                                <input type="number" class="zcode-input" id="zcodeSubMaxOutputTokens" placeholder="">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="zcode-modal-footer">
+                    <button type="submit" class="zcode-btn zcode-btn-secondary" id="zcodeBtnSaveModel"><?= $escaper->escapeHtml(__('Save')) ?></button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script type="text/x-magento-init">
+{
+    "#zcodeProviderModalApp": {
+        "Afd_AI/js/provider-modal": {}
+    }
+}
+</script>

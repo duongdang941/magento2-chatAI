@@ -18,11 +18,16 @@ import {
 } from './services/conversation/message-contract.js';
 import { createSupportBroadcaster } from './services/support/support-broadcaster.js';
 import { createAddressUpdateAdmission } from './services/customer/address-update-admission.js';
-import { guestOrderAccessCacheKey, supportEmailVerificationCacheKey, normalizeGuestOrderAccessExpiry, hasActiveGuestOrderAccess, hasActiveSupportEmailVerification, guestOrderAccessState, guestOrderAccessNeedsVerification } from './services/security/guest-access.js';
+import {
+    hasActiveGuestOrderAccess,
+    hasActiveSupportEmailVerification,
+    guestOrderAccessState,
+    guestOrderAccessNeedsVerification
+} from './services/security/guest-access.js';
 
 // Services
 import { getAiConfig, getAiConfigSnapshot } from './services/configuration/config-service.js';
-import { getOrchestrator } from './services/orchestration/orchestrator-factory.js';
+import { getOrchestrator, getProviderCircuitHealth } from './services/orchestration/orchestrator-factory.js';
 import { summarizeError } from './services/gateway/error-summary.js';
 import { getGatewayRuntime } from './services/gateway/gateway-runtime.js';
 import { getGatewayRuntimeLimits } from './services/gateway/runtime-limits.js';
@@ -82,6 +87,9 @@ import { createGatewayServer } from './services/gateway/gateway-server.js';
 import { admitImageRequest } from './services/media/image-admission.js';
 import { reportAssistantCompletion } from './services/analytics/commerce-events.js';
 import { reportGuardrailDecision } from './services/policy/guardrail-audit.js';
+import { normalizeProviderResponseMetadata } from './services/orchestration/provider-response-envelope.js';
+import { createVerifiedAccessSession } from './services/customer/verified-access-session.js';
+import { createGuestHistorySync } from './services/conversation/guest-history-sync.js';
 const app = express();
 const port = process.env.PORT || 3001;
 const runtime = getGatewayRuntime();
@@ -103,8 +111,6 @@ const {
     modelLeaseMs: MODEL_LEASE_MS,
     addressUpdateLockMs: ADDRESS_UPDATE_LOCK_MS
 } = getGatewayRuntimeLimits();
-const GUEST_ORDER_ACCESS_MAX_TTL_MS = 24 * 60 * 60 * 1000;
-const SUPPORT_EMAIL_VERIFICATION_TTL_MS = 30 * 60 * 1000;
 const PENDING_VERIFICATION_ACTION_TTL_MS = 15 * 60 * 1000;
 const CUSTOMER_ACTION_FORM_TTL_MS = 15 * 60 * 1000;
 const {
@@ -135,6 +141,43 @@ const addressUpdateAdmission = createAddressUpdateAdmission({
         perHour: MAX_ADDRESS_UPDATES_PER_HOUR,
         lockMs: ADDRESS_UPDATE_LOCK_MS
     }
+});
+const {
+    broadcastGuestConversation,
+    broadcastGuestSession,
+    buildUserMessageAttachmentPayload,
+    guestAssistantHistoryMessage,
+    guestUserHistoryMessage,
+    restoreGuestHistoryFromClient
+} = createGuestHistorySync({
+    wss,
+    clientData,
+    isSocketOpen,
+    guestSessionHistory,
+    loadGuestMessages: db.loadGuestMessages,
+    getPrepareHistoryMessages: () => prepareHistoryMessages,
+    extractTextFromParts,
+    guestHistoryMessagesFromClient,
+    summarizeError
+});
+const {
+    clearGuestOrderAccess,
+    clearSupportEmailVerification,
+    hydrateGuestOrderAccess,
+    hydrateSupportEmailVerification,
+    notifyGuestOrderAccessReset,
+    rememberGuestOrderAccess,
+    rememberSupportEmailVerification,
+    sendSupportPortal,
+    supportConversationState,
+    supportPortalIdentity
+} = createVerifiedAccessSession({
+    runtime,
+    getSupportConversationState,
+    listSupportCases,
+    summarizeError,
+    broadcastGuestSession,
+    isSocketOpen
 });
 const prepareHistoryMessages = createHistoryMessagePreparer({
     runtime,
@@ -176,6 +219,7 @@ registerGatewayHttpRoutes({
     broadcastSupportMutation,
     broadcastSupportMode,
     onConfigAccepted: (snapshot) => addConfiguredWebSocketOrigins(allowedWebSocketOrigins, snapshot),
+    providerHealth: getProviderCircuitHealth,
     revokeSession: ({ sessionHash, customerId }) => revokeCustomerSockets({
         clientData,
         sessionHash,
@@ -186,110 +230,7 @@ registerGatewayHttpRoutes({
     })
 });
 
-async function supportConversationState(client, conversationId) {
-    try {
-        const state = await getSupportConversationState({
-            customerId: client?.customerId || 0,
-            guestId: client?.customerId ? '' : guestHistoryIdentity(client),
-            catalogScope: client?.catalogScope || null
-        }, conversationId, client?.catalogScope || null);
-        return {
-            active: state?.active === true,
-            closed: state?.closed === true,
-            isSupport: state?.is_support === true,
-            status: String(state?.status || '').slice(0, 24),
-            agentLabel: String(state?.agent_label || '').slice(0, 80)
-        };
-    } catch (error) {
-        console.warn('[Support] Could not read live-chat state:', summarizeError(error));
-        return { active: false, closed: false, isSupport: false, status: '', agentLabel: '' };
-    }
-}
-
 const browserCartBridge = new BrowserCartBridge({ isSocketOpen });
-
-function guestUserHistoryMessage(currentUser, data) {
-    const uploadedImages = Array.isArray(data.images) ? data.images : [];
-    const attachmentRefParts = (currentUser.parts || []).filter(p => p && (p.type === 'attachment_ref' || p.attachment_id));
-    const imageParts = (currentUser.parts || []).filter((part) => part?.inline_data);
-
-    let attachments = [];
-    if (attachmentRefParts.length > 0) {
-        attachments = attachmentRefParts.map((ref, index) => ({
-            name: String(uploadedImages[index]?.name || ref.name || 'image').slice(0, 120),
-            mime_type: ref.mime_type || uploadedImages[index]?.type || 'image/jpeg',
-            size: Number(uploadedImages[index]?.size || ref.size || 0),
-            attachment_id: ref.attachment_id,
-            url: `/afd_ai/chat/attachment?id=${encodeURIComponent(ref.attachment_id)}`,
-            previewUrl: `/afd_ai/chat/attachment?id=${encodeURIComponent(ref.attachment_id)}`
-        }));
-    } else if (imageParts.length > 0) {
-        attachments = imageParts.map((part, index) => ({
-            name: String(uploadedImages[index]?.name || data.image?.name || 'uploaded-image').slice(0, 120),
-            mime_type: part.inline_data.mime_type,
-            data: part.inline_data.data,
-            url: `data:${part.inline_data.mime_type || 'image/jpeg'};base64,${part.inline_data.data}`,
-            previewUrl: `data:${part.inline_data.mime_type || 'image/jpeg'};base64,${part.inline_data.data}`
-        }));
-    }
-
-    return {
-        role: 'user',
-        content: currentUser.displayText || currentUser.text || '',
-        attachments
-    };
-}
-
-function buildUserMessageAttachmentPayload(currentUser, data) {
-    const uploadedImages = Array.isArray(data.images) ? data.images : [];
-    const attachmentRefParts = (currentUser.parts || []).filter(p => p && (p.type === 'attachment_ref' || p.attachment_id));
-    const imageParts = (currentUser.parts || [])
-        .filter((part) => part && part.inline_data)
-        .map((part) => part.inline_data);
-
-    if (attachmentRefParts.length > 0) {
-        return JSON.stringify({
-            attachments: attachmentRefParts.map((ref, index) => ({
-                name: String(uploadedImages[index]?.name || ref.name || 'image').slice(0, 120),
-                mime_type: ref.mime_type || uploadedImages[index]?.type || 'image/jpeg',
-                size: Number(uploadedImages[index]?.size || ref.size || 0),
-                attachment_id: ref.attachment_id,
-                url: `/afd_ai/chat/attachment?id=${encodeURIComponent(ref.attachment_id)}`
-            }))
-        });
-    }
-
-    if (imageParts.length > 0) {
-        return JSON.stringify({
-            attachments: imageParts.map((imagePart, index) => ({
-                name: String(uploadedImages[index]?.name || data.image?.name || 'uploaded-image').slice(0, 120),
-                mime_type: imagePart.mime_type,
-                data: imagePart.data,
-                url: `data:${imagePart.mime_type || 'image/jpeg'};base64,${imagePart.data}`
-            }))
-        });
-    }
-
-    return null;
-}
-
-function guestAssistantHistoryMessage(parts, metadata = {}) {
-    return {
-        role: 'assistant',
-        content: extractTextFromParts(parts),
-        parts,
-        ...(metadata.interrupted === true ? {
-            interrupted: true,
-            stopped_after_seconds: Math.max(0, Math.floor(Number(metadata.stopped_after_seconds) || 0))
-        } : {})
-    };
-}
-
-async function restoreGuestHistoryFromClient(history, guestId, conversationId) {
-    for (const message of guestHistoryMessagesFromClient(history)) {
-        await guestSessionHistory.append(guestId, conversationId, message);
-    }
-}
 
 function isSocketOpen(ws) {
     return ws.readyState === ws.OPEN;
@@ -304,201 +245,6 @@ const connectionLifecycle = createConnectionLifecycle({
     broadcastSupportTypingToCustomers,
     broadcastSupportTypingToAdmins
 });
-
-function broadcastGuestSession(origin, client, payload) {
-    const guestId = guestHistoryIdentity(client);
-    if (!guestId) return;
-    for (const socket of wss.clients) {
-        if (socket === origin || !isSocketOpen(socket)) continue;
-        const candidate = clientData.get(socket);
-        if (!candidate || candidate.customerId || guestHistoryIdentity(candidate) !== guestId) continue;
-        socket.send(JSON.stringify(payload));
-    }
-}
-
-async function broadcastGuestConversation(origin, client, mode, conversationId) {
-    try {
-        const page = mode === 'database'
-            ? await db.loadGuestMessages(conversationId, guestHistoryIdentity(client), null, client.catalogScope || null)
-            : await guestSessionHistory.loadMessages(client.sessionId, conversationId);
-        const messages = await prepareHistoryMessages(page.messages || [], client, conversationId);
-        broadcastGuestSession(origin, client, {
-            type: 'guest_history_sync',
-            conversation_id: conversationId,
-            messages
-        });
-    } catch (error) {
-        console.warn('[Chat] Guest cross-tab history sync failed:', summarizeError(error));
-    }
-}
-
-
-async function hydrateSupportEmailVerification(client) {
-    if (!client?.sessionId) return false;
-    if (hasActiveSupportEmailVerification(client)) return true;
-
-    const cacheKey = supportEmailVerificationCacheKey(client.sessionId);
-    const cached = await runtime.getAuthCache(cacheKey);
-    const accessToken = String(cached?.accessToken || '');
-    const email = String(cached?.email || '');
-    const expiresAt = Number(cached?.expiresAt);
-    const valid = /^[a-f0-9]{64}$/i.test(accessToken)
-        && /^\S+@\S+\.\S+$/.test(email)
-        && Number.isFinite(expiresAt)
-        && expiresAt > Date.now();
-
-    if (!valid) {
-        if (cached) await runtime.deleteAuthCache(cacheKey);
-        return false;
-    }
-
-    client.supportEmail = email.toLowerCase();
-    client.supportEmailAccessToken = accessToken;
-    client.supportEmailVerifiedUntil = expiresAt;
-    return true;
-}
-
-async function rememberSupportEmailVerification(client, email, token, reportedExpiry) {
-    if (!client?.sessionId) return false;
-    const now = Date.now();
-    const normalizedExpiry = normalizeGuestOrderAccessExpiry(reportedExpiry);
-    const expiresAt = Math.min(
-        normalizedExpiry > now ? normalizedExpiry : now + SUPPORT_EMAIL_VERIFICATION_TTL_MS,
-        now + SUPPORT_EMAIL_VERIFICATION_TTL_MS
-    );
-    const ttlMs = expiresAt - now;
-    if (ttlMs <= 0) return false;
-
-    client.supportEmail = String(email).trim().toLowerCase();
-    client.supportEmailAccessToken = String(token);
-    client.supportEmailVerifiedUntil = expiresAt;
-    await runtime.setAuthCache(supportEmailVerificationCacheKey(client.sessionId), {
-        email: client.supportEmail,
-        accessToken: client.supportEmailAccessToken,
-        expiresAt
-    }, ttlMs);
-    return true;
-}
-
-function supportPortalIdentity(client) {
-    if (!hasActiveSupportEmailVerification(client)) return null;
-    return {
-        customerId: client.customerId || null,
-        guestId: client.customerId ? null : guestHistoryIdentity(client),
-        verifiedEmail: client.supportEmail,
-        verificationToken: client.supportEmailAccessToken,
-        verificationSessionId: client.sessionId,
-        catalogScope: client.catalogScope || null
-    };
-}
-
-async function sendSupportPortal(ws, client, formId = '') {
-    const identity = supportPortalIdentity(client);
-    if (!identity) {
-        ws.send(JSON.stringify({
-            type: 'support_portal_result',
-            form_id: String(formId || ''),
-            result: { status: 'requires_customer_action', reason: 'guest_access_required', cases: [] }
-        }));
-        return;
-    }
-
-    let result;
-    try {
-        result = await listSupportCases(identity);
-    } catch (error) {
-        console.warn('[Support] Could not load customer tickets:', summarizeError(error));
-        result = { status: 'error', message: 'Your support tickets could not be loaded.', cases: [] };
-    }
-    ws.send(JSON.stringify({ type: 'support_portal_result', form_id: String(formId || ''), result }));
-}
-
-async function clearSupportEmailVerification(client) {
-    if (!client) return;
-    client.supportEmail = '';
-    client.supportEmailAccessToken = '';
-    client.supportEmailVerifiedUntil = 0;
-    if (client.sessionId) {
-        await runtime.deleteAuthCache(supportEmailVerificationCacheKey(client.sessionId));
-    }
-}
-
-
-async function hydrateGuestOrderAccess(client) {
-    if (!client || client.customerId || !client.sessionId) {
-        return false;
-    }
-
-    if (client.guestOrderAccessToken) {
-        if (hasActiveGuestOrderAccess(client)) return true;
-        await clearGuestOrderAccess(client);
-    }
-
-    const cacheKey = guestOrderAccessCacheKey(client.sessionId);
-    const cached = await runtime.getAuthCache(cacheKey);
-    const accessToken = String(cached?.accessToken || '');
-    const email = String(cached?.email || '');
-    const expiresAt = Number(cached?.expiresAt);
-    const valid = /^[a-f0-9]{64}$/i.test(accessToken)
-        && /^\S+@\S+\.\S+$/.test(email)
-        && Number.isFinite(expiresAt)
-        && expiresAt > Date.now();
-
-    if (!valid) {
-        if (cached) await runtime.deleteAuthCache(cacheKey);
-        return false;
-    }
-
-    client.guestOrderEmail = email.toLowerCase();
-    client.guestOrderAccessToken = accessToken;
-    client.guestOrderAccessExpiresAt = expiresAt;
-    return true;
-}
-
-async function rememberGuestOrderAccess(client, email, token, expiresInSeconds, expiresAtSeconds) {
-    if (!client?.sessionId) return false;
-    const now = Date.now();
-    const reportedExpiresAt = normalizeGuestOrderAccessExpiry(expiresAtSeconds);
-    const hasReportedExpiry = reportedExpiresAt > 0;
-    const fallbackExpiresAt = now + Math.max(
-        1000,
-        Math.min(GUEST_ORDER_ACCESS_MAX_TTL_MS, Number(expiresInSeconds || 0) * 1000 || GUEST_ORDER_ACCESS_MAX_TTL_MS)
-    );
-    const expiresAt = Math.min(
-        now + GUEST_ORDER_ACCESS_MAX_TTL_MS,
-        hasReportedExpiry ? reportedExpiresAt : fallbackExpiresAt
-    );
-    const ttlMs = expiresAt - now;
-    if (ttlMs <= 0) return false;
-
-    client.guestOrderEmail = String(email).trim().toLowerCase();
-    client.guestOrderAccessToken = String(token);
-    client.guestOrderAccessExpiresAt = expiresAt;
-    await runtime.setAuthCache(guestOrderAccessCacheKey(client.sessionId), {
-        email: client.guestOrderEmail,
-        accessToken: client.guestOrderAccessToken,
-        expiresAt
-    }, ttlMs);
-    return true;
-}
-
-async function clearGuestOrderAccess(client) {
-    if (!client) return;
-    client.guestOrderEmail = '';
-    client.guestOrderAccessToken = '';
-    client.guestOrderAccessExpiresAt = 0;
-    if (client.sessionId) {
-        await runtime.deleteAuthCache(guestOrderAccessCacheKey(client.sessionId));
-    }
-}
-
-async function notifyGuestOrderAccessReset(origin, client) {
-    await clearGuestOrderAccess(client);
-    if (isSocketOpen(origin)) {
-        origin.send(JSON.stringify(guestOrderAccessState(client, 'email')));
-    }
-    broadcastGuestSession(origin, client, guestOrderAccessState(client, 'email'));
-}
 
 wss.on('connection', async (ws, req) => {
     if (!admitLocalWebSocketConnection(ws, req, {
@@ -1035,7 +781,7 @@ wss.on('connection', async (ws, req) => {
                     const mode = await guestHistoryMode(runtime, getAiConfig);
                     const cleared = mode === 'database'
                         ? await db.deleteGuestConversations(guestHistoryIdentity(client), client.catalogScope || null)
-                        : await guestSessionHistory.clear(client.sessionId).then(() => true);
+                        : await guestSessionHistory.clear(guestHistoryIdentity(client)).then(() => true);
                     if (cleared) {
                         ws.send(JSON.stringify({ type: 'guest_history_reset' }));
                         broadcastGuestSession(ws, client, { type: 'guest_new_chat' });
@@ -1064,7 +810,7 @@ wss.on('connection', async (ws, req) => {
                     const mode = await guestHistoryMode(runtime, getAiConfig);
                     const conversationPage = mode === 'database'
                         ? await db.listGuestConversations(guestHistoryIdentity(client), requestedPage, client.catalogScope || null)
-                        : await guestSessionHistory.list(client.sessionId, requestedPage);
+                        : await guestSessionHistory.list(guestHistoryIdentity(client), requestedPage);
                     ws.send(JSON.stringify({
                         type: 'conversations',
                         conversations: conversationPage.conversations,
@@ -1088,7 +834,7 @@ wss.on('connection', async (ws, req) => {
                         ? await db.getConversation(data.conversation_id, client.customerId, client.catalogScope || null)
                         : (mode === 'database'
                             ? await db.getGuestConversation(data.conversation_id, guestHistoryIdentity(client), client.catalogScope || null)
-                            : await guestSessionHistory.get(client.sessionId, data.conversation_id));
+                            : await guestSessionHistory.get(guestHistoryIdentity(client), data.conversation_id));
                     console.log('[AI-SERVER] load_conversation:', { conversation_id: data.conversation_id, customerId: client.customerId, guestId: guestHistoryIdentity(client), mode, found: Boolean(conv) });
                     if (!conv) {
                         ws.send(JSON.stringify({ type: 'conversation_messages', messages: [], status: 'error', conversationId: Number(data.conversation_id) || 0, client_load_token: String(data.client_load_token || '') }));
@@ -1098,7 +844,7 @@ wss.on('connection', async (ws, req) => {
                         ? await db.loadMessages(data.conversation_id, client.customerId, data.before_message_id || null, client.catalogScope || null)
                         : (mode === 'database'
                         ? await db.loadGuestMessages(data.conversation_id, guestHistoryIdentity(client), data.before_message_id || null, client.catalogScope || null)
-                            : await guestSessionHistory.loadMessages(client.sessionId, data.conversation_id, data.before_message_id || null));
+                            : await guestSessionHistory.loadMessages(guestHistoryIdentity(client), data.conversation_id, data.before_message_id || null));
                     const messages = await prepareHistoryMessages(
                         page.messages || [],
                         client,
@@ -1145,7 +891,7 @@ wss.on('connection', async (ws, req) => {
                         ? await db.deleteConversation(conversationId, client.customerId, client.catalogScope || null)
                         : (mode === 'database'
                             ? await db.deleteGuestConversation(conversationId, guestHistoryIdentity(client), client.catalogScope || null)
-                            : await guestSessionHistory.delete(client.sessionId, conversationId));
+                            : await guestSessionHistory.delete(guestHistoryIdentity(client), conversationId));
                     ws.send(JSON.stringify({
                         type: 'delete_result',
                         status: deleted ? 'success' : 'error',
@@ -1172,7 +918,7 @@ wss.on('connection', async (ws, req) => {
                         ? await db.updateConversationTitle(data.conversation_id, client.customerId, title, client.catalogScope || null)
                         : (mode === 'database'
                             ? await db.updateGuestConversationTitle(data.conversation_id, guestHistoryIdentity(client), title, client.catalogScope || null)
-                            : await guestSessionHistory.rename(client.sessionId, data.conversation_id, title));
+                            : await guestSessionHistory.rename(guestHistoryIdentity(client), data.conversation_id, title));
                     ws.send(JSON.stringify({
                         type: 'rename_result',
                         status: updated ? 'success' : 'error',
@@ -1441,11 +1187,11 @@ async function handleChat(ws, data, client, requestConfig = null) {
             const requestedConversation = conversationId
                 ? (guestMode === 'database'
                     ? await db.getGuestConversation(conversationId, guestHistoryIdentity(client), catalogScope)
-                    : await guestSessionHistory.get(client.sessionId, conversationId))
+                    : await guestSessionHistory.get(guestHistoryIdentity(client), conversationId))
                 : null;
             const page = requestedConversation ? null : (guestMode === 'database'
                 ? await db.listGuestConversations(guestHistoryIdentity(client), 1, catalogScope)
-                : await guestSessionHistory.list(client.sessionId, 1));
+                    : await guestSessionHistory.list(guestHistoryIdentity(client), 1));
             const existing = requestedConversation || page?.conversations?.[0] || null;
             if (existing) {
                 conversationId = Number(existing.id);
@@ -1462,10 +1208,10 @@ async function handleChat(ws, data, client, requestConfig = null) {
                 });
                 const conversation = guestMode === 'database'
                     ? { id: await db.createGuestConversation(guestHistoryIdentity(client), title, catalogScope) }
-                    : await guestSessionHistory.create(client.sessionId, title);
+                    : await guestSessionHistory.create(guestHistoryIdentity(client), title);
                 conversationId = Number(conversation.id || conversation);
                 if (guestMode === 'session') {
-                    await restoreGuestHistoryFromClient(history, client.sessionId, conversationId);
+                    await restoreGuestHistoryFromClient(history, guestHistoryIdentity(client), conversationId);
                 }
                 ws.send(attachRequestId({ type: 'conversation_id', conversation_id: conversationId }, run.requestId));
             }
@@ -1538,6 +1284,7 @@ async function handleChat(ws, data, client, requestConfig = null) {
     let leaseHeartbeat = null;
     const processingStartedAt = Date.now();
     const assistantParts = [];
+    let providerResponseMetadata = null;
     let interruptedResponsePersistence = null;
 
     const persistAssistantResponse = async (parts, metadata = {}, options = {}) => {
@@ -1686,7 +1433,10 @@ async function handleChat(ws, data, client, requestConfig = null) {
                 run.controller.abort();
             });
         }, Math.max(1000, Math.floor((aiConfig.capacity?.model_lease_ms || MODEL_LEASE_MS) / 3)));
-        const streamChatResponse = await getOrchestrator(aiConfig.provider);
+        // Provider code is merchant-defined. The adapter is selected from the
+        // synchronized provider protocol (api_format), so custom entries in
+        // Magento use the same normalized streaming/tool pipeline.
+        const streamChatResponse = await getOrchestrator(aiConfig.provider, aiConfig);
 
         // Collect the customer-visible streamed response for persistence.
         const wrappedWs = {
@@ -1695,6 +1445,9 @@ async function handleChat(ws, data, client, requestConfig = null) {
                     let outbound = attachRequestId(msgStr, run.requestId);
                     try {
                         const parsed = JSON.parse(outbound);
+                        if (parsed.type === 'done' && parsed.provider_meta) {
+                            providerResponseMetadata = normalizeProviderResponseMetadata(parsed.provider_meta);
+                        }
                         if (parsed.type === 'guest_order_access_required') {
                             parsed.expires_at = Number(parsed.expires_at) > Date.now()
                                 ? Number(parsed.expires_at)
@@ -1713,10 +1466,7 @@ async function handleChat(ws, data, client, requestConfig = null) {
                             } else {
                                 // Magento rejected or expired the short-lived
                                 // order token. Remove only the order cache.
-                                client.guestOrderEmail = '';
-                                client.guestOrderAccessToken = '';
-                                client.guestOrderAccessExpiresAt = 0;
-                                runtime.deleteAuthCache(guestOrderAccessCacheKey(client.sessionId)).catch((error) => {
+                                clearGuestOrderAccess(client).catch((error) => {
                                     console.warn('[Guest orders] Could not clear expired order access:', summarizeError(error));
                                 });
                                 const accessState = attachRequestId(guestOrderAccessState(client, 'email'), run.requestId);
@@ -1821,7 +1571,11 @@ async function handleChat(ws, data, client, requestConfig = null) {
             return;
         }
 
-        await persistAssistantResponse(assistantParts, {}, { refreshTitle: true });
+        await persistAssistantResponse(
+            assistantParts,
+            { provider_meta: providerResponseMetadata },
+            { refreshTitle: true }
+        );
 
         metrics.increment('model_completed', { provider: aiConfig.provider });
 

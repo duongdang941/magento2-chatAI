@@ -6,6 +6,7 @@ namespace Afd\AI\Setup\Patch\Data;
 use Afd\AI\Model\Config\Config as AiConfig;
 use Magento\Framework\App\Config\Storage\WriterInterface;
 use Magento\Framework\App\Config\ScopeConfigInterface;
+use Magento\Framework\Encryption\EncryptorInterface;
 use Magento\Framework\Setup\Patch\DataPatchInterface;
 
 /**
@@ -18,7 +19,8 @@ class EnsureGatewaySecrets implements DataPatchInterface
 {
     public function __construct(
         private readonly ScopeConfigInterface $scopeConfig,
-        private readonly WriterInterface $configWriter
+        private readonly WriterInterface $configWriter,
+        private readonly EncryptorInterface $encryptor
     ) {
     }
 
@@ -30,13 +32,16 @@ class EnsureGatewaySecrets implements DataPatchInterface
                 ScopeConfigInterface::SCOPE_TYPE_DEFAULT,
                 0
             );
-            if (strlen(trim($existingValue)) >= 32) {
+            $existingValue = trim($existingValue);
+            if (strlen($existingValue) >= 32 && preg_match('/^\d+:\d+:[A-Za-z0-9+\/=]+$/', $existingValue)) {
                 continue;
             }
 
             $this->configWriter->save(
                 $path,
-                bin2hex(random_bytes(32)),
+                $this->encryptor->encrypt(
+                    strlen($existingValue) >= 32 ? $existingValue : bin2hex(random_bytes(32))
+                ),
                 ScopeConfigInterface::SCOPE_TYPE_DEFAULT,
                 0
             );

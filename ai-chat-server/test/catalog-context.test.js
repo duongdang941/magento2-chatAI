@@ -73,6 +73,43 @@ test('candidate memory can be killed per store without removing the visible prod
         htmlToText: () => ''
     });
 
-    assert.match(history[0].parts[0].text, /Here is the product/);
+    assert.match(history[0].parts[0].text, /previous response displayed a verified product grid/i);
     assert.doesNotMatch(history[0].parts[0].text, /CATALOG_CONTEXT/);
+});
+
+test('does not feed an older text-only product list back as fresh catalogue evidence', () => {
+    const methods = sandbox.window.AfdAiChat.attachmentMethods({
+        config: {},
+        urls: {},
+        helpers: { MAX_MODEL_HISTORY_MESSAGES: 16 }
+    });
+    const history = methods.buildModelHistory.call({
+        messages: [
+            {
+                role: 'assistant',
+                parts: [{
+                    type: 'text',
+                    raw: 'There are 167 matching products. 1. Old product — 95 EUR.'
+                }, {
+                    type: 'products',
+                    payload: {
+                        items: [{
+                            id: 99,
+                            sku: 'OLD-99',
+                            name: 'Old product',
+                            price: '95 EUR'
+                        }]
+                    }
+                }]
+            },
+            { role: 'user', content: 'Show me products I can add directly.' }
+        ],
+        htmlToText: () => ''
+    });
+
+    const priorAssistantMessage = history[0].parts[0].text;
+    assert.match(priorAssistantMessage, /previous response displayed a verified product grid/i);
+    assert.match(priorAssistantMessage, /PRIVATE REFERENCE LEDGER/i);
+    assert.doesNotMatch(priorAssistantMessage, /167 matching products/i);
+    assert.doesNotMatch(priorAssistantMessage, /95 EUR/i);
 });

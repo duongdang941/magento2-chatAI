@@ -62,3 +62,29 @@ test('rejects an enabled chat provider without an API key but permits a disabled
     assert.deepEqual(disabled.warnings, []);
 });
 
+test('accepts a Magento-defined provider code by its synchronized API format', () => {
+    const capabilities = getProviderCapabilities({
+        provider: 'gemini-custom',
+        api_format: 'anthropic-messages',
+        api_key: 'provider-key'
+    });
+
+    assert.equal(capabilities.protocol, 'anthropic');
+    assert.equal(capabilities.chat.available, true);
+    assert.equal(capabilities.commerce_tools.available, true);
+});
+
+test('does not advertise images for a custom chat-only provider model', () => {
+    const capabilities = getProviderCapabilities({
+        provider: 'gemini-tunnel',
+        api_format: 'anthropic-messages',
+        api_key: 'provider-key',
+        model: 'ag/gemini-3.6-flash-high',
+        models: [{ id: 'ag/gemini-3.6-flash-high', supports_images: false }],
+        image_generation: { enabled: true, model: 'gemini-3.1-flash-image' }
+    });
+
+    assert.equal(capabilities.image_generation.supported, false);
+    assert.equal(capabilities.image_generation.available, false);
+    assert.equal(capabilities.image_generation.reason, 'model_image_generation_unsupported');
+});

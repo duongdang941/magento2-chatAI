@@ -4,9 +4,16 @@ declare(strict_types=1);
 namespace Afd\AI\Model;
 
 use Afd\AI\Api\ProductRendererInterface;
+use Magento\CatalogUrlRewrite\Model\ProductUrlRewriteGenerator;
+use Magento\Framework\UrlInterface;
+use Magento\Store\Model\StoreManagerInterface;
+use Magento\UrlRewrite\Model\UrlFinderInterface;
+use Magento\UrlRewrite\Service\V1\Data\UrlRewrite;
 
 class ChatMessagePayload
 {
+    private const MAX_LEGACY_PRODUCT_CARDS = 10;
+
     /** @var string[] */
     private const ORDER_ADDRESS_FIELDS = [
         'prefix', 'firstname', 'middlename', 'lastname', 'suffix', 'company',
@@ -15,7 +22,9 @@ class ChatMessagePayload
     ];
 
     public function __construct(
-        private readonly ProductRendererInterface $productRenderer
+        private readonly ProductRendererInterface $productRenderer,
+        private readonly UrlFinderInterface $urlFinder,
+        private readonly StoreManagerInterface $storeManager
     ) {
     }
 
@@ -39,10 +48,23 @@ class ChatMessagePayload
                     $normalizedPart = ['type' => 'products'];
                     if ($payload !== null) {
                         $normalizedPart['payload'] = $payload;
-                    } elseif ($html !== '') {
+                    }
+                    // Preserve the already rendered Magento presentation as
+                    // well as the compact payload.  The payload is useful for
+                    // pagination, but it cannot reproduce image URLs,
+                    // native price markup, or add-to-cart forms by itself.
+                    if ($html !== '') {
                         $normalizedPart['html'] = $html;
                     }
                     $normalizedParts[] = $normalizedPart;
+                }
+                continue;
+            }
+
+            if ($type === 'reasoning') {
+                $reasoning = $this->normalizeReasoningPart($part);
+                if ($reasoning !== null) {
+                    $normalizedParts[] = $reasoning;
                 }
                 continue;
             }
@@ -155,9 +177,17 @@ class ChatMessagePayload
 
             if ($type === 'products') {
                 $payload = $this->normalizeProductPayload($part['payload'] ?? null);
-                $html = $payload !== null
+                $storedHtml = trim((string)($part['html'] ?? ''));
+                // Re-render with the current Magento scope when possible so
+                // prices, salability and CSRF forms stay fresh.  If a product
+                // was deleted, disabled, or is outside the current scope,
+                // Magento can legitimately return an empty collection.  Keep
+                // the persisted safe grid as a presentation fallback instead
+                // of dropping the entire product result from history.
+                $renderedHtml = $payload !== null
                     ? $this->renderProductPayload($payload)
-                    : trim((string)($part['html'] ?? ''));
+                    : '';
+                $html = $renderedHtml !== '' ? $renderedHtml : $storedHtml;
                 if ($html !== '') {
                     $productPart = [
                         'id' => $partId,
@@ -168,6 +198,15 @@ class ChatMessagePayload
                         $productPart['payload'] = $payload;
                     }
                     $parts[] = $productPart;
+                }
+                continue;
+            }
+
+            if ($type === 'reasoning') {
+                $reasoning = $this->normalizeReasoningPart($part);
+                if ($reasoning !== null) {
+                    $reasoning['id'] = $partId;
+                    $parts[] = $reasoning;
                 }
                 continue;
             }
@@ -216,10 +255,33 @@ class ChatMessagePayload
         }
 
         if ($parts === []) {
-            return $fallback;
+            // A structured assistant row with only rejected parts must not
+            // fall back to displaying the serialized JSON as customer text.
+            return [
+                'content' => isset($decoded['text']) && is_string($decoded['text'])
+                    ? $decoded['text']
+                    : '',
+                'parts' => [],
+                'interrupted' => ($decoded['interrupted'] ?? false) === true,
+                'stopped_after_seconds' => ($decoded['interrupted'] ?? false) === true
+                    ? max(0, (int)($decoded['stopped_after_seconds'] ?? 0))
+                    : null,
+                'source' => '',
+                'sender_label' => '',
+                'admin_id' => 0
+            ];
         }
 
         $parts = $this->mergeSequentialProductParts($parts);
+        if (!$this->hasProductPart($parts)) {
+            $legacyProductPart = $this->recoverLegacyProductGrid(
+                (string)($decoded['text'] ?? $content),
+                $messageId
+            );
+            if ($legacyProductPart !== null) {
+                $parts[] = $legacyProductPart;
+            }
+        }
 
         $interrupted = ($decoded['interrupted'] ?? false) === true;
 
@@ -473,7 +535,7 @@ class ChatMessagePayload
     private function normalizeGeneratedImagePart(array $part): ?array
     {
         $url = trim((string)($part['url'] ?? ''));
-        if (!preg_match('#^https?://#i', $url)) {
+        if (!$this->isAllowedGeneratedImageUrl($url)) {
             return null;
         }
 
@@ -485,6 +547,60 @@ class ChatMessagePayload
             'size' => mb_substr(trim((string)($part['size'] ?? '')), 0, 32),
             'quality' => mb_substr(trim((string)($part['quality'] ?? '')), 0, 16),
         ];
+    }
+
+    private function isAllowedGeneratedImageUrl(string $url): bool
+    {
+        $generatedSuffixPattern = '~^/[A-Za-z0-9._-]{1,180}(?:[?#][A-Za-z0-9._=&%\\-]{0,200})?$~';
+        if (preg_match(
+            '~^/media/afd-ai/generated[A-Za-z0-9._/=?#&%\\-]*$~',
+            $url
+        ) === 1) {
+            $relativeSuffix = substr($url, strlen('/media/afd-ai/generated'));
+            return preg_match($generatedSuffixPattern, $relativeSuffix) === 1;
+        }
+
+        $candidate = parse_url($url);
+        if (!is_array($candidate)
+            || !in_array(strtolower((string)($candidate['scheme'] ?? '')), ['http', 'https'], true)
+            || isset($candidate['user'])
+            || isset($candidate['pass'])
+        ) {
+            return false;
+        }
+
+        try {
+            $mediaBase = parse_url((string)$this->storeManager->getStore()->getBaseUrl(UrlInterface::URL_TYPE_MEDIA));
+        } catch (\Throwable) {
+            return false;
+        }
+        if (!is_array($mediaBase)) {
+            return false;
+        }
+
+        $candidateHost = strtolower((string)($candidate['host'] ?? ''));
+        $mediaHost = strtolower((string)($mediaBase['host'] ?? ''));
+        $candidatePort = (int)($candidate['port'] ?? 0);
+        $mediaPort = (int)($mediaBase['port'] ?? 0);
+        if ($candidateHost === '' || !hash_equals($mediaHost, $candidateHost) || $candidatePort !== $mediaPort) {
+            return false;
+        }
+
+        $generatedPath = rtrim((string)($mediaBase['path'] ?? '/media/'), '/') . '/afd-ai/generated';
+        $candidatePath = (string)($candidate['path'] ?? '');
+        if (!str_starts_with($candidatePath, $generatedPath)) {
+            return false;
+        }
+
+        $suffix = substr($candidatePath, strlen($generatedPath));
+        if (isset($candidate['query'])) {
+            $suffix .= '?' . $candidate['query'];
+        }
+        if (isset($candidate['fragment'])) {
+            $suffix .= '#' . $candidate['fragment'];
+        }
+
+        return preg_match($generatedSuffixPattern, $suffix) === 1;
     }
 
     /**
@@ -519,8 +635,11 @@ class ChatMessagePayload
                 : [];
             if ($this->isNextProductPage($currentPayload, $payload)) {
                 $combinedPayload = $this->mergeProductPayloadPages($currentPayload, $payload);
+                $renderedHtml = $this->renderProductPayload($combinedPayload);
                 $productPart['payload'] = $combinedPayload;
-                $productPart['html'] = $this->renderProductPayload($combinedPayload);
+                if ($renderedHtml !== '') {
+                    $productPart['html'] = $renderedHtml;
+                }
             } else {
                 // Same-turn search refinement: only the final retrieval is a
                 // presentation, earlier searches remain model evidence only.
@@ -533,6 +652,192 @@ class ChatMessagePayload
         }
 
         return $mergedParts;
+    }
+
+    /**
+     * Store only customer-safe progress information. The tool name, state and
+     * bounded result count are enough for a Codex-style activity timeline;
+     * tool arguments, raw results and provider-only metadata never leave the
+     * gateway.
+     *
+     * @param array<string, mixed> $part
+     * @return array<string, mixed>|null
+     */
+    private function normalizeReasoningPart(array $part): ?array
+    {
+        $sourceEvents = is_array($part['events'] ?? null)
+            ? $part['events']
+            : array_merge(
+                is_array($part['steps'] ?? null) ? $part['steps'] : [],
+                is_array($part['activities'] ?? null) ? $part['activities'] : []
+            );
+        $events = [];
+        $seen = [];
+
+        foreach (array_slice($sourceEvents, 0, 24) as $index => $event) {
+            if (!is_array($event)) {
+                continue;
+            }
+            $type = ($event['type'] ?? '') === 'activity' ? 'activity'
+                : (($event['type'] ?? '') === 'step' ? 'step' : '');
+            if ($type === '') {
+                continue;
+            }
+            $id = mb_substr(trim((string)($event['id'] ?? ($type . '-' . $index))), 0, 120);
+            $key = $type . ':' . $id;
+            if ($id === '' || isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+
+            if ($type === 'activity') {
+                $tool = preg_replace('/[^A-Za-z0-9_]/', '', (string)($event['tool'] ?? '')) ?? '';
+                $tool = mb_substr($tool, 0, 80);
+                if ($tool === '') {
+                    continue;
+                }
+                $normalized = [
+                    'id' => $id,
+                    'type' => 'activity',
+                    'tool' => $tool,
+                    'state' => in_array(($event['state'] ?? ''), ['running', 'completed', 'failed'], true)
+                        ? (string)$event['state']
+                        : 'completed',
+                ];
+                $resultCount = filter_var($event['result_count'] ?? null, FILTER_VALIDATE_INT);
+                if ($resultCount !== false && $resultCount >= 0) {
+                    $normalized['result_count'] = min(10000, $resultCount);
+                }
+                $events[] = $normalized;
+                continue;
+            }
+
+            $content = mb_substr(trim((string)($event['content'] ?? '')), 0, 1600);
+            if ($content !== '') {
+                $events[] = ['id' => $id, 'type' => 'step', 'content' => $content];
+            }
+        }
+
+        if ($events === []) {
+            return null;
+        }
+
+        return [
+            'type' => 'reasoning',
+            'events' => $events,
+            'steps' => array_values(array_filter($events, static fn (array $event): bool => $event['type'] === 'step')),
+            'activities' => array_values(array_filter($events, static fn (array $event): bool => $event['type'] === 'activity')),
+        ];
+    }
+
+    /** @param array<int, array<string, mixed>> $parts */
+    private function hasProductPart(array $parts): bool
+    {
+        foreach ($parts as $part) {
+            if (($part['type'] ?? '') === 'products' && trim((string)($part['html'] ?? '')) !== '') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Legacy assistant rows from older gateway versions may have only prose
+     * containing verified Magento product links. Recover cards from local URL
+     * rewrites only; external links, malformed paths and unresolved rewrites
+     * never become a product grid.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function recoverLegacyProductGrid(string $content, string $messageId): ?array
+    {
+        if ($content === ''
+            || preg_match_all('~\[[^\]\r\n]{1,255}\]\(([^\s)]+)\)~u', $content, $matches) < 1
+        ) {
+            return null;
+        }
+
+        try {
+            $store = $this->storeManager->getStore();
+            $storeId = (int)$store->getId();
+            $storeHost = strtolower((string)parse_url((string)$store->getBaseUrl(), PHP_URL_HOST));
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($storeId < 1 || $storeHost === '') {
+            return null;
+        }
+
+        $productIds = [];
+        foreach (array_slice($matches[1], 0, self::MAX_LEGACY_PRODUCT_CARDS * 2) as $candidate) {
+            $parsed = parse_url(html_entity_decode((string)$candidate, ENT_QUOTES, 'UTF-8'));
+            if (!is_array($parsed)) {
+                continue;
+            }
+            $host = strtolower((string)($parsed['host'] ?? ''));
+            if ($host !== '' && !hash_equals($storeHost, $host)) {
+                continue;
+            }
+            $path = rawurldecode(ltrim((string)($parsed['path'] ?? ''), '/'));
+            if ($path === '' || strlen($path) > 255 || str_contains($path, '..')) {
+                continue;
+            }
+
+            $rewrite = $this->urlFinder->findOneByData([
+                UrlRewrite::REQUEST_PATH => $path,
+                UrlRewrite::STORE_ID => $storeId,
+                UrlRewrite::ENTITY_TYPE => ProductUrlRewriteGenerator::ENTITY_TYPE,
+                UrlRewrite::REDIRECT_TYPE => 0,
+            ]);
+            $productId = $rewrite ? (int)$rewrite->getEntityId() : 0;
+            if ($productId > 0) {
+                $productIds[$productId] = $productId;
+            }
+            if (count($productIds) >= self::MAX_LEGACY_PRODUCT_CARDS) {
+                break;
+            }
+        }
+
+        if ($productIds === []) {
+            return null;
+        }
+
+        $html = $this->productRenderer->renderProducts(implode(',', $productIds));
+        if (trim($html) === '') {
+            return null;
+        }
+
+        return [
+            'id' => $messageId !== '' ? $messageId . '-legacy-products' : 'legacy-products',
+            'type' => 'products',
+            'html' => $html,
+            'payload' => [
+                'contract_version' => 2,
+                'kind' => 'product_list',
+                'product_ids' => array_values($productIds),
+                'items' => [],
+                'total' => count($productIds),
+                'coverage' => [
+                    'shown' => count($productIds),
+                    'total' => count($productIds),
+                    'remaining' => 0,
+                    'complete' => true,
+                ],
+                'pagination' => [
+                    'page' => 1,
+                    'page_size' => count($productIds),
+                    'total' => count($productIds),
+                    'returned' => count($productIds),
+                    'has_more' => false,
+                    'next_page' => null,
+                    'can_load_more' => false,
+                    'chat_card_limit' => self::MAX_LEGACY_PRODUCT_CARDS,
+                    'truncated_for_chat' => false,
+                ],
+            ],
+        ];
     }
 
     /** @param array<string, mixed> $existing @param array<string, mixed> $incoming */

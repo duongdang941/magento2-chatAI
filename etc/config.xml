@@ -5,15 +5,10 @@
             <general>
                 <enabled>0</enabled>
                 <persist_guest_history>1</persist_guest_history>
-                <provider>cockpit</provider>
-                <gemini_grounding_model>gemini-2.5-flash</gemini_grounding_model>
-                <cockpit_base_url>http://127.0.0.1:49998/v1</cockpit_base_url>
-                <cockpit_model>gpt-5.6-luna</cockpit_model>
-                <image_generation_enabled>1</image_generation_enabled>
-                <cockpit_image_model>gpt-image-2</cockpit_image_model>
-                <gemini_image_model>gemini-3.1-flash-image</gemini_image_model>
-                <cockpit_image_size>1024x1024</cockpit_image_size>
-                <cockpit_image_quality>medium</cockpit_image_quality>
+                <provider></provider>
+                <model></model>
+                <thought_level></thought_level>
+                <image_generation_enabled>0</image_generation_enabled>
             </general>
             <agent>
                 <max_tool_rounds>8</max_tool_rounds>
@@ -73,14 +68,13 @@
             <voice>
                 <enabled>1</enabled>
                 <transcription_model></transcription_model>
-                <gemini_model>gemini-3.1-flash-lite</gemini_model>
                 <max_duration_seconds>120</max_duration_seconds>
                 <max_audio_bytes>4194304</max_audio_bytes>
                 <requests_per_minute>6</requests_per_minute>
                 <max_concurrent_per_identity>1</max_concurrent_per_identity>
                 <timeout_ms>120000</timeout_ms>
                 <live_enabled>0</live_enabled>
-                <live_model>gpt-realtime-1.5</live_model>
+                <live_model></live_model>
                 <live_max_sessions_per_minute>3</live_max_sessions_per_minute>
                 <live_max_duration_seconds>600</live_max_duration_seconds>
             </voice>

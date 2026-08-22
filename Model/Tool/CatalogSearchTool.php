@@ -7,6 +7,7 @@ use Afd\AI\Api\ProductRendererInterface;
 use Afd\AI\Api\CatalogVisibilityPolicyInterface;
 use Afd\AI\Model\Catalog\ShopperScope;
 use Afd\AI\Model\Catalog\ShopperScopeResolver;
+use Afd\AI\Model\Catalog\PriceConstraintConverter;
 use Afd\AI\Model\Data\ToolResponseFactory;
 use Afd\AI\Model\Product\CatalogIdentityMatcher;
 use Afd\AI\Model\Product\DirectAddEligibility;
@@ -40,7 +41,8 @@ class CatalogSearchTool
         private readonly SaleQuantityPolicy $saleQuantityPolicy,
         private readonly CatalogIdentityMatcher $catalogIdentityMatcher,
         private readonly ShopperScopeResolver $shopperScopeResolver,
-        private readonly CatalogVisibilityPolicyInterface $catalogVisibilityPolicy
+        private readonly CatalogVisibilityPolicyInterface $catalogVisibilityPolicy,
+        private readonly PriceConstraintConverter $priceConstraintConverter
     ) {
     }
 
@@ -58,6 +60,7 @@ class CatalogSearchTool
         int $categoryId = 0,
         float $minPrice = 0.0,
         float $maxPrice = 0.0,
+        string $priceCurrency = '',
         bool $directAddOnly = false,
         bool $exactIdentity = false,
         string $excludedTerms = '',
@@ -74,27 +77,19 @@ class CatalogSearchTool
         $page = max(1, $page);
         $categoryIds = $categoryId > 0 ? $this->expandCategoryIdsWithDescendants([$categoryId], $shopperScope) : [];
         $categoryScope = $categoryId > 0 ? $this->getCategoryScope($categoryId, $shopperScope) : [];
+        $priceConstraints = $this->priceConstraintConverter->convert($minPrice, $maxPrice, $priceCurrency);
+        $minPrice = $priceConstraints['min_price'];
+        $maxPrice = $priceConstraints['max_price'];
+
+        if (!$priceConstraints['available']) {
+            return $this->emptyResponse($page, $limit, $shopperScope, $categoryScope, $priceConstraints['meta']);
+        }
 
         // A broad, unconstrained product dump is neither useful to the agent
         // nor safe for catalogue cost. The protocol requires listCategories()
         // first, then an explicit categoryId for category browsing.
-        if ($query === '' && $categoryIds === []) {
-            $response = $this->toolResponseFactory->create();
-            $response->setData([]);
-            $response->setHtml('');
-            $response->setMeta([
-                'pagination' => [
-                    'total' => 0,
-                    'page' => $page,
-                    'page_size' => $limit,
-                    'returned' => 0,
-                    'has_more' => false,
-                    'next_page' => null,
-                ],
-                'scope' => [...$shopperScope->toArray(), ...$categoryScope],
-            ]);
-
-            return $response;
+        if ($query === '' && $categoryIds === [] && $minPrice <= 0 && $maxPrice <= 0) {
+            return $this->emptyResponse($page, $limit, $shopperScope, $categoryScope, $priceConstraints['meta']);
         }
 
         // Resolve the complete fulltext ID set once so stock, price and
@@ -188,6 +183,34 @@ class CatalogSearchTool
                 'excluded_terms' => $excludedNameTerms,
                 'unavailable_query_match' => $unavailableQueryMatch,
             ],
+            'currency' => $priceConstraints['meta'],
+        ]);
+
+        return $response;
+    }
+
+    /** @param array<string, mixed> $currencyMeta */
+    private function emptyResponse(
+        int $page,
+        int $limit,
+        ShopperScope $shopperScope,
+        array $categoryScope,
+        array $currencyMeta
+    ) {
+        $response = $this->toolResponseFactory->create();
+        $response->setData([]);
+        $response->setHtml('');
+        $response->setMeta([
+            'pagination' => [
+                'total' => 0,
+                'page' => $page,
+                'page_size' => $limit,
+                'returned' => 0,
+                'has_more' => false,
+                'next_page' => null,
+            ],
+            'scope' => [...$shopperScope->toArray(), ...$categoryScope],
+            'currency' => $currencyMeta,
         ]);
 
         return $response;

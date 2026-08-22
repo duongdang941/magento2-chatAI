@@ -20,6 +20,12 @@ import {
     buildFallbackMessage,
     createProviderNeutralToolFlow
 } from './provider-neutral-tool-flow.js';
+import {
+    addProviderCitations,
+    createProviderResponseEnvelope,
+    finalizeProviderResponseEnvelope,
+    mergeProviderUsage
+} from './provider-response-envelope.js';
 
 // ==================== TOOLS DEFINITION ====================
 
@@ -49,6 +55,12 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         const maxToolRounds = Math.max(1, Math.min(Number(agentConfig.max_tool_rounds) || MAX_CATALOG_TOOL_ROUNDS, 12));
         const maxOutputTokens = Math.max(256, Math.min(Number(agentConfig.max_output_tokens) || 2048, 8192));
         const providerTimeoutMs = Math.max(10000, Math.min(Number(agentConfig.provider_stream_timeout_ms) || 120000, 300000));
+        const providerResponse = createProviderResponseEnvelope({
+            provider: config.provider || 'gemini',
+            protocol: config.api_format || 'gemini-stream',
+            model: modelName
+        });
+        let finishReason = '';
 
         console.log(`[Gemini] Starting stream with model: ${modelName}`);
 
@@ -70,7 +82,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             options,
             agentConfig,
             currentUserMessage,
-            provider: 'gemini',
+            provider: config.provider || 'gemini',
             providerConnection: {
                 baseUrl: config.base_url || process.env.GEMINI_ENDPOINT || 'https://generativelanguage.googleapis.com/v1beta',
                 apiKey,
@@ -151,6 +163,18 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 emit: content => ws.send(JSON.stringify({ type: 'chunk', content })),
                 isCancelled
             });
+            const thinkingEmitter = createSmoothChunkEmitter({
+                emit: delta => ws.send(JSON.stringify({
+                    type: 'thinking_delta',
+                    step_id: currentStepId,
+                    delta
+                })),
+                isCancelled,
+                intervalMs: 18,
+                targetFrames: 6,
+                minChars: 1,
+                maxChars: 24
+            });
 
             for await (const chunk of result.stream) {
                 if (isCancelled()) {
@@ -158,14 +182,13 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 }
 
                 const parts = chunk.candidates?.[0]?.content?.parts;
+                mergeProviderUsage(providerResponse, chunk.usageMetadata);
+                finishReason = chunk.candidates?.[0]?.finishReason || finishReason;
+                addProviderCitations(providerResponse, chunk.candidates?.[0]?.groundingMetadata?.groundingChunks);
                 if (parts) {
                     for (const part of parts) {
                         if (part.thought === true || part.thought) {
-                            ws.send(JSON.stringify({
-                                type: 'thinking_delta',
-                                step_id: currentStepId,
-                                delta: part.text || ''
-                            }));
+                            thinkingEmitter.push(part.text || '');
                         } else if (part.text) {
                             smoothEmitter.push(part.text);
                             hasVisibleText = true;
@@ -184,6 +207,11 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                     if (calls) functionCalls.push(...calls);
                 } catch (e) {}
             }
+
+            // Keep the reasoning timeline ahead of the next tool/final frame.
+            // Provider thought parts can arrive as large bursts; the emitter
+            // above paints those bursts in small ordered deltas.
+            await thinkingEmitter.drain();
 
             if (combinedParts.length > 0) {
                 chatHistory.push({
@@ -261,7 +289,10 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         }
 
         emitProductPresentation(ws, pendingProductPresentation);
-        ws.send(JSON.stringify({ type: 'done' }));
+        ws.send(JSON.stringify({
+            type: 'done',
+            provider_meta: finalizeProviderResponseEnvelope(providerResponse, finishReason || 'stop')
+        }));
         return { cancelled: false };
 
     } catch (error) {

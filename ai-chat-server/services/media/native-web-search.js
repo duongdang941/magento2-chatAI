@@ -10,6 +10,8 @@ const MAX_SEARCH_CANDIDATES = 16;
 const MAX_SNIPPET_LENGTH = 900;
 const COCKPIT_SEARCH_ATTEMPTS = 2;
 const SAFE_WEB_PORTS = new Set(['', '80', '443']);
+const BUILT_IN_SEARCH_ENDPOINT = 'https://html.duckduckgo.com/html/';
+const BUILT_IN_SEARCH_TIMEOUT_MS = 15000;
 const BLOCKED_HOST_SUFFIXES = [
     '.internal',
     '.invalid',
@@ -252,10 +254,13 @@ async function filterSafePublicSources(sources, dnsLookup = lookup) {
         }
 
         const url = parsed.toString();
-        safeSources.push({
+        const safeSource = {
             title: String(source?.title || '').trim().slice(0, 240) || parsed.hostname,
             url
-        });
+        };
+        const excerpt = normalizeEvidenceText(source?.excerpt ?? source?.snippet);
+        if (excerpt) safeSource.excerpt = excerpt;
+        safeSources.push(safeSource);
         if (safeSources.length >= MAX_SOURCES) break;
     }
 
@@ -396,10 +401,289 @@ function unavailable(reason, message) {
     };
 }
 
+function isZCodeSearchRouterEndpoint(baseUrl) {
+    try {
+        const hostname = new URL(normalizeBaseUrl(baseUrl)).hostname.toLowerCase();
+        return hostname === '9router.com'
+            || hostname.endsWith('.9router.com')
+            || hostname === '9router.bingxgames.com'
+            || hostname.endsWith('.9router.bingxgames.com');
+    } catch {
+        return false;
+    }
+}
+
+function automaticRouterSearchConnection({ provider, baseUrl, apiKey }) {
+    const providerCode = String(provider || '').trim().toLowerCase();
+    return {
+        baseUrl: normalizeBaseUrl(baseUrl),
+        apiKey: String(apiKey || '').trim(),
+        provider: /^[a-z0-9][a-z0-9_-]{0,63}$/.test(providerCode) ? providerCode : '',
+        maxResults: 5,
+        timeoutMs: 15000
+    };
+}
+
+function routerSearchUrl(baseUrl) {
+    const endpoint = normalizeBaseUrl(baseUrl);
+    if (!endpoint) return '';
+    if (/\/search$/i.test(endpoint)) return endpoint;
+    return /\/v1$/i.test(endpoint) ? `${endpoint}/search` : `${endpoint}/v1/search`;
+}
+
+function routerSearchCandidates(payload) {
+    const results = Array.isArray(payload?.results)
+        ? payload.results
+        : (Array.isArray(payload?.data?.results) ? payload.data.results : []);
+
+    return results.slice(0, MAX_SEARCH_CANDIDATES).map((result) => ({
+        title: normalizeEvidenceText(result?.title || result?.name, 240),
+        url: String(result?.url || result?.link || '').trim(),
+        excerpt: normalizeEvidenceText(result?.snippet ?? result?.excerpt ?? result?.description ?? result?.content)
+    }));
+}
+
+function buildRouterEvidenceAnswer(answer, sources) {
+    const normalizedAnswer = normalizeEvidenceText(answer, MAX_ANSWER_LENGTH);
+    const evidence = (Array.isArray(sources) ? sources : [])
+        .map((source, index) => {
+            const excerpt = normalizeEvidenceText(source?.excerpt, MAX_SNIPPET_LENGTH);
+            if (!excerpt) return '';
+            return [
+                `[${index + 1}] ${source.title}`,
+                `URL: ${source.url}`,
+                `Excerpt: ${excerpt}`
+            ].join('\n');
+        })
+        .filter(Boolean)
+        .join('\n\n');
+
+    return [normalizedAnswer, evidence]
+        .filter(Boolean)
+        .join(normalizedAnswer && evidence ? '\n\n' : '')
+        .slice(0, MAX_ANSWER_LENGTH);
+}
+
+function decodeHtmlEntities(value) {
+    return String(value || '')
+        .replace(/&#x([0-9a-f]+);/gi, (_match, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
+        .replace(/&#(\d+);/g, (_match, decimal) => String.fromCodePoint(Number.parseInt(decimal, 10)))
+        .replace(/&(amp|quot|apos|lt|gt|nbsp);/gi, (_match, name) => ({
+            amp: '&', quot: '"', apos: "'", lt: '<', gt: '>', nbsp: ' '
+        })[String(name).toLowerCase()] || '');
+}
+
+function htmlText(value) {
+    return normalizeEvidenceText(decodeHtmlEntities(String(value || '').replace(/<[^>]{0,500}>/g, ' ')));
+}
+
+function unwrapDuckDuckGoUrl(value) {
+    const href = decodeHtmlEntities(value).trim();
+    if (!href) return '';
+    const absolute = href.startsWith('//') ? `https:${href}` : href;
+    try {
+        const parsed = new URL(absolute);
+        if (parsed.hostname.toLowerCase().endsWith('duckduckgo.com') && /^\/l\/?$/i.test(parsed.pathname)) {
+            return parsed.searchParams.get('uddg') || '';
+        }
+    } catch {
+        return '';
+    }
+    return absolute;
+}
+
+function extractBuiltInSearchCandidates(html) {
+    const candidates = [];
+    const resultPattern = /<a\b(?=[^>]*\bclass=["'][^"']*\bresult__a\b[^"']*["'])(?=[^>]*\bhref=["']([^"']+)["'])[^>]*>([\s\S]*?)<\/a>/gi;
+    const matches = Array.from(String(html || '').matchAll(resultPattern));
+
+    for (let index = 0; index < matches.length && candidates.length < MAX_SEARCH_CANDIDATES; index += 1) {
+        const match = matches[index];
+        const nextOffset = matches[index + 1]?.index ?? String(html || '').length;
+        const resultWindow = String(html || '').slice(match.index + match[0].length, nextOffset);
+        const snippetMatch = resultWindow.match(/<[^>]*\bclass=["'][^"']*\bresult__snippet\b[^"']*["'][^>]*>([\s\S]*?)<\/(?:a|div)>/i);
+        const url = unwrapDuckDuckGoUrl(match[1]);
+        if (!url) continue;
+        candidates.push({
+            title: htmlText(match[2]).slice(0, 240),
+            url,
+            excerpt: htmlText(snippetMatch?.[1])
+        });
+    }
+
+    return candidates;
+}
+
+async function searchWithBuiltInWeb({ query, signal, fetchImpl, dnsLookup }) {
+    const controller = new AbortController();
+    let timedOut = false;
+    const forwardAbort = () => controller.abort(signal?.reason);
+    if (signal?.aborted) forwardAbort();
+    else signal?.addEventListener?.('abort', forwardAbort, { once: true });
+    const timeout = setTimeout(() => {
+        timedOut = true;
+        controller.abort(new Error('Built-in Web Search request timed out.'));
+    }, BUILT_IN_SEARCH_TIMEOUT_MS);
+
+    try {
+        const url = new URL(BUILT_IN_SEARCH_ENDPOINT);
+        url.searchParams.set('q', query);
+        url.searchParams.set('kp', '-2');
+        url.searchParams.set('kl', 'wt-wt');
+        const response = await fetchImpl(url.toString(), {
+            method: 'GET',
+            headers: {
+                Accept: 'text/html,application/xhtml+xml',
+                'User-Agent': 'Mozilla/5.0 (compatible; AfdAI-WebSearch/1.0)'
+            },
+            signal: controller.signal
+        });
+        if (!response.ok) {
+            return unavailable(
+                'provider_web_search_temporarily_unavailable',
+                'Built-in Web Search is temporarily unavailable, but normal chat is still available.'
+            );
+        }
+
+        const sources = await filterSafePublicSources(
+            extractBuiltInSearchCandidates(await response.text()),
+            dnsLookup
+        );
+        const answer = buildRouterEvidenceAnswer('', sources);
+        if (sources.length === 0 || !answer) {
+            return unavailable(
+                'provider_web_search_unavailable',
+                'Built-in Web Search did not return verifiable public sources.'
+            );
+        }
+        return {
+            status: 'success',
+            query,
+            answer,
+            sources,
+            count: sources.length
+        };
+    } catch {
+        return unavailable(
+            'provider_web_search_temporarily_unavailable',
+            timedOut
+                ? 'Built-in Web Search timed out, but normal chat is still available.'
+                : 'Built-in Web Search is temporarily unavailable, but normal chat is still available.'
+        );
+    } finally {
+        clearTimeout(timeout);
+        signal?.removeEventListener?.('abort', forwardAbort);
+    }
+}
+
+async function fallBackToBuiltInWeb(primary, options) {
+    const result = await primary();
+    return result?.status === 'success' ? result : searchWithBuiltInWeb(options);
+}
+
+async function requestRouterSearch({ endpoint, apiKey, provider, query, maxResults, timeoutMs, signal, fetchImpl }) {
+    const controller = new AbortController();
+    let timedOut = false;
+    const forwardAbort = () => controller.abort(signal?.reason);
+    if (signal?.aborted) forwardAbort();
+    else signal?.addEventListener?.('abort', forwardAbort, { once: true });
+    const timeout = setTimeout(() => {
+        timedOut = true;
+        controller.abort(new Error('Web Search request timed out.'));
+    }, timeoutMs);
+
+    try {
+        const response = await fetchImpl(routerSearchUrl(endpoint), {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+                Accept: 'application/json'
+            },
+            body: JSON.stringify({
+                provider,
+                query,
+                max_results: maxResults
+            }),
+            signal: controller.signal
+        });
+        let payload = null;
+        try { payload = await response.json(); } catch {}
+        return { response, payload, timedOut: false };
+    } catch (error) {
+        return { error, timedOut };
+    } finally {
+        clearTimeout(timeout);
+        signal?.removeEventListener?.('abort', forwardAbort);
+    }
+}
+
+async function searchWithRouter({ query, connection, signal, fetchImpl, dnsLookup }) {
+    if (!connection.baseUrl || !connection.apiKey || !connection.provider) {
+        return unavailable(
+            'provider_web_search_unavailable',
+            'The selected provider does not have the connection details required for Web Search.'
+        );
+    }
+
+    const result = await requestRouterSearch({
+        endpoint: connection.baseUrl,
+        apiKey: connection.apiKey,
+        provider: connection.provider,
+        query,
+        maxResults: connection.maxResults,
+        timeoutMs: connection.timeoutMs,
+        signal,
+        fetchImpl
+    });
+    if (result.error) {
+        return unavailable(
+            'provider_web_search_temporarily_unavailable',
+            result.timedOut
+                ? 'Web Search timed out, but normal chat is still available.'
+                : 'Web Search is temporarily unreachable, but normal chat is still available.'
+        );
+    }
+    if (!result.response?.ok) {
+        const reason = [400, 401, 403, 404, 405, 422].includes(Number(result.response?.status))
+            ? 'provider_web_search_unavailable'
+            : 'provider_web_search_temporarily_unavailable';
+        return unavailable(
+            reason,
+            reason === 'provider_web_search_unavailable'
+                ? 'The selected provider cannot run Web Search at this time.'
+                : 'Web Search is temporarily unavailable, but normal chat is still available.'
+        );
+    }
+
+    const sources = await filterSafePublicSources(routerSearchCandidates(result.payload), dnsLookup);
+    if (sources.length === 0) {
+        return unavailable(
+            'provider_web_search_unavailable',
+            'The Web Search service did not return verifiable public sources.'
+        );
+    }
+    const answer = buildRouterEvidenceAnswer(result.payload?.answer, sources);
+    if (!answer) {
+        return unavailable(
+            'provider_web_search_unavailable',
+            'The Web Search service returned sources without usable evidence excerpts.'
+        );
+    }
+
+    return {
+        status: 'success',
+        query,
+        answer,
+        sources,
+        count: sources.length
+    };
+}
+
 /**
- * Ask the configured AI provider to use its own native Web Search capability.
- * This request is deliberately isolated from the main chat-completions stream:
- * an unsupported provider can never break ordinary storefront chat.
+ * Perform public Web Search without ever making regular chat unavailable. The
+ * built-in host fallback mirrors ZCode's WebSearch tool: it is independent of
+ * the selected model provider and needs no Merchant Admin configuration.
  */
 export async function searchWebWithAi({
     query,
@@ -414,6 +698,13 @@ export async function searchWebWithAi({
     const safeQuery = normalizeQuery(query);
     const normalizedProvider = String(provider || '').toLowerCase();
     const endpoint = normalizeBaseUrl(baseUrl);
+    const useBuiltInHostFallback = normalizedProvider === 'cockpit';
+    const builtInFallback = () => searchWithBuiltInWeb({
+        query: safeQuery,
+        signal,
+        fetchImpl,
+        dnsLookup
+    });
 
     if (!safeQuery) {
         return unavailable('invalid_query', 'A web search needs a clear, non-empty query.');
@@ -424,6 +715,21 @@ export async function searchWebWithAi({
             'Web Search was not used because the query contains private account, contact, or order information.'
         );
     }
+
+    // 9router is ZCode-compatible: the provider already owns the connection
+    // and the selected provider code is the search backend selector. Its
+    // optional /search service is used when configured there; otherwise Afd's
+    // built-in host tool provides the same zero-config fallback as ZCode.
+    if (isZCodeSearchRouterEndpoint(endpoint)) {
+        return fallBackToBuiltInWeb(() => searchWithRouter({
+            query: safeQuery,
+            connection: automaticRouterSearchConnection({ provider: normalizedProvider, baseUrl: endpoint, apiKey }),
+            signal,
+            fetchImpl,
+            dnsLookup
+        }), { query: safeQuery, signal, fetchImpl, dnsLookup });
+    }
+
     if (!SUPPORTED_PROVIDERS.has(normalizedProvider) || !endpoint || !apiKey || !model) {
         return unavailable(
             'provider_web_search_unavailable',
@@ -432,7 +738,7 @@ export async function searchWebWithAi({
     }
 
     if (normalizedProvider === 'gemini') {
-        return searchGeminiWithGrounding({
+        return fallBackToBuiltInWeb(() => searchGeminiWithGrounding({
             query: safeQuery,
             baseUrl: endpoint,
             apiKey,
@@ -440,7 +746,7 @@ export async function searchWebWithAi({
             signal,
             fetchImpl,
             dnsLookup
-        });
+        }), { query: safeQuery, signal, fetchImpl, dnsLookup });
     }
 
     if (normalizedProvider === 'cockpit') {
@@ -464,8 +770,8 @@ export async function searchWebWithAi({
                 // Retry once for a transient local proxy/search failure.
             }
         }
-        // Compatibility fallback below keeps ordinary chat usable when this
-        // Cockpit build does not expose Codex indexed search.
+        // The Responses compatibility fallback below remains available for
+        // Cockpit. If it cannot search either, use the host-side fallback.
     }
 
     let response;
@@ -487,6 +793,7 @@ export async function searchWebWithAi({
             signal
         });
     } catch {
+        if (useBuiltInHostFallback) return builtInFallback();
         return unavailable(
             'provider_web_search_temporarily_unavailable',
             'Web Search is temporarily unreachable, but normal chat is still available.'
@@ -502,12 +809,13 @@ export async function searchWebWithAi({
         const reason = [400, 404, 405, 422].includes(Number(response.status))
             ? 'provider_web_search_unavailable'
             : 'provider_web_search_temporarily_unavailable';
-        return unavailable(
+        const unavailableResult = unavailable(
             reason,
             reason === 'provider_web_search_unavailable'
                 ? 'The current AI provider or model does not offer Web Search for this chat.'
                 : 'Web Search is temporarily unavailable, but normal chat is still available.'
         );
+        return useBuiltInHostFallback ? builtInFallback() : unavailableResult;
     }
 
     const result = collectResponseOutput(payload);
@@ -516,10 +824,11 @@ export async function searchWebWithAi({
         && Boolean(result.answer)
         && safeSources.length > 0;
     if (!result.searchUsed && !compatibilitySearchUsed) {
-        return unavailable(
+        const unavailableResult = unavailable(
             'provider_web_search_unavailable',
             'The current AI provider or model accepted the request but did not provide Web Search access.'
         );
+        return useBuiltInHostFallback ? builtInFallback() : unavailableResult;
     }
 
     return {
@@ -538,5 +847,7 @@ export {
     extractLinkedSources,
     filterSafePublicSources,
     normalizeQuery,
-    parseSafeWebUrl
+    parseSafeWebUrl,
+    routerSearchUrl,
+    isZCodeSearchRouterEndpoint
 };

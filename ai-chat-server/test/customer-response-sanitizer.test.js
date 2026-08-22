@@ -44,3 +44,17 @@ test('discards an unfinished temporary narration', () => {
 
     assert.equal(sanitizer.flush(), '');
 });
+
+test('removes database-unsafe decorative Unicode without changing Markdown links', () => {
+    const output = sanitizeCustomerResponse('Đã xong 🛒 [Xem sản phẩm](https://afd.test/item.html)');
+
+    assert.equal(output, 'Đã xong [Xem sản phẩm](https://afd.test/item.html)');
+    assert.match(output, /\[Xem sản phẩm\]\(https:\/\/afd\.test\/item\.html\)/);
+});
+
+test('cleans malformed legacy icon placeholders before links', () => {
+    assert.equal(
+        sanitizeCustomerResponse('Hoàn tất nhé:???? [Xem sản phẩm](https://afd.test/item.html)'),
+        'Hoàn tất nhé: [Xem sản phẩm](https://afd.test/item.html)'
+    );
+});

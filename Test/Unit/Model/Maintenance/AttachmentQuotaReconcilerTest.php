@@ -13,7 +13,7 @@ use Magento\Framework\Lock\LockManagerInterface;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 
-final class AttachmentQuotaReconcilerTest extends TestCase
+class AttachmentQuotaReconcilerTest extends TestCase
 {
     public function testBusyLockSkips(): void
     {

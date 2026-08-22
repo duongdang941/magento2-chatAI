@@ -1,18 +1,18 @@
 # Afd_AI quality scorecard
 
-Assessment date: 2026-08-11
+Assessment date: 2026-08-20
 
 ## Result
 
-Weighted overall score: **9.1/10**.
+Weighted overall score: **9.3/10**.
 
 | Area | Weight | Score | Evidence |
 | --- | ---: | ---: | --- |
-| Architecture and boundaries | 30% | 9.0 | Provider adapters use one tool registry/executor; Magento remains the commerce and authorization authority; history hydration, support broadcasting, address admission, runtime config, and frontend state are extracted services. |
-| Security and privacy | 25% | 9.3 | Single-use tickets/nonces, HMAC internal endpoints, default-deny WebSocket actions, origin validation, scoped ACL, encrypted runtime snapshots, private attachments, ownership enforcement, OTP/rate limits, and tested deletion/redaction. |
-| Reliability and testability | 25% | 9.4 | 164 Node tests, 22 PHPUnit tests/70 assertions, 14 shopping-contract checks, 50/50 model-grounding evaluation, browser regression, integration smoke, linting, DI compilation, and provider retry before first output only. |
-| Code quality and Magento conventions | 10% | 8.8 | Declarative schema/service contracts/DI, `.less` sources, PHP strict types, zero PHPCS errors, and architecture regression budgets. Some large feature modules remain. |
-| Operations and maintainability | 10% | 9.0 | Admin-owned runtime config, sealed snapshots, health endpoint, dependency audit, explicit deployment steps, bounded queues/timeouts, and reproducible evaluation reports. |
+| Architecture and boundaries | 30% | 9.2 | Provider adapters use one tool registry/executor; Magento remains the commerce and authorization authority; guest history sync and verified guest/support access are isolated services; the gateway composition root is now 1,635 lines and guarded by a regression budget. |
+| Security and privacy | 25% | 9.5 | Single-use tickets/nonces, HMAC internal endpoints, default-deny WebSocket actions, origin validation, scoped ACL, encrypted runtime snapshots/API keys, private attachments, provider error redaction, endpoint/IP validation, ownership enforcement, OTP/rate limits, and tested deletion/redaction. |
+| Reliability and testability | 25% | 9.5 | 308 Node tests, 83 PHPUnit tests/256 assertions, provider health/circuit tests, 14 shopping-contract checks, model-grounding evaluations, in-app storefront regression, Admin HTTP/static verification, integration smoke, linting, DI compilation, and bounded provider retry/error paths. |
+| Code quality and Magento conventions | 10% | 9.0 | Declarative schema/service contracts/DI, `.less` sources, PHP strict types, zero PHPCS errors, PHPStan clean, DOM-safe Admin rendering, and architecture regression budgets. Some large feature modules remain. |
+| Operations and maintainability | 10% | 9.2 | Admin-owned runtime config, sealed snapshots, provider health probe/circuit state, dependency audit, explicit PHP 8.3 deployment steps, bounded queues/timeouts, cache/static deploy verification, and reproducible quality-gate output. |
 
 ## Verified invariants
 
@@ -22,6 +22,10 @@ Weighted overall score: **9.1/10**.
 - A disabled or absent exact product never produces unrelated product cards in the 20 negative ground-truth cases.
 - Active exact and typo product identities pass all 25 positive ground-truth cases.
 - History loading restores the guest transcript without leaving the blocking overlay visible.
+- Provider health probes validate only the endpoint, use bounded timeouts, clear shared Curl headers, and never return upstream response bodies.
+- OpenAI-compatible and Anthropic failures are normalized to stable public error codes without leaking HTML or provider payloads.
+- Guest order/support access is capped and restored through owner-scoped shared cache; invalid cached tokens are deleted before protected calls.
+- Admin provider notices use the shared styled notice instead of native `alert()` dialogs, and hidden model fields are created through DOM APIs.
 
 ## Remaining work before 10/10
 

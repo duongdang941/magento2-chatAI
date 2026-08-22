@@ -124,6 +124,18 @@ class CartTool
                 return $this->invalidQuantityResult($product, $quantityValidation, $qty);
             }
 
+            // selectedOptions is the configurable-product contract. A model
+            // can occasionally carry a stale selection from a previous card
+            // into a simple-product add request; Magento has no super
+            // attributes to apply in that case. Ignore that stale metadata so
+            // a Magento-validated direct-addable simple product is not
+            // incorrectly reported as requiring a product-page configuration.
+            // Required custom options, if any, are still validated by
+            // Magento's addProduct call below and remain product-page-only.
+            if ($product->getTypeId() !== Configurable::TYPE_CODE) {
+                $selectedOptions = [];
+            }
+
             $existingQty = $this->getExistingProductQty($cart, (int)$product->getId());
             if ($existingQty > 0.0) {
                 $combinedValidation = $this->saleQuantityPolicy->validate(
@@ -162,10 +174,32 @@ class CartTool
                 'quote_id' => (int)$cart->getQuote()->getId(),
             ];
         } catch (LocalizedException $exception) {
+            // Magento also uses LocalizedException for inventory failures. Do
+            // not report those as a product-page configuration requirement:
+            // the shopper may have selected a valid product but requested more
+            // units than are currently salable.
+            if ($this->isInsufficientStockException($exception)) {
+                $this->logger->warning('Afd AI cart action exceeds current salable stock.', [
+                    'sku' => $product ? (string)$product->getSku() : trim($sku),
+                    'requested_qty' => $qty,
+                    'message' => $exception->getMessage(),
+                ]);
+
+                return [
+                    'status' => 'requires_customer_action',
+                    'reason' => 'insufficient_stock',
+                    'message' => __('The requested quantity is not currently available.')->render(),
+                    'product' => $product ? (string)$product->getName() : '',
+                    'sku' => $product ? (string)$product->getSku() : trim($sku),
+                    'requested_qty' => $qty,
+                ];
+            }
+
             // Extensions may require a design, upload, engraving, or another
             // product-page step that the chat cannot safely fabricate. Treat
-            // every shopper-correctable Magento cart exception as a structured
-            // outcome so the model never falls back to a fresh product search.
+            // other shopper-correctable Magento cart exceptions as a
+            // structured outcome so the model never falls back to a fresh
+            // product search.
             $this->logger->warning('Afd AI cart action needs shopper input.', [
                 'sku' => $product ? (string)$product->getSku() : trim($sku),
                 'message' => $exception->getMessage(),
@@ -189,6 +223,21 @@ class CartTool
                 'message' => __('The selected product could not be added to the cart.')->render(),
             ];
         }
+    }
+
+    private function isInsufficientStockException(LocalizedException $exception): bool
+    {
+        $message = mb_strtolower(trim($exception->getMessage()));
+        if ($message === '') {
+            return false;
+        }
+
+        return str_contains($message, 'requested qty')
+            || str_contains($message, 'requested quantity')
+            || str_contains($message, 'quantity is not available')
+            || str_contains($message, 'requested amount is not available')
+            || (str_contains($message, 'gewünschte menge') && str_contains($message, 'nicht verfügbar'))
+            || (str_contains($message, 'angeforderte menge') && str_contains($message, 'nicht verfügbar'));
     }
 
     private function quoteContainsProduct(object $cart, int $productId): bool

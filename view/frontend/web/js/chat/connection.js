@@ -31,6 +31,11 @@ const {
                 this.imageGenerationTimer = window.setInterval(() => {
                     if (this.isLoading) this.imageGenerationNow = Date.now();
                 }, 1000);
+                // Codex refreshes running timers once per second; the tick
+                // only mutates reactive state while a turn is in flight.
+                this.streamClockTimer = window.setInterval(() => {
+                    if (this.isLoading) this.streamNow = Date.now();
+                }, 1000);
                 window.addEventListener('resize', () => {
                     this.clampLauncherPosition();
                     this.clampChatWindowLayout();
@@ -130,9 +135,14 @@ const {
                             this.wsHasEverConnected = true;
                             // A slow first TLS/WebSocket handshake can trip
                             // the history watchdog before auth arrives. Once
-                            // the socket is healthy, remove that stale notice.
+                            // the socket is healthy, remove only notices that
+                            // describe the now-recovered transport. Keeping a
+                            // stale gateway error alongside an Online status
+                            // makes the chat appear broken even though it can
+                            // already accept the next customer message.
                             this.clearTransportNotice('history-load-timeout');
                             this.clearTransportNotice('socket-auth-failed');
+                            this.clearTransportNotice('secure-gateway-unavailable');
                         };
                         this.socket.onmessage = (event) => { try { this.handleWsMessage(JSON.parse(event.data)); } catch(e) {} };
                         this.socket.onclose = () => {
@@ -624,6 +634,9 @@ const {
                     source: message.source === 'support_agent' ? 'support_agent' : '',
                     senderLabel: String(message.senderLabel || '').slice(0, 80),
                     content: String(message.content || ''),
+                    ...(message.provider_meta && typeof message.provider_meta === 'object' ? {
+                        provider_meta: this.serializeCrossTabPayload(message.provider_meta)
+                    } : {}),
                     feedbackEnabled: message.feedbackEnabled === true,
                     feedback: ['positive', 'negative'].includes(String(message.feedback || ''))
                         ? String(message.feedback)
@@ -658,6 +671,12 @@ const {
                         // product follow-up questions after a tab sync.
                         payload: this.serializeCrossTabPayload(part.payload),
                         html: part.type === 'products' ? String(part.html || '') : '',
+                        ...(part.type === 'reasoning' ? {
+                            events: this.serializeCrossTabPayload(part.events) || [],
+                            steps: this.serializeCrossTabPayload(part.steps) || [],
+                            activities: this.serializeCrossTabPayload(part.activities) || [],
+                            elapsedMs: Math.max(0, Number(part.elapsedMs) || 0)
+                        } : {}),
                         ...(part.type === 'image' ? {
                             imageId: String(part.imageId || ''),
                             status: String(part.status || 'complete'),
@@ -705,6 +724,12 @@ const {
 
             applyCrossTabMessageSnapshot(messages, conversationId) {
                 if (!Array.isArray(messages) || messages.length === 0) return false;
+                // A cross-tab snapshot is a completed-content synchronization
+                // mechanism. It is never allowed to replace the assistant
+                // turn that this tab is currently streaming; doing so drops
+                // the live Thinking steps and action timeline until the next
+                // turn.
+                if (this.activeRequestId && (this.isLoading || this.currentAiMessageIndex >= 0)) return true;
                 // A browser snapshot is useful for message content only. It is
                 // never an authority for guest-order access: an old snapshot
                 // can outlive a gateway restart or an expired OTP token.
@@ -730,6 +755,9 @@ const {
                         content: role === 'user'
                             ? String(message.content || '')
                             : sanitizeCustomerResponseText(message.content || ''),
+                        ...(message.provider_meta && typeof message.provider_meta === 'object' ? {
+                            provider_meta: this.serializeCrossTabPayload(message.provider_meta)
+                        } : {}),
                         feedbackEnabled: role === 'assistant'
                             && source !== 'support_agent'
                             && entityId !== null
@@ -747,10 +775,24 @@ const {
                             0,
                             Number(message.stoppedAfterSeconds ?? message.stopped_after_seconds) || 0
                         ),
+                        workedForMs: Math.max(0, Number(message.workedForMs) || 0),
                         attachments: Array.isArray(message.attachments) ? message.attachments : [],
                         parts: Array.isArray(message.parts) ? message.parts.map((part) => (
                             part.type === 'products'
                                 ? { id: Date.now() + Math.random(), type: 'products', payload: part.payload || null, html: hydrateProductGridHtml(part.html || '') }
+                                : part.type === 'reasoning'
+                                    ? {
+                                        id: Date.now() + Math.random(),
+                                        type: 'reasoning',
+                                        events: Array.isArray(part.events) ? part.events : [],
+                                        steps: Array.isArray(part.steps) ? part.steps : [],
+                                        activities: Array.isArray(part.activities) ? part.activities : [],
+                                        ...(Number(part.elapsedMs) > 0 ? { elapsedMs: Number(part.elapsedMs) } : {}),
+                                        isManuallyCollapsed: false,
+                                        // Codex folds completed reasoning sections;
+                                        // the header stays available for expansion.
+                                        isExpanded: false
+                                    }
                                 : part.type === 'image' && /^(?:https?:\/\/|\/media\/)/i.test(String(part.url || ''))
                                     ? {
                                         id: Date.now() + Math.random(),

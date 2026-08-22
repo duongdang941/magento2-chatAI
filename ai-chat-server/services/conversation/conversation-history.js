@@ -2,6 +2,7 @@ import { sanitizeCustomerResponse } from './customer-response-sanitizer.js';
 import { normalizeOrderAddressFormPart } from '../customer/order-address-form.js';
 import { coalesceProductParts } from '../catalog/product-presentation.js';
 import { contextBytes, fitHistoryToBudget, truncateUtf8Middle } from '../orchestration/context-budget.js';
+import { normalizeProviderResponseMetadata } from '../orchestration/provider-response-envelope.js';
 
 const CATALOG_CONTEXT_MARKER = '[CATALOG_CONTEXT:';
 
@@ -31,7 +32,7 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
             : String(message?.content || message?.text || '');
         const text = rawText.replace(/\n*\[CATALOG_CONTEXT:[\s\S]*$/u, '').trim();
         const imageParts = sourceParts
-            .filter((part) => part?.type === 'image' && /^https?:\/\//i.test(String(part.url || '')))
+            .filter((part) => part?.type === 'image' && /^(?:https?:\/\/|\/media\/afd-ai\/generated\/)/i.test(String(part.url || '')))
             .map((part) => ({
                 type: 'image',
                 url: String(part.url),
@@ -100,6 +101,9 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
                         sender_label: storedPayload.source === 'support_agent'
                             ? String(storedPayload.sender_label || 'Support team').slice(0, 80)
                             : '',
+                        ...(normalizeProviderResponseMetadata(storedPayload.provider_meta)
+                            ? { provider_meta: normalizeProviderResponseMetadata(storedPayload.provider_meta) }
+                            : {}),
                         interrupted,
                         stopped_after_seconds: stoppedAfterSeconds
                     };
@@ -168,6 +172,8 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
             is_deleted: message?.is_deleted === true,
             deleted_at: String(message?.deleted_at || '').slice(0, 32)
         };
+        const providerMeta = normalizeProviderResponseMetadata(message?.provider_meta);
+        if (providerMeta) metadata.provider_meta = providerMeta;
         if (!includeFeedback) return metadata;
 
         const rating = String(message?.feedback || '').toLowerCase();
@@ -203,7 +209,11 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
         if (part.type === 'products') {
             return { id, type: 'products', html: part.html || '', payload: part.payload || null };
         }
-        if (part.type === 'image' && /^https?:\/\//i.test(String(part.url || ''))) {
+        if (part.type === 'reasoning') {
+            const reasoning = normalizeReasoningPart(part);
+            return reasoning ? { id, ...reasoning } : { id, type: 'reasoning', events: [], steps: [], activities: [] };
+        }
+        if (part.type === 'image' && /^(?:https?:\/\/|\/media\/afd-ai\/generated\/)/i.test(String(part.url || ''))) {
             return {
                 id,
                 type: 'image',
@@ -228,16 +238,6 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
         if (part.type === 'order_address_form') {
             const form = normalizeOrderAddressFormPart(part);
             if (form) return { id, ...form };
-        }
-        if (part.type === 'reasoning') {
-            return {
-                id,
-                type: 'reasoning',
-                events: Array.isArray(part.events) ? part.events : [],
-                steps: Array.isArray(part.steps) ? part.steps : [],
-                activities: Array.isArray(part.activities) ? part.activities : [],
-                isExpanded: Boolean(part.isExpanded)
-            };
         }
         const raw = sanitizeCustomerResponse(part.raw || part.text || '');
         return { id, type: 'text', raw, html: raw };
@@ -339,6 +339,8 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
                 Math.floor(Number(metadata.stopped_after_seconds) || 0)
             );
         }
+        const providerMeta = normalizeProviderResponseMetadata(metadata.provider_meta);
+        if (providerMeta) payload.provider_meta = providerMeta;
         return JSON.stringify(payload);
     }
 
@@ -348,11 +350,22 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
             const html = (part.html || '').trim();
             const payload = part.payload && typeof part.payload === 'object' ? part.payload : null;
             if (!payload && !html) return null;
-            return payload ? { type: 'products', payload } : { type: 'products', html };
+            // Keep both representations.  The payload is the safe, compact
+            // source used for pagination and follow-up questions, while the
+            // HTML is the Magento-rendered presentation (including image
+            // URLs, price formatting and add-to-cart forms).  Dropping HTML
+            // whenever a payload existed made a product result disappear
+            // after a history reload in clients that do not re-render it.
+            return {
+                type: 'products',
+                ...(html ? { html } : {}),
+                ...(payload ? { payload } : {})
+            };
         }
+        if (part.type === 'reasoning') return normalizeReasoningPart(part);
         if (part.type === 'image') {
             const url = String(part.url || '').trim();
-            if (!/^https?:\/\//i.test(url)) return null;
+            if (!/^(?:https?:\/\/|\/media\/afd-ai\/generated\/)/i.test(url)) return null;
             return {
                 type: 'image',
                 url,
@@ -375,6 +388,56 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
         if (part.type === 'order_address_form') return normalizeOrderAddressFormPart(part);
         const raw = part.raw || part.text || '';
         return raw ? { type: 'text', raw } : null;
+    }
+
+    /**
+     * Tool activity is public progress metadata; retain only its small,
+     * allow-listed display fields. Reasoning text is already customer-visible
+     * in the live UI, so keep it bounded and sanitized for history parity.
+     */
+    function normalizeReasoningPart(part) {
+        const sourceEvents = Array.isArray(part?.events) ? part.events : [
+            ...(Array.isArray(part?.steps) ? part.steps : []),
+            ...(Array.isArray(part?.activities) ? part.activities : [])
+        ];
+        const events = [];
+        const seen = new Set();
+
+        for (const source of sourceEvents.slice(0, 24)) {
+            if (!source || typeof source !== 'object') continue;
+            const type = source.type === 'activity' ? 'activity' : (source.type === 'step' ? 'step' : '');
+            if (!type) continue;
+            const id = String(source.id || `${type}-${events.length}`).slice(0, 120);
+            const key = `${type}:${id}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+
+            if (type === 'activity') {
+                const tool = String(source.tool || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 80);
+                if (!tool) continue;
+                const resultCount = Number(source.result_count);
+                events.push({
+                    id,
+                    type,
+                    tool,
+                    state: ['running', 'completed', 'failed'].includes(String(source.state || ''))
+                        ? String(source.state)
+                        : 'completed',
+                    ...(Number.isFinite(resultCount) && resultCount >= 0
+                        ? { result_count: Math.min(10000, Math.floor(resultCount)) }
+                        : {})
+                });
+                continue;
+            }
+
+            const content = sanitizeCustomerResponse(String(source.content || '')).slice(0, 1600).trim();
+            if (content) events.push({ id, type, content });
+        }
+
+        if (events.length === 0) return null;
+        const steps = events.filter(event => event.type === 'step');
+        const activities = events.filter(event => event.type === 'activity');
+        return { type: 'reasoning', events, steps, activities };
     }
 
     function buildConversationTitle(sourceText, options = {}) {

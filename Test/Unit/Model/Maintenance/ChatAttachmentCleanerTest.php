@@ -11,7 +11,7 @@ use Magento\Framework\App\Filesystem\DirectoryList;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;
 
-final class ChatAttachmentCleanerTest extends TestCase
+class ChatAttachmentCleanerTest extends TestCase
 {
     public function testMissingAttachmentDirectoryIsASafeNoop(): void
     {

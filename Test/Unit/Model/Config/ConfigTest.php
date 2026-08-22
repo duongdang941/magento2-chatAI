@@ -3,10 +3,14 @@ declare(strict_types=1);
 
 namespace Afd\AI\Test\Unit\Model\Config;
 
+use Afd\AI\Api\Data\ProviderInterface;
+use Afd\AI\Api\ProviderRepositoryInterface;
 use Afd\AI\Model\Config\Config;
+use Afd\AI\Model\Gateway\GatewaySecretManager;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\Encryption\EncryptorInterface;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\LoggerInterface;
 
 class ConfigTest extends TestCase
 {
@@ -19,7 +23,7 @@ class ConfigTest extends TestCase
                 default => '',
             };
         });
-        $config = new Config($scopeConfig, $this->createMock(EncryptorInterface::class));
+        $config = $this->createConfig($scopeConfig);
 
         self::assertSame('wss://shop.example/store/ai-gateway/', $config->getChatServerUrl());
     }
@@ -30,7 +34,7 @@ class ConfigTest extends TestCase
         $scopeConfig->method('getValue')->willReturnCallback(static function (string $path): string {
             return $path === Config::XML_PATH_CHAT_SERVER_URL ? 'wss://gateway.example/chat' : '';
         });
-        $config = new Config($scopeConfig, $this->createMock(EncryptorInterface::class));
+        $config = $this->createConfig($scopeConfig);
 
         self::assertSame('wss://gateway.example/chat/', $config->getChatServerUrl());
     }
@@ -44,7 +48,12 @@ class ConfigTest extends TestCase
         $encryptor = $this->createMock(EncryptorInterface::class);
         $encryptor->method('decrypt')->willReturn("\xFF\xFEbroken");
 
-        self::assertSame('', (new Config($scopeConfig, $encryptor))->getApiKey());
+        $provider = $this->createMock(ProviderInterface::class);
+        $provider->method('getApiKey')->willReturn('0:3:ZW5jcnlwdGVk');
+        $repository = $this->createMock(ProviderRepositoryInterface::class);
+        $repository->method('getByCode')->with('gemini')->willReturn($provider);
+
+        self::assertSame('', $this->createConfig($scopeConfig, $encryptor, $repository)->getApiKey());
     }
 
     public function testBuildsBoundedRuntimeConfigurationForNodeSync(): void
@@ -81,7 +90,7 @@ class ConfigTest extends TestCase
             static fn (string $path): bool => $path === Config::XML_PATH_AGENT_BLOCK_DUPLICATES
         );
         $encryptor = $this->createMock(EncryptorInterface::class);
-        $config = new Config($scopeConfig, $encryptor);
+        $config = $this->createConfig($scopeConfig, $encryptor);
 
         self::assertSame(12, $config->getAgentConfig()['max_tool_rounds']);
         self::assertSame(18, $config->getAgentConfig()['max_tool_executions']);
@@ -130,7 +139,7 @@ class ConfigTest extends TestCase
         $scopeConfig->method('isSetFlag')->willReturnCallback(
             static fn (string $path): bool => in_array($path, $enabledFlags, true)
         );
-        $config = new Config($scopeConfig, $this->createMock(EncryptorInterface::class));
+        $config = $this->createConfig($scopeConfig);
 
         self::assertSame('gemini-2.5-flash', $config->getGroundingModel());
         self::assertSame([
@@ -140,5 +149,48 @@ class ConfigTest extends TestCase
             'analytics_attribution_enabled' => true,
             'guardrails_enabled' => true,
         ], $config->getFeatureConfig());
+    }
+
+    public function testExposesThoughtLevelOnlyForModelThatDeclaresReasoningCapability(): void
+    {
+        $values = [
+            Config::XML_PATH_PROVIDER => 'cockpit-tool',
+            Config::XML_PATH_MODEL => 'gpt-5.6-terra',
+            Config::XML_PATH_THOUGHT_LEVEL => 'xhigh',
+        ];
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturnCallback(
+            static fn (string $path) => $values[$path] ?? ''
+        );
+
+        $provider = $this->createMock(ProviderInterface::class);
+        $provider->method('getModelsList')->willReturn([
+            [
+                'id' => 'gpt-5.6-terra',
+                'reasoning_enabled' => true,
+                'reasoning_levels' => ['low', 'medium', 'high'],
+                'reasoning_default_level' => 'high',
+            ]
+        ]);
+        $repository = $this->createMock(ProviderRepositoryInterface::class);
+        $repository->method('getByCode')->with('cockpit-tool')->willReturn($provider);
+
+        $config = $this->createConfig($scopeConfig, null, $repository);
+        self::assertSame(['low', 'medium', 'high'], $config->getAvailableThoughtLevels());
+        self::assertSame('high', $config->getThoughtLevel());
+    }
+
+    private function createConfig(
+        ScopeConfigInterface $scopeConfig,
+        ?EncryptorInterface $encryptor = null,
+        ?ProviderRepositoryInterface $providerRepository = null
+    ): Config {
+        return new Config(
+            $scopeConfig,
+            $encryptor ?? $this->createMock(EncryptorInterface::class),
+            $providerRepository ?? $this->createMock(ProviderRepositoryInterface::class),
+            $this->createMock(GatewaySecretManager::class),
+            $this->createMock(LoggerInterface::class)
+        );
     }
 }

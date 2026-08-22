@@ -11,6 +11,14 @@ function redact(value) {
     );
 }
 
+function cleanOperationalMessage(value) {
+    return redact(value)
+        .replace(/<!--[\s\S]*?-->/g, ' ')
+        .replace(/<\/?[a-z][^>]*>/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 /**
  * Axios errors include request headers and can contain credentials. Logs must
  * retain only actionable operational fields, never the raw error object.
@@ -24,6 +32,6 @@ export function summarizeError(error) {
     return {
         status: Number.isInteger(response?.status) ? response.status : undefined,
         code: error?.code ? String(error.code).slice(0, 80) : undefined,
-        message: redact(responseMessage || error?.message || 'Unknown error').slice(0, 300)
+        message: cleanOperationalMessage(responseMessage || error?.message || 'Unknown error').slice(0, 300)
     };
 }

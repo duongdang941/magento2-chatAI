@@ -37,7 +37,7 @@ async function resolveGuestConversation({ db, guestSessionHistory, client, reque
     if (requestedId) {
         const owned = guestMode === 'database'
             ? await db.getGuestConversation(requestedId, guestHistoryIdentity(client), catalogScope)
-            : await guestSessionHistory.get(client.sessionId, requestedId);
+            : await guestSessionHistory.get(guestHistoryIdentity(client), requestedId);
         if (owned) return requestedId;
     }
     if (guestMode === 'database') {
@@ -45,7 +45,7 @@ async function resolveGuestConversation({ db, guestSessionHistory, client, reque
         const existing = Array.isArray(page?.conversations) ? page.conversations[0] : null;
         return positiveId(existing?.id) || positiveId(await db.createGuestConversation(guestHistoryIdentity(client), title, catalogScope));
     }
-    const conversation = await guestSessionHistory.create(client.sessionId, title);
+        const conversation = await guestSessionHistory.create(guestHistoryIdentity(client), title);
     return positiveId(conversation?.id || conversation);
 }
 
@@ -118,8 +118,8 @@ export async function persistLiveVoiceTurn({
                 assistantMessageId = await db.saveGuestMessage(conversationId, guestHistoryIdentity(client), 'assistant', storagePayload(assistantText), null, catalogScope);
                 await db.touchGuestConversation(conversationId, guestHistoryIdentity(client), catalogScope);
             } else {
-                userMessageId = await guestSessionHistory.append(client.sessionId, conversationId, { role: 'user', content: userText, attachments: [] });
-                assistantMessageId = await guestSessionHistory.append(client.sessionId, conversationId, {
+                userMessageId = await guestSessionHistory.append(guestHistoryIdentity(client), conversationId, { role: 'user', content: userText, attachments: [] });
+                assistantMessageId = await guestSessionHistory.append(guestHistoryIdentity(client), conversationId, {
                     role: 'assistant',
                     content: assistantText,
                     parts: [{ type: 'text', raw: assistantText }]

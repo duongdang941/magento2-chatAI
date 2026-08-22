@@ -107,14 +107,71 @@
                             </div>
                         </template>
 
-                        <template x-for="(msg, index) in messages" :key="msg.entity_id || ('live-' + index + '-' + (msg.created_at || ''))">
+                        <template x-for="(msg, index) in messages" :key="messageRenderKey(msg, index)">
                             <div x-show="shouldShowMessage(msg, index)">
                                 <!-- AI Message -->
                                 <div x-show="msg.role === 'assistant'" class="afd-ai-chat__msg-ai">
                                     <div class="afd-ai-chat__msg-content">
                                         <div class="afd-ai-chat__msg-assistant-stack">
                                             <div class="afd-ai-chat__msg-bubble-ai"
+                                                 :class="{ 'afd-ai-chat__msg-bubble-ai--streaming': hasStreamingText(msg) }"
                                                  @click="handleAssistantBubbleClick($event)">
+                                            <!-- ZCode owns work/thinking history in a distinct row above
+                                                 the final answer. The row stays visible after completion,
+                                                 while its internal timeline closes until explicitly opened. -->
+                                            <div x-show="!msg.deleted && turnDividerLabel(msg, index)"
+                                                 x-cloak
+                                                 class="afd-ai-chat__turn-history">
+                                                <button type="button"
+                                                        class="afd-ai-chat__turn-history-toggle"
+                                                        @click.stop="toggleTurnHistory(msg, index)"
+                                                        :aria-expanded="isTurnHistoryOpen(msg, index) ? 'true' : 'false'">
+                                                    <span class="afd-ai-chat__turn-history-label" x-text="turnDividerLabel(msg, index)"></span>
+                                                        <span class="material-symbols-outlined afd-ai-chat__turn-history-chevron"
+                                                          :class="{ 'afd-ai-chat__turn-history-chevron--open': isTurnHistoryOpen(msg, index) }"
+                                                          aria-hidden="true">chevron_right</span>
+                                                </button>
+                                                <!-- Keep the work marker and its expanding timeline in one
+                                                     surface, so it grows downward from this exact row. -->
+                                                <div x-cloak
+                                                     class="afd-ai-chat__turn-history-panel afd-ai-chat__collapsible"
+                                                     :class="{ 'afd-ai-chat__collapsible--closed': !isTurnHistoryOpen(msg, index) }"
+                                                     :aria-hidden="isTurnHistoryOpen(msg, index) ? 'false' : 'true'">
+                                                    <div class="afd-ai-chat__turn-history-panel-inner">
+                                                        <div class="afd-ai-chat__turn-history-content">
+                                                            <template x-for="part in msg.parts" :key="'reasoning-' + part.id">
+                                                                <template x-if="part.type === 'reasoning' && reasoningTimeline(part).length > 0">
+                                                                    <!-- One chronological event list. Do not add a
+                                                                         Thought header or a second action summary: both
+                                                                         repeat the same tool label. -->
+                                                                    <div class="afd-ai-chat__reasoning-timeline">
+                                                                        <template x-for="(event, eventIndex) in reasoningTimeline(part)" :key="event.id || (event.type + '-' + eventIndex)">
+                                                                            <div class="afd-ai-chat__reasoning-timeline-item">
+                                                                                <template x-if="event.type === 'step'">
+                                                                                    <div class="afd-ai-chat__reasoning-step-message" x-html="renderMarkdown(event.content)"></div>
+                                                                                </template>
+                                                                                <template x-if="event.type === 'activity'">
+                                                                                    <div class="afd-ai-chat__tool-activity"
+                                                                                         :class="'afd-ai-chat__tool-activity--' + event.state">
+                                                                                        <span class="material-symbols-outlined afd-ai-chat__tool-activity-icon" aria-hidden="true" x-text="toolActivityIcon(event)"></span>
+                                                                                        <span class="afd-ai-chat__tool-activity-label"
+                                                                                              :class="{ 'afd-ai-chat__shimmer-text': event.isCurrentAction === true && isReasoningLive(part, index) }"
+                                                                                              x-text="toolActivityLabel(event)"></span>
+                                                                                        <span class="afd-ai-chat__tool-activity-timer"
+                                                                                              x-show="activityDurationLabel(event)"
+                                                                                              x-text="activityDurationLabel(event)"></span>
+                                                                                        <span class="material-symbols-outlined afd-ai-chat__tool-activity-state" x-show="event.state === 'failed'" aria-hidden="true">error</span>
+                                                                                    </div>
+                                                                                </template>
+                                                                            </div>
+                                                                        </template>
+                                                                    </div>
+                                                                </template>
+                                                            </template>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
                                                 <p x-show="msg.source === 'support_agent'"
                                                    class="afd-ai-chat__support-agent-label">
                                                     <span class="material-symbols-outlined" aria-hidden="true">support_agent</span>
@@ -126,63 +183,13 @@
                                                     <span class="material-symbols-outlined" aria-hidden="true">delete</span>
                                                     <span>This message was deleted.</span>
                                                 </p>
-                                                 <!-- Codex-style Reasoning / Thinking Accordion for completed turns -->
-                                                <template x-for="part in msg.parts" :key="'reasoning-' + part.id">
-                                                    <template x-if="part.type === 'reasoning' && ((part.events && part.events.length > 0) || (part.steps && part.steps.length > 0) || (part.activities && part.activities.length > 0))">
-                                                        <div class="afd-ai-chat__reasoning-accordion">
-                                                            <button type="button"
-                                                                    class="afd-ai-chat__reasoning-toggle"
-                                                                    @click.stop="toggleReasoning(part)"
-                                                                    :aria-expanded="part.isExpanded ? 'true' : 'false'">
-                                                                <span class="afd-ai-chat__reasoning-title" x-text="reasoningTitle(part)"></span>
-                                                                <span class="material-symbols-outlined afd-ai-chat__reasoning-chevron"
-                                                                      :class="{ 'afd-ai-chat__reasoning-chevron--expanded': part.isExpanded }"
-                                                                      aria-hidden="true">expand_more</span>
-                                                            </button>
-                                                            <div class="afd-ai-chat__reasoning-content" x-show="part.isExpanded">
-                                                                <div class="afd-ai-chat__reasoning-timeline">
-                                                                    <!-- Interleaved chronological event timeline -->
-                                                                    <template x-for="event in (part.events || [])" :key="event.id">
-                                                                        <div class="afd-ai-chat__reasoning-timeline-item">
-                                                                            <template x-if="event.type === 'step'">
-                                                                                <div class="afd-ai-chat__reasoning-step-message" x-html="renderMarkdown(event.content)"></div>
-                                                                            </template>
-                                                                            <template x-if="event.type === 'activity'">
-                                                                                <div class="afd-ai-chat__tool-activity" :class="'afd-ai-chat__tool-activity--' + event.state">
-                                                                                    <span class="material-symbols-outlined afd-ai-chat__tool-activity-icon" aria-hidden="true" x-text="toolActivityIcon(event)"></span>
-                                                                                    <span class="afd-ai-chat__tool-activity-label" x-text="toolActivityLabel(event)"></span>
-                                                                                    <span class="material-symbols-outlined afd-ai-chat__tool-activity-state" x-show="event.state !== 'running'" aria-hidden="true" x-text="event.state === 'completed' ? 'check' : 'error'"></span>
-                                                                                </div>
-                                                                            </template>
-                                                                        </div>
-                                                                    </template>
-                                                                    <!-- Backward compatibility fallback for legacy messages -->
-                                                                    <template x-if="!part.events || part.events.length === 0">
-                                                                        <div>
-                                                                            <template x-for="step in (part.steps || [])" :key="step.id || step.content">
-                                                                                <div class="afd-ai-chat__reasoning-step-message" x-html="renderMarkdown(step.content)"></div>
-                                                                            </template>
-                                                                            <template x-for="act in (part.activities || [])" :key="act.id || act.tool">
-                                                                                <div class="afd-ai-chat__tool-activity" :class="'afd-ai-chat__tool-activity--' + act.state">
-                                                                                    <span class="material-symbols-outlined afd-ai-chat__tool-activity-icon" aria-hidden="true" x-text="toolActivityIcon(act)"></span>
-                                                                                    <span class="afd-ai-chat__tool-activity-label" x-text="toolActivityLabel(act)"></span>
-                                                                                    <span class="material-symbols-outlined afd-ai-chat__tool-activity-state" x-show="act.state !== 'running'" aria-hidden="true" x-text="act.state === 'completed' ? 'check' : 'error'"></span>
-                                                                                </div>
-                                                                            </template>
-                                                                        </div>
-                                                                    </template>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </template>
-                                                </template>
-
                                                 <!-- Render all text content first -->
                                                 <template x-for="part in msg.parts" :key="'text-' + part.id">
                                                     <template x-if="part.type === 'text' && (part.streaming === true || (part.html || '').trim().length > 0)">
-                                                        <div class="afd-ai-chat__msg-part">
+                                                        <div class="afd-ai-chat__msg-part"
+                                                            :class="{ 'afd-ai-chat__message-part--streaming': part.streaming === true }">
                                                             <div :class="{ 'afd-ai-chat__streaming-markdown': part.streaming === true }"
-                                                                 x-html="part.html"></div>
+                                                                 x-effect="patchMessageHtml($el, part.blocks || part.html, part.streaming === true)"></div>
                                                         </div>
                                                     </template>
                                                 </template>
@@ -588,7 +595,7 @@
                                                                        :href="part.payload?.scope?.category_url || '#'"
                                                                         target="_blank"
                                                                         rel="noopener noreferrer">
-                                                                        <span>View category</span>
+                                                                        <span x-text="t('catalog_view_category')"></span>
                                                                         <span class="afd-ai-chat__product-pagination-link-icon material-symbols-outlined" aria-hidden="true">open_in_new</span>
                                                                     </a>
                                                                 </div>
@@ -628,7 +635,8 @@
                                                                      :alt="part.alt || 'Generated image'"
                                                                      class="afd-ai-chat__generated-image-img"
                                                                      loading="lazy"
-                                                                     decoding="async">
+                                                                     decoding="async"
+                                                                     @error="handleGeneratedImageError(part, $event)">
                                                                 <figcaption class="afd-ai-chat__generated-image-actions">
                                                                     <button type="button"
                                                                             class="afd-ai-chat__generated-image-action"
@@ -666,12 +674,11 @@
                                                     <span x-text="t('continue_response')"></span>
                                                 </button>
                                             </div>
-                                            <div x-show="!msg.deleted"
+                                            <div x-show="shouldShowMessageActions(msg, index)"
+                                                 x-cloak
                                                  class="afd-ai-chat__msg-meta afd-ai-chat__msg-meta--assistant">
-                                                <span x-show="msg.edited" class="afd-ai-chat__msg-edited">Edited</span>
                                                 <div class="afd-ai-chat__msg-actions afd-ai-chat__msg-actions--assistant">
                                                     <button type="button"
-                                                            x-show="msg.feedbackEnabled"
                                                             class="afd-ai-chat__msg-action afd-ai-chat__msg-action--icon afd-ai-chat__msg-action--feedback"
                                                             :class="{ 'afd-ai-chat__msg-action--active': msg.feedback === 'positive' }"
                                                             :disabled="msg.feedbackBusy"
@@ -682,7 +689,6 @@
                                                         <span class="material-symbols-outlined" aria-hidden="true">thumb_up</span>
                                                     </button>
                                                     <button type="button"
-                                                            x-show="msg.feedbackEnabled"
                                                             class="afd-ai-chat__msg-action afd-ai-chat__msg-action--icon afd-ai-chat__msg-action--feedback"
                                                             :class="{ 'afd-ai-chat__msg-action--active': msg.feedback === 'negative' }"
                                                             :disabled="msg.feedbackBusy"
@@ -710,6 +716,10 @@
                                                         <span class="material-symbols-outlined">refresh</span>
                                                     </button>
                                                 </div>
+                                                <span x-show="messageTimeLabel(msg)"
+                                                      class="afd-ai-chat__message-time"
+                                                      x-text="messageTimeLabel(msg)"></span>
+                                                <span x-show="msg.edited" class="afd-ai-chat__msg-edited">Edited</span>
                                             </div>
                                             <form x-show="!msg.deleted && msg.feedback === 'negative' && !msg.feedbackDetailsSaved"
                                                   x-cloak
@@ -918,8 +928,14 @@
                             </div>
                         </div>
 
-                        <!-- Live Codex-style Thinking & Action Timeline while stream is active -->
-                        <div x-show="isLoading && !isHistoryLoading && currentAiMessageIndex === -1"
+                        <!-- Pre-message status placeholder. Real reasoning events
+                             are mounted in the assistant bubble immediately. -->
+                        <div x-show="isLoading
+                            && !isHistoryLoading
+                            && currentAiMessageIndex === -1
+                            && (!thinkingEvents || thinkingEvents.length === 0)
+                            && thinkingSteps.length === 0
+                            && toolActivities.length === 0"
                              class="afd-ai-chat__msg-ai afd-ai-chat__msg-ai--thinking"
                              x-transition.opacity.duration.150ms>
                             <div class="afd-ai-chat__msg-content">
@@ -945,11 +961,15 @@
                                                         <span class="material-symbols-outlined afd-ai-chat__tool-activity-icon"
                                                               aria-hidden="true"
                                                               x-text="toolActivityIcon(event)"></span>
-                                                        <span class="afd-ai-chat__tool-activity-label" x-text="toolActivityLabel(event)"></span>
+                                                        <span class="afd-ai-chat__tool-activity-label"
+                                                              :class="{ 'afd-ai-chat__shimmer-text': event.isCurrentAction === true && isLoading }"
+                                                              x-text="toolActivityLabel(event)"></span>
+                                                        <span class="afd-ai-chat__tool-activity-timer"
+                                                              x-show="activityDurationLabel(event)"
+                                                              x-text="activityDurationLabel(event)"></span>
                                                         <span class="material-symbols-outlined afd-ai-chat__tool-activity-state"
-                                                              x-show="event.state !== 'running'"
-                                                              aria-hidden="true"
-                                                              x-text="event.state === 'completed' ? 'check' : 'error'"></span>
+                                                              x-show="event.state === 'failed'"
+                                                              aria-hidden="true">error</span>
                                                     </div>
                                                 </template>
                                             </div>
@@ -963,7 +983,9 @@
                                         <span class="material-symbols-outlined afd-ai-chat__tool-activity-icon"
                                               aria-hidden="true"
                                               x-text="activityIcon()"></span>
-                                        <span class="afd-ai-chat__tool-activity-label" x-text="statusMessage"></span>
+                                        <span class="afd-ai-chat__tool-activity-label"
+                                              :class="{ 'afd-ai-chat__shimmer-text': isLoading }"
+                                              x-text="statusMessage"></span>
                                     </div>
                                 </div>
                             </div>

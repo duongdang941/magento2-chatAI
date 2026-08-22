@@ -304,4 +304,26 @@
         <index referenceId="AFD_AI_ATTACHMENT_RES_EXPIRES" indexType="btree"><column name="state"/><column name="expires_at"/></index>
         <index referenceId="AFD_AI_ATTACHMENT_RES_OWNER" indexType="btree"><column name="owner_path"/><column name="state"/></index>
     </table>
+    <!-- AI Providers Table (Custom Model Providers) -->
+    <table name="afd_ai_provider" resource="default" engine="innodb" comment="AI Model Providers">
+        <column xsi:type="int" name="provider_id" unsigned="true" nullable="false" identity="true" comment="Provider ID"/>
+        <column xsi:type="varchar" name="name" nullable="false" length="255" comment="Provider Display Name"/>
+        <column xsi:type="varchar" name="provider_code" nullable="false" length="64" comment="Unique Provider Code / Slug"/>
+        <column xsi:type="varchar" name="base_url" nullable="false" length="255" comment="API Base URL"/>
+        <column xsi:type="text" name="api_key" nullable="true" comment="Encrypted API Key"/>
+        <column xsi:type="varchar" name="api_format" nullable="false" length="64" default="anthropic-messages" comment="API Format (anthropic-messages, openai-chat-completions, openai-responses)"/>
+        <column xsi:type="mediumtext" name="models_json" nullable="true" comment="JSON Array of Configured Models"/>
+        <column xsi:type="smallint" name="is_active" unsigned="true" nullable="false" default="1" comment="Is Active Status"/>
+        <column xsi:type="timestamp" name="created_at" on_update="false" nullable="false" default="CURRENT_TIMESTAMP" comment="Created At"/>
+        <column xsi:type="timestamp" name="updated_at" on_update="true" nullable="false" default="CURRENT_TIMESTAMP" comment="Updated At"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="provider_id"/>
+        </constraint>
+        <constraint xsi:type="unique" referenceId="AFD_AI_PROVIDER_CODE">
+            <column name="provider_code"/>
+        </constraint>
+        <index referenceId="AFD_AI_PROVIDER_ACTIVE" indexType="btree">
+            <column name="is_active"/>
+        </index>
+    </table>
 </schema>

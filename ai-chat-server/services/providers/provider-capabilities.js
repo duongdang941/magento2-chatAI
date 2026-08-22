@@ -1,4 +1,4 @@
-const PROVIDERS = new Set(['gemini', 'openai', 'openrouter', '9router', 'cockpit']);
+import { resolveImageTransport } from '../media/image-transport.js';
 
 /**
  * The commerce agent is provider-neutral. This registry deliberately models
@@ -56,7 +56,15 @@ function capability(supported, configured, unavailableReason) {
 
 export function normalizeProvider(provider) {
     const normalized = text(provider).toLowerCase();
-    return PROVIDERS.has(normalized) ? normalized : '';
+    return normalized || 'custom';
+}
+
+function protocolForConfig(config = {}) {
+    const format = String(config.api_format || '').trim().toLowerCase();
+    if (format === 'anthropic-messages') return 'anthropic';
+    if (format === 'openai-responses') return 'openai';
+    if (format === 'openai-chat-completions') return 'openai-compatible';
+    return normalizeProvider(config.provider);
 }
 
 /**
@@ -66,7 +74,15 @@ export function normalizeProvider(provider) {
  */
 export function getProviderCapabilities(config = {}) {
     const provider = normalizeProvider(config.provider);
-    const profile = PROFILES[provider] || null;
+    const protocol = protocolForConfig(config);
+    const profile = PROFILES[provider] || PROFILES[protocol] || (
+        protocol === 'anthropic' || protocol === 'openai-compatible' || protocol === 'openai'
+            // Chat protocol alone does not determine an image API. A custom
+            // provider may expose a documented, separate image route; the
+            // selected model's image transport below is the actual gate.
+            ? { imageGeneration: true, voiceDictation: true, liveVoice: false, nativeWebGrounding: false }
+            : null
+    );
     const hasApiKey = text(config.api_key) !== '';
     const image = config.image_generation && typeof config.image_generation === 'object'
         ? config.image_generation
@@ -81,25 +97,32 @@ export function getProviderCapabilities(config = {}) {
         providerSupported ? 'provider_api_key_missing' : 'provider_unsupported'
     );
     const imageEnabled = enabled(image.enabled, true);
+    const imageTransport = resolveImageTransport(config);
+    const imageModelReady = imageTransport === 'openai-responses' || text(image.model) !== '';
     const voiceEnabled = enabled(voice.enabled, true);
     const liveEnabled = enabled(liveVoice.enabled, false);
 
     return Object.freeze({
         contract_version: 1,
         provider: provider || text(config.provider).toLowerCase(),
+        protocol,
         chat,
         streaming: capability(providerSupported, hasApiKey, chat.reason),
         commerce_tools: capability(providerSupported, hasApiKey, chat.reason),
         image_generation: capability(
-            Boolean(profile?.imageGeneration),
-            imageEnabled && hasApiKey && text(image.model) !== '',
+            Boolean(profile?.imageGeneration) && imageTransport !== '',
+            Boolean(profile?.imageGeneration) && imageTransport !== '' && imageEnabled && hasApiKey && imageModelReady,
             !profile?.imageGeneration
                 ? 'provider_image_generation_unsupported'
+                : !imageTransport
+                    ? 'model_image_generation_unsupported'
                 : !imageEnabled
                     ? 'image_generation_disabled'
-                    : !hasApiKey
-                        ? 'provider_api_key_missing'
-                        : 'image_model_missing'
+                : !hasApiKey
+                    ? 'provider_api_key_missing'
+                    : !imageModelReady
+                        ? 'image_model_missing'
+                    : 'image_model_missing'
         ),
         voice_dictation: capability(
             Boolean(profile?.voiceDictation),
@@ -145,7 +168,7 @@ export function validateProviderConfiguration(config = {}, scope = 'default') {
     const errors = [];
     const warnings = [];
 
-    if (!normalizeProvider(config.provider)) {
+    if (!normalizeProvider(config.provider) || !capabilities.protocol) {
         errors.push({ scope, code: 'provider_unsupported', message: 'Select a supported AI provider.' });
     } else if (enabled(config.enabled, true) && !capabilities.chat.available) {
         errors.push({
@@ -173,6 +196,5 @@ export function validateProviderConfiguration(config = {}, scope = 'default') {
             message: 'Voice dictation is enabled but is not ready for the selected provider configuration.'
         });
     }
-
     return { capabilities, errors, warnings };
 }

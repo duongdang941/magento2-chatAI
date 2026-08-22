@@ -20,6 +20,9 @@ export async function loadCatalogPage(context, aiConfig, runtime = null) {
         categoryId: context.categoryId,
         page: context.page,
         limit: context.pageSize,
+        minPrice: context.minPrice,
+        maxPrice: context.maxPrice,
+        priceCurrency: context.priceCurrency,
         directAddOnly: context.directAddOnly === true
     }, MAX_CATALOG_PAGE_SIZE, context.pageSize);
     Object.assign(params, catalogScopeRequestParams(context.catalogScope, context.customerId));
@@ -116,6 +119,7 @@ function normalizeMagentoMetadata(value) {
     // first and scope second; reconstruct named fields at the Node boundary.
     const pagination = parts.find((part) => Object.prototype.hasOwnProperty.call(part, 'page_size')) || {};
     const scope = parts.find((part) => Object.prototype.hasOwnProperty.call(part, 'category_id')) || {};
+    const currency = parts.find((part) => Object.prototype.hasOwnProperty.call(part, 'filter_currency')) || {};
 
-    return { pagination, scope };
+    return { pagination, scope, currency };
 }

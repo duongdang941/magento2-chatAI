@@ -2,12 +2,15 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getProviderCapabilities } from '../providers/provider-capabilities.js';
+import { imageTransportLabel, resolveImageTransport } from './image-transport.js';
+import { sanitizeGeneratedSvg } from './svg-generation.js';
 
 const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
 const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image';
 const DEFAULT_IMAGE_SIZE = '1024x1024';
 const DEFAULT_IMAGE_QUALITY = 'medium';
 const DEFAULT_MAX_IMAGE_BYTES = 12 * 1024 * 1024;
+const DEFAULT_MIN_IMAGE_PRESENTATION_MS = 900;
 const IMAGE_SIZES = new Set(['1024x1024', '1536x1024', '1024x1536']);
 const IMAGE_QUALITIES = new Set(['low', 'medium', 'high']);
 
@@ -23,12 +26,19 @@ function resolveImageProviderConfig(config = {}) {
     const provider = readString(config.provider, 'cockpit');
     const capabilities = getProviderCapabilities(config);
     if (!capabilities.image_generation.supported) {
+        if (capabilities.image_generation.reason === 'model_image_generation_unsupported') {
+            throw new Error('The selected model does not have a configured image-generation API.');
+        }
         throw new Error('Image generation is not available through the selected provider.');
     }
 
     const imageConfig = config.image_generation && typeof config.image_generation === 'object'
         ? config.image_generation
         : {};
+    const transport = resolveImageTransport(config);
+    if (!transport) {
+        throw new Error('The selected model does not have a configured image-generation API.');
+    }
     const envPrefix = provider === 'cockpit'
         ? 'COCKPIT'
         : provider === 'openai'
@@ -68,7 +78,7 @@ function resolveImageProviderConfig(config = {}) {
     if (!apiKey) throw new Error('The selected image provider API key is missing.');
     if (!baseUrl) throw new Error('The selected image provider base URL is missing.');
 
-    return { provider, apiKey, baseUrl, model, size, quality };
+    return { provider, apiKey, baseUrl, model, size, quality, transport };
 }
 
 function buildAbortController(parentSignal, timeoutMs) {
@@ -92,6 +102,28 @@ function buildAbortController(parentSignal, timeoutMs) {
             parentSignal?.removeEventListener('abort', forwardAbort);
         }
     };
+}
+
+function minimumImagePresentationMs(config = {}) {
+    const configured = Number(config.image_generation?.minimum_display_ms);
+    if (!Number.isFinite(configured)) return DEFAULT_MIN_IMAGE_PRESENTATION_MS;
+    return Math.max(0, Math.min(Math.trunc(configured), 3000));
+}
+
+async function waitForImagePresentation(startedAt, config, signal, isCancelled) {
+    const waitMs = Math.max(0, minimumImagePresentationMs(config) - (Date.now() - startedAt));
+    if (!waitMs || isCancelled()) return;
+
+    await new Promise((resolve) => {
+        let timer = null;
+        const finish = () => {
+            if (timer) clearTimeout(timer);
+            signal?.removeEventListener?.('abort', finish);
+            resolve();
+        };
+        timer = setTimeout(finish, waitMs);
+        signal?.addEventListener?.('abort', finish, { once: true });
+    });
 }
 
 async function readProviderError(response) {
@@ -127,7 +159,10 @@ function decodeImageData(image, outputFormat = 'png') {
 
 function generatedImageDirectory() {
     return process.env.AI_GENERATED_IMAGE_DIRECTORY
-        || path.resolve(new URL('.', import.meta.url).pathname, '../../../../../../pub/media/afd-ai/generated');
+        // services/media -> app/code/Afd/AI/ai-chat-server -> app -> Magento
+        // root. The extra parent is important: writing to app/pub makes the
+        // generated URL look valid while Nginx serves a missing file.
+        || path.resolve(new URL('.', import.meta.url).pathname, '../../../../../../../pub/media/afd-ai/generated');
 }
 
 function generatedImagePublicBaseUrl(config = {}) {
@@ -157,9 +192,24 @@ async function persistGeneratedImage(image, outputFormat, config = {}) {
     };
 }
 
+async function persistGeneratedSvg(svgContent, config = {}) {
+    const svg = sanitizeGeneratedSvg(svgContent);
+    const directory = generatedImageDirectory();
+    await fs.mkdir(directory, { recursive: true, mode: 0o750 });
+    const filename = `${Date.now()}-${crypto.randomUUID()}.svg`;
+    const filePath = path.join(directory, filename);
+    await fs.writeFile(filePath, svg, { encoding: 'utf8', mode: 0o640 });
+
+    return {
+        url: `${generatedImagePublicBaseUrl(config)}/media/afd-ai/generated/${filename}`,
+        mime_type: 'image/svg+xml',
+        filename
+    };
+}
+
 export function buildImageGenerationRequest(prompt, config = {}) {
     const providerConfig = resolveImageProviderConfig(config);
-    const body = providerConfig.provider === 'gemini'
+    const body = providerConfig.transport === 'gemini-generate-content'
         ? {
             contents: [{ role: 'user', parts: [{ text: String(prompt || '').trim().slice(0, 4000) }] }],
             generationConfig: {
@@ -172,7 +222,18 @@ export function buildImageGenerationRequest(prompt, config = {}) {
                 }
             }
         }
-        : {
+        : providerConfig.transport === 'openai-responses'
+            ? {
+                model: readString(config.model, providerConfig.model),
+                input: String(prompt || '').trim().slice(0, 4000),
+                tools: [{
+                    type: 'image_generation',
+                    action: 'generate',
+                    size: providerConfig.size,
+                    quality: providerConfig.quality
+                }]
+            }
+            : {
             model: providerConfig.model,
             prompt: String(prompt || '').trim().slice(0, 4000),
             size: providerConfig.size,
@@ -199,23 +260,71 @@ function geminiImageUrl(baseUrl, model) {
         : `${endpoint}/models/${safeModel}:generateContent`;
 }
 
-export async function generateImage({ prompt, ws, config = {}, signal = null, isCancelled = () => false } = {}) {
+function responseImageUrl(baseUrl) {
+    return `${normalizeBaseUrl(baseUrl)}/responses`;
+}
+
+function imageGenerationUrl(request) {
+    if (request.transport === 'gemini-generate-content') {
+        return geminiImageUrl(request.baseUrl, request.model);
+    }
+    if (request.transport === 'openai-responses') {
+        return responseImageUrl(request.baseUrl);
+    }
+    return `${request.baseUrl}/images/generations`;
+}
+
+export async function generateImage({ prompt, svgContent = '', ws, config = {}, signal = null, isCancelled = () => false } = {}) {
     const cleanPrompt = String(prompt || '').trim().slice(0, 4000);
     if (!cleanPrompt) throw new Error('Please describe the image you want to create.');
     if (config.image_generation?.enabled === false) {
         throw new Error('Image generation is disabled in Magento Admin.');
     }
 
-    const request = buildImageGenerationRequest(cleanPrompt, config);
+    const fallbackSvg = String(svgContent || '').trim();
+    const request = fallbackSvg ? null : buildImageGenerationRequest(cleanPrompt, config);
     const imageId = `image-${crypto.randomUUID()}`;
+    const presentationStartedAt = Date.now();
     ws?.send?.(JSON.stringify({
         type: 'image_generation_started',
         image_id: imageId,
-        started_at: Date.now(),
+        started_at: presentationStartedAt,
         prompt: cleanPrompt,
-        size: request.size,
-        quality: request.quality
+        size: request?.size || String(config.image_generation?.size || DEFAULT_IMAGE_SIZE),
+        quality: request?.quality || String(config.image_generation?.quality || DEFAULT_IMAGE_QUALITY)
     }));
+
+    if (fallbackSvg) {
+        try {
+            const stored = await persistGeneratedSvg(fallbackSvg, config);
+            // A code-generated SVG is persisted almost instantly. Preserve a
+            // short, stable dot-field frame so the shopper gets the same
+            // visible creation feedback as an Image API request.
+            await waitForImagePresentation(presentationStartedAt, config, signal, isCancelled);
+            if (isCancelled()) return { cancelled: true };
+            const result = {
+                image_id: imageId,
+                url: stored.url,
+                mime_type: stored.mime_type,
+                alt: cleanPrompt,
+                revised_prompt: '',
+                size: String(config.image_generation?.size || DEFAULT_IMAGE_SIZE),
+                quality: String(config.image_generation?.quality || DEFAULT_IMAGE_QUALITY),
+                transport: 'chat-svg'
+            };
+            ws?.send?.(JSON.stringify({ type: 'image_generated', ...result }));
+            return result;
+        } catch (error) {
+            if (!isCancelled()) {
+                ws?.send?.(JSON.stringify({
+                    type: 'image_generation_failed',
+                    image_id: imageId,
+                    message: error.message || 'The generated SVG was rejected.'
+                }));
+            }
+            throw error;
+        }
+    }
 
     const providerSignal = buildAbortController(
         signal,
@@ -231,12 +340,10 @@ export async function generateImage({ prompt, ws, config = {}, signal = null, is
     );
     try {
         const response = await fetch(
-                request.provider === 'gemini'
-                ? geminiImageUrl(request.baseUrl, request.model)
-                : `${request.baseUrl}/images/generations`, {
+                imageGenerationUrl(request), {
             method: 'POST',
             headers: {
-                ...(request.provider === 'gemini'
+                ...(request.transport === 'gemini-generate-content'
                     ? { 'x-goog-api-key': request.apiKey }
                     : { Authorization: `Bearer ${request.apiKey}` }),
                 'Content-Type': 'application/json',
@@ -250,10 +357,16 @@ export async function generateImage({ prompt, ws, config = {}, signal = null, is
         const payload = await response.json();
         if (isCancelled()) return { cancelled: true };
 
-        const firstImage = request.provider === 'gemini'
+        const firstImage = request.transport === 'gemini-generate-content'
             ? extractGeminiImage(payload)
-            : (Array.isArray(payload.data) ? payload.data[0] : null);
-        const stored = await persistGeneratedImage(firstImage, request.provider === 'gemini' ? 'png' : (payload.output_format || 'png'), config);
+            : request.transport === 'openai-responses'
+                ? extractResponsesImage(payload)
+                : (Array.isArray(payload.data) ? payload.data[0] : null);
+        const stored = await persistGeneratedImage(
+            firstImage,
+            request.transport === 'gemini-generate-content' ? 'png' : (payload.output_format || 'png'),
+            config
+        );
         if (!stored) throw new Error('The image provider returned no image data.');
 
         const result = {
@@ -268,6 +381,9 @@ export async function generateImage({ prompt, ws, config = {}, signal = null, is
         ws?.send?.(JSON.stringify({ type: 'image_generated', ...result }));
         return result;
     } catch (error) {
+        if (error?.status === 405) {
+            error.message = `${imageTransportLabel(request.transport)} returned HTTP 405. The configured provider does not implement that image API.`;
+        }
         if (!isCancelled()) {
             ws?.send?.(JSON.stringify({
                 type: 'image_generation_failed',
@@ -285,4 +401,10 @@ function extractGeminiImage(payload) {
     const parts = payload?.candidates?.[0]?.content?.parts;
     const inlineData = Array.isArray(parts) ? parts.find((part) => part?.inlineData?.data)?.inlineData : null;
     return inlineData ? { b64_json: inlineData.data } : null;
+}
+
+function extractResponsesImage(payload) {
+    const output = Array.isArray(payload?.output) ? payload.output : [];
+    const image = output.find((item) => item?.type === 'image_generation_call' && item?.result);
+    return image ? { b64_json: image.result, revised_prompt: image.revised_prompt || '' } : null;
 }

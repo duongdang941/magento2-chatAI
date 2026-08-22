@@ -8,7 +8,7 @@ use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\DB\Select;
 use PHPUnit\Framework\TestCase;
 
-final class AttachmentQuotaCounterTest extends TestCase
+class AttachmentQuotaCounterTest extends TestCase
 {
     public function testInitializeGlobalWritesAZeroReservationRow(): void
     {

@@ -18,7 +18,11 @@ class InternalStoreContext
     {
     }
 
-    /** @template T @param callable():T $operation @return T */
+    /**
+     * @template T
+     * @param callable():T $operation
+     * @return T
+     */
     public function execute(string $storeCode, callable $operation): mixed
     {
         $storeCode = trim($storeCode);

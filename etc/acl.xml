@@ -4,6 +4,7 @@
         <resources>
             <resource id="Magento_Backend::admin">
                 <resource id="Afd_AI::config" title="AI Configuration API Access" sortOrder="100" />
+                <resource id="Afd_AI::providers" title="AI Model Providers" sortOrder="105" />
                 <resource id="Afd_AI::chat_gateway" title="AI Chat Gateway API Access" sortOrder="110" />
                 <resource id="Afd_AI::support_cases" title="Store Assistant Support Cases" sortOrder="120" />
                 <resource id="Afd_AI::quality" title="Store Assistant Quality Dashboard" sortOrder="130" />

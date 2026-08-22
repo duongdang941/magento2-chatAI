@@ -197,7 +197,7 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
                 // Move from staged to final path atomically
                 $finalAbs = $varDir->getAbsolutePath($finalPath);
                 $stagedAbs = $varDir->getAbsolutePath($stagedPath);
-                if (@rename($stagedAbs, $finalAbs)) {
+                if ($this->moveFile($stagedAbs, $finalAbs)) {
                     $foundFile = $finalPath;
                 }
                 break;
@@ -297,6 +297,16 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
         }
 
         return $data;
+    }
+
+    private function moveFile(string $source, string $target): bool
+    {
+        set_error_handler(static fn (): bool => true);
+        try {
+            return rename($source, $target);
+        } finally {
+            restore_error_handler();
+        }
     }
 
     private function resolveOwnerId(): string|int
