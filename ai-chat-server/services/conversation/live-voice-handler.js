@@ -29,7 +29,11 @@ export async function handleLiveVoiceSession({
 }) {
     const requestId = String(data?.request_id || '').slice(0, 120);
     const send = (payload) => ws.send(attachRequestId({ ...payload, request_id: requestId }, requestId));
-    const config = await getConfig(runtime, client?.catalogScope?.storeCode || '');
+    const config = await getConfig(
+        runtime,
+        client?.catalogScope?.storeCode || '',
+        client?.tenantId || client?.catalogScope?.tenantId || ''
+    );
     const identity = String(client?.rateLimitKey || client?.sessionId || 'unknown');
 
     try {

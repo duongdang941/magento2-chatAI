@@ -97,6 +97,29 @@ test('requires the synchronized provider to match the Magento-selected provider'
     );
 });
 
+test('requires a tenant identity for version 3 configuration pushes', () => {
+    const payload = {
+        version: 3,
+        sync_id: 'e'.repeat(32),
+        sync_provider: { provider_id: 7, provider_code: 'gemini' },
+        config: {
+            default: {
+                provider: 'gemini',
+                providers: { gemini: { provider_id: 7, is_active: true } }
+            }
+        }
+    };
+
+    assert.throws(
+        () => validateSyncProviderPayload(payload),
+        (error) => error.code === 'CONFIG_TENANT_INVALID' && error.status === 422
+    );
+    assert.doesNotThrow(() => validateSyncProviderPayload({
+        ...payload,
+        config: { ...payload.config, tenant_id: 'f'.repeat(64) }
+    }));
+});
+
 test('health route exposes only status and caches the Magento probe', async () => {
     const routes = new Map();
     const app = {

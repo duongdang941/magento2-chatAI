@@ -109,6 +109,15 @@
     }
 }
 
+// The spacer is a scroll-range reserve, not visible message padding. It lets
+// a new customer turn sit in the reading area while its short live response
+// grows below; it disappears as soon as the turn needs normal bottom-follow.
+.afd-ai-chat__turn-anchor-spacer {
+    width: 1px;
+    min-height: 0;
+    pointer-events: none;
+}
+
 .afd-ai-chat__feedback-details {
     display: grid;
     grid-template-columns: minmax(8.5rem, 0.75fr) minmax(11rem, 1.25fr) 2.25rem;
@@ -1698,8 +1707,13 @@
 }
 
 .afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__shimmer-text {
-    --afd-shimmer-base: var(--afd-chat-text-muted-live, #57606a);
-    --afd-shimmer-contrast: ~"color-mix(in srgb, #0f172a 32%, transparent)";
+    // The dark theme's bright band has a large luminance gap. Its former
+    // light equivalent was only 32% charcoal over a muted grey base, making
+    // the moving band effectively invisible on a white message surface.
+    // Keep the same Codex cadence, but sweep the readable foreground tone
+    // across a quieter base so an active action is unmistakable in light UI.
+    --afd-shimmer-base: var(--afd-chat-text-faint-live, #737373);
+    --afd-shimmer-contrast: var(--afd-chat-text-live, #0d0d0d);
 }
 
 // Animated disclosure used by the Thinking accordion and the finished

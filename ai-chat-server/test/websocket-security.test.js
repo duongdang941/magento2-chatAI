@@ -100,10 +100,18 @@ test('adds every synchronized Magento store origin to the allow-list', () => {
         stores: {
             german: { magento_base_url: 'https://de.shop.example/store/' },
             ignored: { magento_base_url: 'not-a-url' }
+        },
+        tenants: {
+            ['a'.repeat(64)]: {
+                default: { magento_base_url: 'https://second-shop.example/' },
+                stores: { french: { magento_base_url: 'https://fr.second-shop.example/' } }
+            }
         }
     });
 
     assert.equal(allowedOrigins.has('https://shop.example'), true);
     assert.equal(allowedOrigins.has('https://de.shop.example'), true);
-    assert.equal(allowedOrigins.size, 2);
+    assert.equal(allowedOrigins.has('https://second-shop.example'), true);
+    assert.equal(allowedOrigins.has('https://fr.second-shop.example'), true);
+    assert.equal(allowedOrigins.size, 4);
 });

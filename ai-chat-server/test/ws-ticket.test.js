@@ -118,6 +118,28 @@ test('preserves the signed Magento store and customer group scope', () => {
     });
 });
 
+test('preserves the signed Magento installation tenant on the catalogue scope', () => {
+    const secret = 't'.repeat(32);
+    const now = Math.floor(Date.now() / 1000);
+    const tenantId = 'a'.repeat(64);
+    const ticket = sign({
+        aud: 'afd-ai-websocket',
+        sid: 'session-hash',
+        gid: 'c'.repeat(64),
+        sct: encryptCheckoutSessionId('checkout-session-id', secret),
+        scn: 'PHPSESSID',
+        tenant_id: tenantId,
+        catalog_scope: { store_code: 'default', customer_group_id: 0 },
+        jti: 'tenant-ticket-id',
+        iat: now,
+        exp: now + 60
+    }, secret);
+
+    const verified = verifyWebSocketTicket(ticket, secret);
+    assert.equal(verified.tenantId, tenantId);
+    assert.equal(verified.catalogScope.tenantId, tenantId);
+});
+
 test('validates a support administrator WebSocket ticket without a checkout session', () => {
     const secret = 'c'.repeat(32);
     const now = Math.floor(Date.now() / 1000);

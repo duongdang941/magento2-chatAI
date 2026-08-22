@@ -36,7 +36,11 @@ export async function handleLiveVoiceToolCall({ ws, data, client, runtime, getCo
     }
 
     try {
-        const config = await getConfig(runtime, client?.catalogScope?.storeCode || '');
+        const config = await getConfig(
+            runtime,
+            client?.catalogScope?.storeCode || '',
+            client?.tenantId || client?.catalogScope?.tenantId || ''
+        );
         const result = await executeRegisteredMagentoTool(name, safeArguments(data?.arguments), {
             magentoOauth: config.magento_oauth,
             magentoBaseUrl: config.magento_base_url,

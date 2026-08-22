@@ -370,6 +370,16 @@ test('folds completed work history until its duration row is opened', () => {
     assert.equal(message.parts[0].activitiesExpanded, false);
 });
 
+test('shows an action timer only while that action is running', () => {
+    const chat = createChat();
+    chat.streamNow = Date.now();
+    const running = { state: 'running', startedAt: chat.streamNow - 1_200 };
+    const completed = { ...running, state: 'completed', completedAt: chat.streamNow };
+
+    assert.equal(chat.activityDurationLabel(running), '1s');
+    assert.equal(chat.activityDurationLabel(completed), '');
+});
+
 test('renders each reasoning event only in the turn history timeline', () => {
     assert.match(conversationTemplate, /afd-ai-chat__turn-history-content/);
     assert.match(conversationTemplate, /reasoningTimeline\(part\)/);

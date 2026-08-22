@@ -1,0 +1,316 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import test from 'node:test';
+import vm from 'node:vm';
+
+const source = fs.readFileSync(
+    new URL('../../view/frontend/web/js/chat/shell.js', import.meta.url),
+    'utf8'
+);
+const conversationTemplate = fs.readFileSync(
+    new URL('../../view/frontend/templates/chat/partials/conversation.phtml', import.meta.url),
+    'utf8'
+);
+
+function createShellMethods({ documentImpl, browserWindow, ResizeObserverImpl } = {}) {
+    const browser = {
+        AfdAiChat: {},
+        ...browserWindow
+    };
+    vm.runInNewContext(source, {
+        window: browser,
+        document: documentImpl,
+        ResizeObserver: ResizeObserverImpl,
+        String,
+        Number,
+        Math,
+        Date,
+        RegExp,
+        Object,
+        Array,
+        Set,
+        Map,
+        JSON,
+        console
+    });
+    return browser.AfdAiChat.shellMethods({
+        config: {},
+        urls: {},
+        helpers: {}
+    });
+}
+
+function flushFrames(frames) {
+    while (frames.length > 0) {
+        frames.shift()();
+    }
+}
+
+function createChatWindow() {
+    const content = {};
+    const anchorSpacer = { offsetHeight: 0, getBoundingClientRect() { return { height: this.offsetHeight }; } };
+    const listeners = new Map();
+    return {
+        content,
+        anchorSpacer,
+        listeners,
+        scrollHeight: 500,
+        clientHeight: 200,
+        scrollTop: 0,
+        scrollLeft: 12,
+        querySelector(selector) {
+            if (selector === '[data-role="chat-scroll-content"]') return content;
+            if (selector === '[data-role="chat-turn-anchor-spacer"]') return anchorSpacer;
+            return null;
+        },
+        addEventListener(type, handler) {
+            listeners.set(type, handler);
+        },
+        removeEventListener(type, handler) {
+            if (listeners.get(type) === handler) listeners.delete(type);
+        }
+    };
+}
+
+test('wraps the message flow in a resize-observable content element', () => {
+    assert.match(conversationTemplate, /data-role="chat-scroll-content"/);
+    assert.match(conversationTemplate, /x-init="observeMessageScrollContent\(\$el\)"/);
+});
+
+test('follows streaming content after its rendered height grows', () => {
+    const frames = [];
+    const observers = [];
+    class FakeResizeObserver {
+        constructor(callback) {
+            this.callback = callback;
+            this.observed = [];
+            observers.push(this);
+        }
+
+        observe(element) {
+            this.observed.push(element);
+        }
+
+        disconnect() {}
+    }
+
+    const chatWindow = createChatWindow();
+    const methods = createShellMethods({
+        documentImpl: { getElementById: id => id === 'chatWindow' ? chatWindow : null },
+        browserWindow: {
+            requestAnimationFrame(callback) {
+                frames.push(callback);
+                return frames.length;
+            },
+            cancelAnimationFrame() {}
+        },
+        ResizeObserverImpl: FakeResizeObserver
+    });
+    const component = {
+        isAtChatBottom: true,
+        hasUnreadMessages: false,
+        $nextTick(callback) { callback(); },
+        observeMessageScrollContent: methods.observeMessageScrollContent,
+        scrollToBottom: methods.scrollToBottom
+    };
+
+    component.scrollToBottom.call(component);
+    flushFrames(frames);
+
+    assert.equal(chatWindow.scrollTop, 300);
+    assert.equal(chatWindow.scrollLeft, 0);
+    assert.deepEqual(observers[0].observed, [chatWindow, chatWindow.content]);
+
+    // This simulates a Markdown block or image changing layout after the
+    // streaming state was already flushed. No second provider delta arrives.
+    chatWindow.scrollHeight = 660;
+    observers[0].callback([{ target: chatWindow.content }]);
+    flushFrames(frames);
+
+    assert.equal(chatWindow.scrollTop, 460);
+    assert.equal(component.isAtChatBottom, true);
+    assert.equal(component.hasUnreadMessages, false);
+});
+
+test('does not pull a reader back down after they scroll away from the latest output', () => {
+    const frames = [];
+    const observers = [];
+    class FakeResizeObserver {
+        constructor(callback) {
+            this.callback = callback;
+            observers.push(this);
+        }
+
+        observe() {}
+        disconnect() {}
+    }
+
+    const chatWindow = createChatWindow();
+    const methods = createShellMethods({
+        documentImpl: { getElementById: () => chatWindow },
+        browserWindow: {
+            requestAnimationFrame(callback) {
+                frames.push(callback);
+                return frames.length;
+            },
+            cancelAnimationFrame() {}
+        },
+        ResizeObserverImpl: FakeResizeObserver
+    });
+    const component = {
+        isAtChatBottom: false,
+        hasUnreadMessages: false,
+        $nextTick(callback) { callback(); },
+        observeMessageScrollContent: methods.observeMessageScrollContent,
+        scrollToBottom: methods.scrollToBottom
+    };
+
+    component.observeMessageScrollContent.call(component, chatWindow);
+    chatWindow.scrollTop = 85;
+    chatWindow.scrollHeight = 700;
+    observers[0].callback([{ target: chatWindow.content }]);
+    flushFrames(frames);
+
+    assert.equal(chatWindow.scrollTop, 85);
+    assert.equal(component.hasUnreadMessages, true);
+
+    component.scrollToBottom.call(component, true);
+    flushFrames(frames);
+    assert.equal(chatWindow.scrollTop, 500);
+    assert.equal(component.isAtChatBottom, true);
+    assert.equal(component.hasUnreadMessages, false);
+});
+
+test('does not treat a layout-generated scroll event as a reader scrolling away', () => {
+    const chatWindow = createChatWindow();
+    const methods = createShellMethods({
+        documentImpl: { getElementById: () => chatWindow },
+        browserWindow: {
+            requestAnimationFrame(callback) { callback(); return 1; },
+            cancelAnimationFrame() {}
+        },
+        ResizeObserverImpl: class {
+            observe() {}
+            disconnect() {}
+        }
+    });
+    const component = {
+        isAtChatBottom: true,
+        hasUnreadMessages: false,
+        observeMessageScrollContent: methods.observeMessageScrollContent,
+        handleMessageScroll: methods.handleMessageScroll
+    };
+
+    component.observeMessageScrollContent.call(component, chatWindow);
+    chatWindow.scrollTop = 70;
+    chatWindow.scrollHeight = 700;
+    component.handleMessageScroll.call(component, { currentTarget: chatWindow });
+
+    assert.equal(component.isAtChatBottom, true);
+    assert.equal(component.hasUnreadMessages, false);
+
+    chatWindow.listeners.get('wheel')();
+    component.handleMessageScroll.call(component, { currentTarget: chatWindow });
+    assert.equal(component.isAtChatBottom, false);
+});
+
+test('pins a newly submitted user turn at the top until that turn fills the viewport', () => {
+    const chatWindow = createChatWindow();
+    const userMessage = {
+        dataset: { requestId: 'new-turn' },
+        getBoundingClientRect() { return { top: 104 - (chatWindow.scrollTop - 500) }; }
+    };
+    chatWindow.scrollTop = 500;
+    chatWindow.scrollHeight = 850;
+    chatWindow.clientHeight = 300;
+    chatWindow.getBoundingClientRect = () => ({ top: 0 });
+    chatWindow.querySelectorAll = selector => selector === '[data-role="chat-user-message"]' ? [userMessage] : [];
+
+    const methods = createShellMethods({
+        documentImpl: { getElementById: () => chatWindow },
+        browserWindow: {},
+        ResizeObserverImpl: class {
+            observe() {}
+            disconnect() {}
+        }
+    });
+    const component = {
+        isAtChatBottom: true,
+        hasUnreadMessages: false,
+        isTurnStartPinned: false,
+        pinnedTurnRequestId: '',
+        currentTurnUserMessage: methods.currentTurnUserMessage,
+        pinCurrentTurnToTop: methods.pinCurrentTurnToTop,
+        shouldKeepCurrentTurnAtTop: methods.shouldKeepCurrentTurnAtTop
+    };
+
+    component.pinCurrentTurnToTop.call(component, 'new-turn');
+
+    assert.equal(chatWindow.scrollTop, 496);
+    assert.equal(component.isTurnStartPinned, true);
+    assert.equal(component.shouldKeepCurrentTurnAtTop.call(component, chatWindow), true);
+
+    chatWindow.scrollHeight = 980;
+    assert.equal(component.shouldKeepCurrentTurnAtTop.call(component, chatWindow), false);
+    assert.equal(component.isTurnStartPinned, false);
+});
+
+test('excludes the temporary Codex-style spacer when measuring active-turn height', () => {
+    const chatWindow = createChatWindow();
+    chatWindow.scrollTop = 496;
+    chatWindow.scrollHeight = 1060;
+    chatWindow.clientHeight = 300;
+    chatWindow.anchorSpacer.offsetHeight = 210;
+    const userMessage = {
+        dataset: { requestId: 'new-turn' },
+        getBoundingClientRect() { return { top: 108 }; }
+    };
+    chatWindow.getBoundingClientRect = () => ({ top: 0 });
+    chatWindow.querySelectorAll = () => [userMessage];
+
+    const methods = createShellMethods({
+        documentImpl: { getElementById: () => chatWindow },
+        browserWindow: {},
+        ResizeObserverImpl: class {
+            observe() {}
+            disconnect() {}
+        }
+    });
+    const component = {
+        isTurnStartPinned: true,
+        pinnedTurnRequestId: 'new-turn',
+        currentTurnUserMessage: methods.currentTurnUserMessage,
+        shouldKeepCurrentTurnAtTop: methods.shouldKeepCurrentTurnAtTop
+    };
+
+    assert.equal(component.shouldKeepCurrentTurnAtTop.call(component, chatWindow), true);
+    assert.equal(component.isTurnStartPinned, true);
+});
+
+test('keeps the new-turn anchor through the Alpine render gap', () => {
+    const chatWindow = createChatWindow();
+    const methods = createShellMethods({
+        documentImpl: { getElementById: () => chatWindow },
+        browserWindow: {},
+        ResizeObserverImpl: class {
+            observe() {}
+            disconnect() {}
+        }
+    });
+    const component = {
+        isLoading: true,
+        activeRequestId: 'new-turn',
+        isTurnStartPinned: true,
+        pinnedTurnRequestId: 'new-turn',
+        currentTurnUserMessage: methods.currentTurnUserMessage,
+        shouldKeepCurrentTurnAtTop: methods.shouldKeepCurrentTurnAtTop
+    };
+
+    assert.equal(component.shouldKeepCurrentTurnAtTop.call(component, chatWindow), true);
+    assert.equal(component.isTurnStartPinned, true);
+
+    component.activeRequestId = '';
+    component.isLoading = false;
+    assert.equal(component.shouldKeepCurrentTurnAtTop.call(component, chatWindow), false);
+    assert.equal(component.isTurnStartPinned, false);
+});

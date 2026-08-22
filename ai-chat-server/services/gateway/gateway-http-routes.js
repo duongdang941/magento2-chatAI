@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import express from 'express';
-import { applyPushedConfig } from '../configuration/config-service.js';
+import { applyPushedConfig, normalizeTenantId } from '../configuration/config-service.js';
 
 const CONFIG_SYNC_TTL_MS = 5 * 60 * 1000;
 const HEALTH_CACHE_TTL_MS = 5000;
@@ -40,6 +40,13 @@ export function validateSyncProviderPayload(payload) {
         : null;
     const syncCode = String(syncProvider?.provider_code || '').trim();
     const configuredCode = String(defaultConfig?.provider || '').trim();
+
+    if (Number(payload?.version) >= 3 && !normalizeTenantId(config?.tenant_id || config?.tenantId)) {
+        const error = new Error('The synchronized Magento installation tenant identity is invalid.');
+        error.status = 422;
+        error.code = 'CONFIG_TENANT_INVALID';
+        throw error;
+    }
 
     if (!syncProvider || !syncCode || !configuredCode || syncCode !== configuredCode) {
         const error = new Error('The synchronized provider must match the provider currently selected in Magento.');
@@ -170,7 +177,7 @@ export function registerGatewayHttpRoutes({
         }
 
         try {
-            if (![1, 2].includes(Number(req.body?.version)) || !req.body?.sync_id) {
+            if (![1, 2, 3].includes(Number(req.body?.version)) || !req.body?.sync_id) {
                 res.status(400).json({ status: 'error', message: 'Invalid configuration sync payload.' });
                 return;
             }
@@ -196,6 +203,8 @@ export function registerGatewayHttpRoutes({
                 capabilities: config.capabilities,
                 warnings: snapshot.validation?.warnings || [],
                 store_count: Object.keys(snapshot.stores || {}).length,
+                tenant_id: snapshot.tenant_id || '',
+                tenant_count: Object.keys(snapshot.tenants || {}).length,
                 applied_at: new Date().toISOString()
             });
         } catch (error) {

@@ -257,7 +257,7 @@
                     saveRequested: false
                 };
                 this.hasStartedChat = true;
-                this.$nextTick(() => this.scrollToBottom(true));
+                this.$nextTick(() => this.pinCurrentTurnToTop?.(requestId));
             },
 
             requestLiveVoiceTool(payload) {

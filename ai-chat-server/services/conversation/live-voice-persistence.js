@@ -84,7 +84,11 @@ export async function persistLiveVoiceTurn({
     const duplicate = await runtime.claimOnce(`live-voice-turn:${identity}`, turnId, 10 * 60 * 1000);
     if (!duplicate) return;
 
-    const config = await getConfig(runtime, client?.catalogScope?.storeCode || '');
+    const config = await getConfig(
+        runtime,
+        client?.catalogScope?.storeCode || '',
+        client?.tenantId || client?.catalogScope?.tenantId || ''
+    );
     const catalogScope = client?.catalogScope || null;
     const requestedId = positiveId(data?.conversation_id);
     try {

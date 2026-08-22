@@ -1,13 +1,7 @@
 ai-chat-server/.env
-ai-chat-server/.env.local
 ai-chat-server/.env.gateway
-!ai-chat-server/.env*.example
 ai-chat-server/.local/
 ai-chat-server/node_modules/
 ai-chat-server/*.log
-ai-chat-server/logs/
-.DS_Store
-**/.DS_Store
 .ua/
-.local/
-**/.local/
+.DS_Store

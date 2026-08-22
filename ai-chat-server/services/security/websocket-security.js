@@ -29,7 +29,14 @@ export function addConfiguredWebSocketOrigins(allowedOrigins, snapshot = {}) {
     const stores = snapshot?.stores && typeof snapshot.stores === 'object'
         ? snapshot.stores
         : {};
-    for (const config of [snapshot?.default, ...Object.values(stores)]) {
+    const tenants = snapshot?.tenants && typeof snapshot.tenants === 'object'
+        ? Object.values(snapshot.tenants)
+        : [];
+    const tenantStores = tenants.flatMap((tenant) => (
+        tenant?.stores && typeof tenant.stores === 'object' ? Object.values(tenant.stores) : []
+    ));
+    const tenantDefaults = tenants.map((tenant) => tenant?.default);
+    for (const config of [snapshot?.default, ...Object.values(stores), ...tenantDefaults, ...tenantStores]) {
         const origin = toOrigin(config?.magento_base_url);
         if (origin) allowedOrigins.add(origin);
     }

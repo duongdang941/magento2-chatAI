@@ -281,6 +281,8 @@ wss.on('connection', async (ws, req) => {
 
     const customerId = auth.customerId || null;
     const supportAdmin = auth.role === 'support_admin';
+    const tenantId = auth.tenantId || auth.catalogScope?.tenantId || '';
+    const tenantPrefix = tenantId ? `tenant:${tenantId}:` : '';
 
     clientData.set(ws, {
         role: supportAdmin ? 'support_admin' : 'customer',
@@ -296,10 +298,11 @@ wss.on('connection', async (ws, req) => {
         // This is read only from a Magento-signed WebSocket ticket. It is
         // never accepted as a field in a browser message or model tool call.
         catalogScope: auth.catalogScope || null,
+        tenantId,
         pageContext: auth.pageContext || null,
         // Stable across reconnects so a new short-lived connection ticket
         // cannot reset chat or mutation throttles.
-        rateLimitKey: customerId ? `customer:${customerId}` : `session:${auth.sessionId}`,
+        rateLimitKey: customerId ? `${tenantPrefix}customer:${customerId}` : `${tenantPrefix}session:${auth.sessionId}`,
         networkRateLimitKey: `network:${crypto.createHash('sha256')
             .update(String(req.socket?.remoteAddress || 'unknown'), 'utf8')
             .digest('hex')}`,
@@ -447,7 +450,7 @@ wss.on('connection', async (ws, req) => {
                 }
 
                 case 'chat': {
-                    const aiConfig = await getAiConfig(runtime);
+                    const aiConfig = await getAiConfig(runtime, client.catalogScope?.storeCode || '', client.tenantId || client.catalogScope?.tenantId || '');
                     const rateLimit = await runtime.consumeRateLimit(client.rateLimitKey, {
                         limit: aiConfig.rate_limits?.messages_per_minute || MAX_MESSAGES_PER_MINUTE,
                         windowMs: 60 * 1000
@@ -778,7 +781,7 @@ wss.on('connection', async (ws, req) => {
 
                 case 'reset_guest_history': {
                     if (client.customerId) break;
-                    const mode = await guestHistoryMode(runtime, getAiConfig);
+                    const mode = await guestHistoryMode(runtime, getAiConfig, client);
                     const cleared = mode === 'database'
                         ? await db.deleteGuestConversations(guestHistoryIdentity(client), client.catalogScope || null)
                         : await guestSessionHistory.clear(guestHistoryIdentity(client)).then(() => true);
@@ -807,7 +810,7 @@ wss.on('connection', async (ws, req) => {
                         }));
                         return;
                     }
-                    const mode = await guestHistoryMode(runtime, getAiConfig);
+                    const mode = await guestHistoryMode(runtime, getAiConfig, client);
                     const conversationPage = mode === 'database'
                         ? await db.listGuestConversations(guestHistoryIdentity(client), requestedPage, client.catalogScope || null)
                         : await guestSessionHistory.list(guestHistoryIdentity(client), requestedPage);
@@ -829,7 +832,7 @@ wss.on('connection', async (ws, req) => {
                         ws.send(JSON.stringify({ type: 'conversation_messages', messages: [], status: 'error', conversationId: 0, client_load_token: String(data.client_load_token || '') }));
                         return;
                     }
-                    let mode = client.customerId ? 'customer' : await guestHistoryMode(runtime, getAiConfig);
+                    let mode = client.customerId ? 'customer' : await guestHistoryMode(runtime, getAiConfig, client);
                     let conv = mode === 'customer'
                         ? await db.getConversation(data.conversation_id, client.customerId, client.catalogScope || null)
                         : (mode === 'database'
@@ -886,7 +889,7 @@ wss.on('connection', async (ws, req) => {
                         return;
                     }
                     const conversationId = Number(data.conversation_id) || 0;
-                    const mode = client.customerId ? 'customer' : await guestHistoryMode(runtime, getAiConfig);
+                    const mode = client.customerId ? 'customer' : await guestHistoryMode(runtime, getAiConfig, client);
                     const deleted = mode === 'customer'
                         ? await db.deleteConversation(conversationId, client.customerId, client.catalogScope || null)
                         : (mode === 'database'
@@ -913,7 +916,7 @@ wss.on('connection', async (ws, req) => {
                         return;
                     }
 
-                    const mode = client.customerId ? 'customer' : await guestHistoryMode(runtime, getAiConfig);
+                    const mode = client.customerId ? 'customer' : await guestHistoryMode(runtime, getAiConfig, client);
                     const updated = mode === 'customer'
                         ? await db.updateConversationTitle(data.conversation_id, client.customerId, title, client.catalogScope || null)
                         : (mode === 'database'
@@ -962,7 +965,7 @@ async function handleProductPage(ws, data, client) {
         return;
     }
 
-    const aiConfig = await getAiConfig(runtime, client.catalogScope?.storeCode || '');
+    const aiConfig = await getAiConfig(runtime, client.catalogScope?.storeCode || '', client.tenantId || client.catalogScope?.tenantId || '');
     const rateLimit = await runtime.consumeRateLimit(`${client.rateLimitKey}:catalog-page`, {
         limit: aiConfig.rate_limits?.product_pages_per_minute || MAX_PRODUCT_PAGE_REQUESTS_PER_MINUTE,
         windowMs: 60 * 1000
@@ -1011,7 +1014,7 @@ async function handleProductPage(ws, data, client) {
 
 async function handleChat(ws, data, client, requestConfig = null) {
     const { history = [], conversation_id } = data;
-    const aiConfig = requestConfig || await getAiConfig(runtime, client.catalogScope?.storeCode || '');
+    const aiConfig = requestConfig || await getAiConfig(runtime, client.catalogScope?.storeCode || '', client.tenantId || client.catalogScope?.tenantId || '');
     const isResumedAction = data.resume_pending_action === true;
     const isContinuation = data.is_continuation === true;
     const replaceFromMessageId = Math.max(0, Math.floor(Number(data.replace_from_message_id) || 0));

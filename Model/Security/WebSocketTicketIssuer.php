@@ -26,6 +26,10 @@ class WebSocketTicketIssuer
     public function issue(?int $customerId, string $sessionId): string
     {
         $secret = $this->webSocketSecret();
+        $tenantId = $this->config->getTenantId();
+        if ($tenantId === '') {
+            throw new \RuntimeException('The Magento installation tenant identity could not be resolved from its base URL.');
+        }
         $guestHistoryId = !$customerId || $customerId < 1
             ? $this->guestChatIdentity->resolve()
             : null;
@@ -49,6 +53,10 @@ class WebSocketTicketIssuer
             // present it solely to the HMAC-protected internal cart route.
             'sct' => $this->encryptCheckoutSessionId($sessionId, $secret),
             'scn' => (string)$this->sessionConfig->getName(),
+            // The installation identity is signed into the ticket so a
+            // shared Node gateway can never select another Magento site's
+            // provider credentials or storefront URL.
+            'tenant_id' => $tenantId,
             // Store and group are resolved by Magento and signed into the
             // one-minute ticket. The browser never supplies pricing scope.
             'catalog_scope' => $shopperScope->toArray(),

@@ -834,8 +834,8 @@ const {
                 return [...steps, ...activities];
             },
 
-            // Codex shows "Running command for 3s" while a tool works and
-            // freezes the duration into the completed row label.
+            // Codex shows "Running command for 3s" while a tool works; the
+            // completed row remains a stable label without a stale timer.
             activityElapsedMs(activity) {
                 if (!activity || activity.state === 'running') {
                     const startedAt = Number(activity?.startedAt) || 0;
@@ -848,9 +848,11 @@ const {
                 return completedAt - startedAt;
             },
 
-            // Codex shows a trailing "8s" right after the row label, on the
-            // same line — no "for" prefix, hidden while under one second.
+            // Keep elapsed time on the live action only. Once the action is
+            // complete the row stays stable like Codex instead of leaving a
+            // misleading trailing "1s" beside the completed label.
             activityDurationLabel(activity) {
+                if (!activity || activity.state !== 'running') return '';
                 const elapsed = this.activityElapsedMs(activity);
                 if (elapsed === null) return '';
                 return this.formatElapsedMs(elapsed);
@@ -1361,7 +1363,20 @@ const {
                 this.thinkingSteps = [];
                 this.toolActivities = [];
                 this.armResponseWatchdog();
-                this.$nextTick(() => this.scrollToBottom(true));
+                // Start the new customer turn at the top of the reading
+                // region, like Codex. The shell switches to bottom-following
+                // only once this turn becomes taller than the available area.
+                this.isTurnStartPinned = true;
+                this.pinnedTurnRequestId = requestId;
+                this.$nextTick(() => {
+                    this.pinCurrentTurnToTop?.(requestId);
+                    // A status/tool frame can race Alpine's first DOM paint.
+                    // Align once more after layout so the submitted bubble is
+                    // never left in the lower part of the scroll viewport.
+                    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+                        window.requestAnimationFrame(() => this.pinCurrentTurnToTop?.(requestId));
+                    }
+                });
                 let outgoingUserParts;
                 try {
                     outgoingUserParts = typeof this.prepareOutgoingUserParts === 'function'

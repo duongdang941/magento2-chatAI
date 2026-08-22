@@ -141,6 +141,17 @@ class SyncNodeConfig implements ObserverInterface
         $syncId = bin2hex(random_bytes(16));
         $reloadUrl = rtrim($reloadUrl, '/') . '/internal/config';
         $configSnapshot = $this->buildConfigSnapshot();
+        $tenantId = $this->aiConfig->getTenantId();
+        if ($tenantId === '') {
+            $this->saveStatus('failed', 'Magento base URL is not configured for this installation.');
+            return [
+                'success' => false,
+                'message' => 'Magento base URL is not configured for this installation.',
+                'sync_id' => $syncId,
+                'http_status' => 422,
+            ];
+        }
+        $configSnapshot['tenant_id'] = $tenantId;
         $syncProviderCode = $syncProvider
             ? trim((string)$syncProvider->getProviderCode())
             : trim((string)$this->aiConfig->getProvider());
@@ -151,7 +162,7 @@ class SyncNodeConfig implements ObserverInterface
             $configSnapshot['default']['provider'] = $syncProviderCode;
         }
         $payload = [
-            'version' => 2,
+            'version' => 3,
             'sync_id' => $syncId,
             'sync_provider' => [
                 'provider_id' => $syncProvider?->getProviderId(),

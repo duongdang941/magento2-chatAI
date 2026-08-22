@@ -387,6 +387,33 @@ class Config
         return $baseUrl;
     }
 
+    /**
+     * Stable, non-secret identity for this Magento installation.
+     *
+     * It is derived from the default-scope base URL so all store views and
+     * websites in one installation share a tenant while separate Magento
+     * installations naturally receive isolated Node configuration buckets.
+     */
+    public function getTenantId(): string
+    {
+        $baseUrl = trim($this->getMagentoBaseUrl(0));
+        if ($baseUrl === '') {
+            return '';
+        }
+
+        $parts = parse_url($baseUrl);
+        if (!is_array($parts) || empty($parts['host'])) {
+            return '';
+        }
+
+        $scheme = strtolower((string)($parts['scheme'] ?? 'https'));
+        $host = strtolower((string)$parts['host']);
+        $port = isset($parts['port']) ? ':' . (int)$parts['port'] : '';
+        $path = rtrim((string)($parts['path'] ?? ''), '/');
+
+        return hash('sha256', $scheme . '://' . $host . $port . $path);
+    }
+
     private function isSafeProviderText(?string $value): bool
     {
         return is_string($value)

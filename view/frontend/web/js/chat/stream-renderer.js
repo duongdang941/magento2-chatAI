@@ -120,12 +120,12 @@
                 if (scrollFrame !== null) return;
                 const scroll = () => {
                     scrollFrame = null;
-                    const chatWindow = (typeof document !== 'undefined' && typeof document.getElementById === 'function')
-                        ? document.getElementById('chatWindow')
-                        : null;
-                    if (chatWindow && this.isAtChatBottom !== false) {
-                        chatWindow.scrollTop = chatWindow.scrollHeight - chatWindow.clientHeight;
-                    } else if (typeof this.scrollToBottom === 'function') {
+                    // The chat shell owns following: it waits for Alpine's
+                    // DOM work and observes subsequent content-height changes
+                    // (Markdown blocks, images, etc.). A direct scroll here
+                    // races that rendering and is why streaming could stop
+                    // just above the newest line.
+                    if (typeof this.scrollToBottom === 'function') {
                         this.scrollToBottom();
                     }
                 };

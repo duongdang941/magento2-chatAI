@@ -1,46 +1,22 @@
-# Magento 2 AI Assistant & Support Gateway (Afd_AI)
+# Afd_AI
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![PHP 8.2+](https://img.shields.io/badge/PHP-8.2%2B-blue.svg)](https://www.php.net)
-[![Magento 2.4](https://img.shields.io/badge/Magento-2.4%2B-orange.svg)](https://magento.com)
-[![Hyvä Theme](https://img.shields.io/badge/Theme-Hyv%C3%A4-green.svg)](https://hyva.io)
-[![CI](https://github.com/duongdang941/magento2-chatAI/actions/workflows/ci.yml/badge.svg)](https://github.com/duongdang941/magento2-chatAI/actions)
+Magento 2 storefront assistant with a Node.js streaming gateway, Magento-owned commerce tools, durable customer/guest history, image generation, and human-support takeover.
 
-An open-source, enterprise-ready **AI Storefront Assistant and Human Support Gateway** for Magento 2 and Hyvä Themes. Features real-time bidirectional WebSocket streaming, native Magento commerce tools (catalog grounding, cart mutations, guest order access, order fulfillment), multi-model provider support (OpenAI, Gemini), and seamless human agent handover.
+## Architecture
 
----
-
-## ✨ Key Features
-
-- **Real-Time Streaming**: High-performance Node.js WebSocket gateway with chunk buffering, step-by-step thinking progress, and responsive token delivery.
-- **Provider Neutral Architecture**: Pluggable adapters for **OpenAI (GPT-4o, GPT-5)**, **Google Gemini**, and local/custom OpenAI-compatible models.
-- **Native Commerce Tools**:
-  - Semantic & keyword catalog search with HTML product cards.
-  - Live stock and variant checking.
-  - Direct shopping cart and Quote Cart (*Anfrage-Zettel*) operations.
-  - Customer order lookup, fulfillment tracking, and address update forms.
-  - Secure guest order verification via email OTP.
-- **Human Support Portal**: Verified ticket routing and real-time live support takeover between customer and admin agents.
-- **Hyvä Storefront UI**: Lightweight Alpine.js modular frontend components with dark mode, image upload & vision analysis, voice input, and multi-language i18n support.
-- **Robust Security**: HMAC request signing, integration ACL isolation, encrypted Redis snapshots, and strict data privacy deletion cascading.
-
----
-
-## 🏗️ Architecture
-
-The browser never receives provider or Magento integration credentials. Its short-lived, single-use WebSocket ticket contains only an identity claim. The gateway streams model output, but every catalog, cart, customer, order, address, privacy, and support authorization decision remains securely in Magento.
+The browser never receives provider or Magento integration credentials. Its short-lived, single-use WebSocket ticket contains only an identity claim. The gateway streams model output, but every catalog, cart, customer, order, address, privacy, and support authorization decision remains in Magento.
 
 ```text
 Storefront (Alpine feature modules)
   -> versioned WebSocket contract
 Gateway transport / application runner
-  -> provider adapter (OpenAI / Gemini)
+  -> provider adapter
   -> canonical tool registry + shared Magento executor
 Magento service contracts / ownership policies
   -> repositories and declarative schema
 ```
 
-### Important boundaries:
+Important boundaries:
 
 - `ai-chat-server/services/providers/`: provider protocol adapters only.
 - `ai-chat-server/services/tools/tool-registry.js`: canonical schemas and risk policies.
@@ -50,22 +26,19 @@ Magento service contracts / ownership policies
 - `Model/Cart/OptionalQuoteCartAdapter.php`: the only optional Amasty Request Quote boundary.
 - `view/frontend/web/js/chat/state.js`: grouped initial UI state; feature behavior remains in `chat/*.js`.
 
----
+## Runtime requirements
 
-## 💻 Runtime Requirements
+- PHP 8.2 and Magento 2 modules declared in `composer.json`/`etc/module.xml`.
+- Node.js 20+ for the gateway.
+- Redis is required outside explicit local/test in-memory mode.
+- Alpine is supplied by the active Hyvä storefront theme.
+- Amasty Request a Quote is optional. Normal checkout remains available without it.
 
-- **PHP**: 8.2+ with Magento 2.4.x.
-- **Node.js**: 20+ for the streaming gateway.
-- **Redis**: 6.2+ (required outside explicit local/test in-memory mode).
-- **Theme**: Hyvä Theme (Alpine.js & Tailwind CSS).
-- **Optional**: Amasty Request a Quote (supported via optional adapter).
+Provider and OAuth secrets are encrypted before the gateway writes a local snapshot or Redis value. Configure `AI_CONFIG_ENCRYPTION_KEY` or the existing 32+ character `AI_NODE_SYNC_SECRET`. Files are permissioned `0600`; Redis must also use authentication, private networking, and encrypted backups.
 
----
-
-## 🔒 Security Invariants
+## Security invariants
 
 - Integration ACL is limited to `Afd_AI::chat_gateway`; never grant `Magento_Backend::all`.
-- Provider API keys and Magento OAuth credentials use Magento encrypted configuration storage at rest.
 - Anonymous-looking internal REST endpoints call `NodeRequestAuthorizer` and require timestamped HMAC + nonce replay protection.
 - Customer and guest ownership is rechecked in Magento for every private resource.
 - Guest OTP is limited by email hash, stable session, network identity, and a global delivery budget.
@@ -73,32 +46,28 @@ Magento service contracts / ownership policies
 - New chat attachments live under `var/afd_ai/chat` and are served only after conversation ownership validation.
 - Privacy deletion removes messages before conversations, cascades feedback, redacts retained support cases, and removes attachment directories.
 
----
+## Verification
 
-## 🧪 Verification & Testing
+From the Magento root:
 
-### Magento Unit Tests:
 ```bash
-vendor/bin/phpunit app/code/Afd/AI/Test/Unit
+vendor/bin/phpunit -c dev/tests/unit/phpunit.xml.dist app/code/Afd/AI/Test/Unit
 find app/code/Afd/AI -name '*.php' -print0 | xargs -0 -n1 php -l
+bin/magento setup:db:status
 ```
 
-### Node.js Gateway Test Suite:
+From `ai-chat-server`:
+
 ```bash
-cd ai-chat-server
 npm test
 npm audit --omit=dev
 npm run test:integration
+npm run validate:shopping
+node scripts/evaluate-product-grounding.mjs --limit=50 --concurrency=3
 ```
 
----
+Architecture regression tests prohibit provider-specific Magento execution, direct optional-extension coupling, unversioned schema regressions, and a return to the former server/state composition monoliths.
 
-## 🤝 Contributing
+## Deployment
 
-Contributions are welcome! Please check out [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on code style, testing, and pull requests.
-
----
-
-## 📄 License
-
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+After source changes, run `setup:upgrade`, DI compilation, static content deployment for the target locales, cache clean, and restart the gateway. Push Admin configuration once after upgrading so legacy plaintext gateway snapshots are rewritten as authenticated AES-256-GCM envelopes.

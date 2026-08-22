@@ -28,6 +28,11 @@
             isHistoryLoading: false,
             isAtChatBottom: true,
             hasUnreadMessages: false,
+            // A new turn starts near the top of the reading area, matching
+            // Codex. It remains there while the complete turn still fits;
+            // longer streamed output then resumes normal bottom following.
+            isTurnStartPinned: false,
+            pinnedTurnRequestId: '',
             hasStartedChat: false,
             currentAiMessageIndex: -1,
             pendingProductParts: [],

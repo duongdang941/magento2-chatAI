@@ -85,7 +85,9 @@
                 <div class="afd-ai-chat__messages-wrapper">
                     <div class="afd-ai-chat__messages custom-scrollbar chat-messages"
                          id="chatWindow"
+                         x-init="observeMessageScrollContent($el)"
                          @scroll.passive="handleMessageScroll($event)">
+                        <div class="afd-ai-chat__messages-content" data-role="chat-scroll-content">
                         <template x-if="hasOlderMessages">
                             <div class="afd-ai-chat__history-load">
                                 <button type="button"
@@ -770,7 +772,10 @@
                                 </div>
 
                                 <!-- User Message -->
-                                <div x-show="msg.role === 'user'" class="afd-ai-chat__msg-user">
+                                <div x-show="msg.role === 'user'"
+                                     class="afd-ai-chat__msg-user"
+                                     data-role="chat-user-message"
+                                     :data-request-id="msg.request_id || ''">
                                     <div class="afd-ai-chat__msg-user-content">
                                         <template x-if="editingMessageIndex === index">
                                             <form class="afd-ai-chat__msg-edit-shell"
@@ -991,6 +996,16 @@
                             </div>
                         </div>
 
+                        <!-- Codex reserves space below a short active turn,
+                             so its submitted customer message can move into
+                             the reading area instead of staying by composer. -->
+                        <div x-show="isLoading && isTurnStartPinned && pinnedTurnRequestId"
+                             class="afd-ai-chat__turn-anchor-spacer"
+                             data-role="chat-turn-anchor-spacer"
+                             :style="'height:' + currentTurnAnchorSpacerHeight() + 'px'"
+                             aria-hidden="true"></div>
+
+                        </div>
                     </div>
                     <button type="button"
                             class="afd-ai-chat__scroll-to-latest"

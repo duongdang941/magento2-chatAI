@@ -42,7 +42,11 @@ function formatVoiceError(error) {
 export async function handleVoiceTranscription({ ws, data, client, runtime, metrics, attachRequestId }) {
     const requestId = String(data.request_id || '').slice(0, 120);
     const send = (payload) => ws.send(attachRequestId(payload, requestId));
-    const config = await getAiConfig(runtime, client?.catalogScope?.storeCode || '');
+    const config = await getAiConfig(
+        runtime,
+        client?.catalogScope?.storeCode || '',
+        client?.tenantId || client?.catalogScope?.tenantId || ''
+    );
 
     if (config.voice?.enabled !== true) {
         send({ type: 'voice_error', code: 'VOICE_DISABLED', content: 'Voice dictation is disabled for this store.' });

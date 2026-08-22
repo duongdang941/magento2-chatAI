@@ -2,7 +2,10 @@ import { getMagentoBaseUrl } from '../configuration/config-service.js';
 
 export function resolveMagentoBaseUrl(catalogScope = null, explicitUrl = '') {
     const configured = String(explicitUrl || '').trim()
-        || getMagentoBaseUrl(catalogScope?.storeCode || '');
+        || getMagentoBaseUrl(
+            catalogScope?.storeCode || '',
+            catalogScope?.tenantId || ''
+        );
     const fallback = String(process.env.MAGENTO_API_URL || '').trim();
     const url = (configured || fallback).replace(/\/+$/, '');
     if (!url) {
