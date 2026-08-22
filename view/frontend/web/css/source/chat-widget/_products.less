@@ -62,9 +62,9 @@
     min-height: 2rem;
     gap: 0.28rem;
     padding: 0.32rem 0.56rem;
-    border: 1px solid fade(@afd-chat-accent, 35%);
+    border: 1px solid ~"color-mix(in srgb, var(--afd-chat-accent-live) 35%, transparent)";
     border-radius: @afd-chat-radius-sm;
-    background: @afd-chat-accent-soft;
+    background: ~"color-mix(in srgb, var(--afd-chat-accent-live) 10%, transparent)";
     color: var(--afd-chat-accent-live);
     font-size: ~"calc(0.72rem * var(--afd-chat-font-scale))";
     font-weight: 680;
@@ -96,7 +96,7 @@
 .afd-ai-chat__product-pagination-btn:hover:not(:disabled),
 .afd-ai-chat__product-pagination-link:hover {
     border-color: var(--afd-chat-accent-live);
-    background: fade(@afd-chat-accent, 18%);
+    background: ~"color-mix(in srgb, var(--afd-chat-accent-live) 20%, transparent)";
     color: var(--afd-chat-accent-live);
 }
 
@@ -215,7 +215,7 @@ h4.afd-ai-chat__product-name {
 
     .normal-price,
     .special-price {
-        color: #a8b0ff;
+        color: var(--afd-chat-accent-live, #a8b0ff);
         font-size: ~"calc(13px * var(--afd-chat-font-scale))";
         font-weight: 760;
     }
@@ -296,15 +296,16 @@ h4.afd-ai-chat__product-name {
 }
 
 .afd-ai-chat__product-btn--primary {
-    border-color: rgba(122, 132, 255, 0.45);
-    background: rgba(122, 132, 255, 0.2);
-    color: #ffffff;
+    border-color: ~"color-mix(in srgb, var(--afd-chat-accent-live) 45%, transparent)";
+    background: ~"color-mix(in srgb, var(--afd-chat-accent-live) 18%, transparent)";
+    color: var(--afd-chat-accent-contrast-live, #ffffff);
     box-shadow: none;
 }
 
 .afd-ai-chat__product-btn--primary:hover {
-    border-color: rgba(143, 151, 255, 0.58);
-    background: rgba(122, 132, 255, 0.3);
+    border-color: var(--afd-chat-accent-live);
+    background: ~"color-mix(in srgb, var(--afd-chat-accent-live) 30%, transparent)";
+    color: var(--afd-chat-accent-contrast-live, #ffffff);
 }
 
 .afd-ai-chat__product-btn .material-symbols-outlined {
@@ -332,8 +333,10 @@ h4.afd-ai-chat__product-name {
         color: var(--afd-chat-text-muted-live);
     }
 
-    .afd-ai-chat__product-price-current {
-        color: var(--afd-chat-accent-live);
+    .afd-ai-chat__product-price-current,
+    .normal-price,
+    .special-price {
+        color: var(--afd-chat-accent-live) !important;
     }
 
     .afd-ai-chat__product-btn {
@@ -342,19 +345,21 @@ h4.afd-ai-chat__product-name {
         color: var(--afd-chat-text-live);
 
         &:hover {
-            background: var(--afd-chat-surface-hover-live);
-            color: var(--afd-chat-text-live);
+            border-color: var(--afd-chat-accent-live);
+            background: ~"color-mix(in srgb, var(--afd-chat-accent-live) 8%, #ffffff)";
+            color: var(--afd-chat-accent-live);
         }
 
         &--primary {
-            border-color: rgba(94, 106, 210, 0.38);
-            background: rgba(94, 106, 210, 0.11);
-            color: #293177;
+            border-color: ~"color-mix(in srgb, var(--afd-chat-accent-live) 38%, transparent)";
+            background: ~"color-mix(in srgb, var(--afd-chat-accent-live) 10%, #ffffff)";
+            color: var(--afd-chat-accent-live);
             box-shadow: none;
 
             &:hover {
-                background: rgba(94, 106, 210, 0.18);
-                color: #20265f;
+                border-color: var(--afd-chat-accent-live);
+                background: ~"color-mix(in srgb, var(--afd-chat-accent-live) 18%, #ffffff)";
+                color: var(--afd-chat-accent-live);
             }
         }
     }

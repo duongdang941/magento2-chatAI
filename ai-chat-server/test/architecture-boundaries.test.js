@@ -12,15 +12,46 @@ test('provider adapters do not own Magento persistence or tool schemas', () => {
         const source = read('services', 'orchestration', filename);
         assert.doesNotMatch(source, /executeMagentoTool|createMagentoRequestConfig|axios/);
         assert.match(source, /ToolDefinitions/);
-        assert.match(source, /executeRegisteredMagentoTool/);
+        assert.match(source, /createProviderNeutralToolFlow/);
     }
 });
 
+test('production code never logs raw model tool arguments', () => {
+    for (const filename of ['gemini-orchestrator.js', 'openai-compatible-orchestrator.js']) {
+        const source = read('services', 'orchestration', filename);
+        assert.doesNotMatch(source, /console\.(?:log|warn|error)\([^\n]*\bargs\b/);
+    }
+});
+
+test('customer conversation touch remains bound to the verified owner', () => {
+    const service = read('services', 'gateway', 'db-service.js');
+    const contract = read('..', 'Api', 'ConversationManagementInterface.php');
+    const model = read('..', 'Model', 'ConversationManagement.php');
+    assert.match(service, /touchConversation\(conversationId, customerId/);
+    assert.match(contract, /touchConversation\(int \$conversationId, int \$customerId\)/);
+    assert.match(model, /getCustomerOwnedConversation\(\$conversationId, \$customerId\)/);
+});
+
 test('server composition root stays below the monolith regression budget', () => {
-    const lines = read('server.js').split('\n').length;
-    assert.ok(lines < 1900, `server.js has regressed to ${lines} lines`);
+    const serverSource = read('server.js');
+    const lines = serverSource.split('\n').length;
+    assert.ok(lines < 1650, `server.js has regressed to ${lines} lines`);
     assert.match(read('services', 'conversation', 'history-message-preparer.js'), /activeAddressFormCacheKey/);
+    assert.match(read('services', 'conversation', 'guest-history-sync.js'), /broadcastGuestConversation/);
+    assert.match(read('services', 'customer', 'verified-access-session.js'), /supportEmailVerificationCacheKey/);
     assert.doesNotMatch(read('server.js'), /async function prepareHistoryMessages/);
+    assert.doesNotMatch(read('server.js'), /async function hydrateGuestOrderAccess/);
+    assert.doesNotMatch(serverSource, /async function handleVoiceTranscription/);
+    assert.ok(
+        serverSource.indexOf('const browserCartBridge = new BrowserCartBridge')
+            < serverSource.indexOf('const connectionLifecycle = createConnectionLifecycle'),
+        'connection lifecycle must be composed after the browser cart bridge'
+    );
+    assert.ok(
+        serverSource.indexOf('} = createActiveRunController')
+            < serverSource.indexOf('const connectionLifecycle = createConnectionLifecycle'),
+        'connection lifecycle must be composed after cancelActiveRun exists'
+    );
 });
 
 test('optional quote extension is isolated behind a Magento adapter', () => {
@@ -35,9 +66,95 @@ test('conversation deletion explicitly removes messages before the SET NULL lega
     assert.match(eraser, /getTableName\('afd_ai_message'\)[\s\S]*getTableName\('afd_ai_conversation'\)/);
 });
 
+test('interactive conversation deletion is transactional and cleans files after database commit', () => {
+    const source = read('..', 'Model', 'ConversationManagement.php');
+    assert.match(source, /deleteConversationRows[\s\S]*beginTransaction\(\)[\s\S]*commit\(\)[\s\S]*rollBack\(\)/);
+    assert.ok(
+        source.indexOf('$this->deleteConversationRows($conversationId);')
+            < source.indexOf('$this->chatAttachmentStorage->deleteConversationAttachments((int)$customerId, $conversationId);')
+    );
+});
+
 test('frontend composition root delegates state and feature behaviour', () => {
     const compositionRoot = read('..', 'view', 'frontend', 'web', 'js', 'chat-interface.js');
     assert.ok(compositionRoot.split('\n').length < 60);
     assert.match(compositionRoot, /createInitialState/);
     assert.doesNotMatch(compositionRoot, /pendingGuestOrderAccessParts:\s*\[/);
+});
+
+test('Thinking text and storefront actions use independent render regions', () => {
+    const template = read('..', 'view', 'frontend', 'templates', 'chat', 'partials', 'conversation.phtml');
+    assert.match(template, /x-for="step in reasoningSteps\(part\)"/);
+    assert.doesNotMatch(template, /x-if="!part\.events \|\| part\.events\.length === 0"/);
+
+    const textRegion = template.indexOf("key=\"'text-' + part.id\"");
+    const actionRegion = template.indexOf("key=\"'actions-' + part.id\"");
+    assert.ok(textRegion >= 0 && actionRegion > textRegion, 'actions must render after customer-facing text');
+});
+
+test('storefront transports image bytes once and reads selected files sequentially', () => {
+    const stream = read('..', 'view', 'frontend', 'web', 'js', 'chat', 'stream.js');
+    const attachments = read('..', 'view', 'frontend', 'web', 'js', 'chat', 'attachments.js');
+    assert.doesNotMatch(stream, /image:\s*outgoingAttachments\[0\]/);
+    assert.doesNotMatch(stream, /images:[\s\S]{0,400}data:\s*attachment\.base64/);
+    assert.doesNotMatch(attachments, /Promise\.all\(validFiles\.map/);
+    assert.match(attachments, /for \(const file of validFiles\)[\s\S]*await this\.readImageAttachmentFile/);
+    assert.match(attachments, /URL\.createObjectURL\(file\)/);
+    assert.match(stream, /MAX_WEBSOCKET_PAYLOAD_BYTES/);
+    assert.match(stream, /serializedChatPayload/);
+});
+
+test('storefront chat markup never embeds customer session state into an FPC page', () => {
+    const template = read('..', 'view', 'frontend', 'templates', 'chat', 'interface.phtml');
+    assert.match(template, /'customerId'\s*=>\s*null/);
+    assert.match(template, /'isLoggedIn'\s*=>\s*false/);
+    assert.doesNotMatch(template, /'customerId'\s*=>\s*\(int\)\s*\$block->getCustomerId\(\)/);
+    assert.doesNotMatch(template, /'isLoggedIn'\s*=>\s*\$block->isLoggedIn\(\)/);
+});
+
+test('production edge examples enforce a replica-independent per-network connection limit', () => {
+    const upstream = read('infra', 'nginx', 'production-upstream.conf.example');
+    const websocket = read('infra', 'nginx', 'production-wss.conf.example');
+    const localGateway = read('infra', 'nginx', 'gateway.conf');
+    for (const source of [upstream, localGateway]) {
+        assert.match(source, /limit_conn_zone\s+\$binary_remote_addr/);
+    }
+    for (const source of [websocket, localGateway]) {
+        assert.match(source, /limit_conn\s+afd_ai_connection_limit\s+\d+/);
+        assert.match(source, /limit_req\s+zone=afd_ai_connection_rate/);
+    }
+    assert.match(read('compose.yaml'), /TRUST_PROXY:\s+\$\{TRUST_PROXY:-1\}/);
+});
+
+test('generated-image cleanup uses an indexed reference table instead of message-text scans', () => {
+    const cleaner = read('..', 'Model', 'Maintenance', 'ExpiredDataCleaner.php');
+    const references = read('..', 'Model', 'Maintenance', 'GeneratedImageReferenceRepository.php');
+    const schema = read('..', 'etc', 'db_schema.xml');
+    assert.doesNotMatch(cleaner, /\bLIKE\b|afd_ai_message/);
+    assert.match(references, /where\('filename = \?', \$filename\)/);
+    assert.match(schema, /table name="afd_ai_generated_image_reference"/);
+    assert.match(schema, /AFD_AI_GENERATED_IMAGE_REF_FILENAME/);
+});
+
+test('attachment cleanup scans both customer and guest private storage layouts', () => {
+    const cleaner = read('..', 'Model', 'Maintenance', 'ChatAttachmentCleaner.php');
+    assert.match(cleaner, /search\('\*\/\*\/\*', self::BASE_PATH\)/);
+    assert.match(cleaner, /search\('\*\/\*\/\*\/\*', self::BASE_PATH\)/);
+    assert.match(cleaner, /loadReferencedFiles/);
+    assert.match(cleaner, /orphan_retention_seconds/);
+    assert.match(cleaner, /usort\(\$candidates/);
+    assert.match(cleaner, /cleanup_dry_run/);
+    assert.match(cleaner, /protected_conversations/);
+});
+
+test('attachment writes reserve disk capacity before the final file write', () => {
+    const storage = read('..', 'Model', 'ChatAttachmentStorage.php');
+    const guard = read('..', 'Model', 'Maintenance', 'AttachmentDiskGuard.php');
+    assert.ok(
+        storage.indexOf('$this->diskGuard->assertCapacity') < storage.indexOf('base64_decode'),
+        'the low-disk fast path must run before image decoding'
+    );
+    assert.match(storage, /reserveAndWrite\(/);
+    assert.match(guard, /LockManagerInterface/);
+    assert.match(guard, /assertOwnerQuota/);
 });

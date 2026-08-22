@@ -29,7 +29,11 @@ class ProductRenderer implements ProductRendererInterface
     /**
      * @inheritdoc
      */
-    public function renderProducts(string $ids, ?int $customerGroupId = null): string
+    public function renderProducts(
+        string $ids,
+        ?int $customerGroupId = null,
+        ?int $trustedCustomerId = null
+    ): string
     {
         $productIds = array_filter(array_map('intval', explode(',', $ids)));
 
@@ -38,7 +42,8 @@ class ProductRenderer implements ProductRendererInterface
         }
 
         $shopperScope = $this->shopperScopeResolver->resolve(
-            $customerGroupId ?? (int)$this->customerSession->getCustomerGroupId()
+            $customerGroupId ?? (int)$this->customerSession->getCustomerGroupId(),
+            max(0, (int)$trustedCustomerId)
         );
         $loadCollection = function () use ($productIds, $shopperScope): Collection {
             $collection = $this->productCollectionFactory->create();

@@ -61,3 +61,28 @@ test('returns the longest retry interval when an image quota is exhausted', asyn
         retryAfterMs: 90000
     });
 });
+
+test('keeps capacity protection without charging the provider Image API quota for a chat SVG fallback', async () => {
+    const calls = [];
+    const runtime = {
+        async consumeRateLimit() {
+            calls.push('quota');
+            throw new Error('SVG fallback must not consume Image API quota');
+        },
+        async acquireScopedCapacity(namespace, identity) {
+            calls.push({ namespace, identity });
+            return { release: async () => {} };
+        }
+    };
+
+    const admission = await acquireImageGenerationAdmission({
+        runtime,
+        identity: 'guest:svg',
+        isCustomer: false,
+        chargeProviderImageQuota: false,
+        config: { image_generation: { max_concurrent_per_identity: 1 } }
+    });
+
+    assert.equal(admission.allowed, true);
+    assert.deepEqual(calls, [{ namespace: 'image-generation', identity: 'guest:svg' }]);
+});

@@ -15,9 +15,15 @@ interface ProductRendererInterface
      * Render product cards HTML by product IDs
      *
      * @param string $ids Comma-separated product IDs
+     * @param int|null $customerGroupId Magento-verified customer group
+     * @param int|null $trustedCustomerId Magento-verified customer identity
      * @return string Rendered HTML
      */
-    public function renderProducts(string $ids, ?int $customerGroupId = null): string;
+    public function renderProducts(
+        string $ids,
+        ?int $customerGroupId = null,
+        ?int $trustedCustomerId = null
+    ): string;
 
     /**
      * Render product cards HTML from a preloaded collection to avoid requerying.

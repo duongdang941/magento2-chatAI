@@ -8,7 +8,7 @@ export function createSupportBroadcaster({ clientData, isSocketOpen }) {
     const matchingCustomer = (client, customerId, guestId) => client?.role !== 'support_admin'
         && (customerId > 0
             ? Number(client?.customerId) === Number(customerId)
-            : !client?.customerId && String(client?.sessionId || '') === String(guestId || ''));
+            : !client?.customerId && String(client?.guestHistoryId || '') === String(guestId || ''));
     const matchingAdmin = (client, conversationId) => client?.role === 'support_admin'
         && Number(client?.supportConversationId) === Number(conversationId);
 

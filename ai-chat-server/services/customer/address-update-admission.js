@@ -1,8 +1,12 @@
 import { verifyAddressFormToken } from './address-form-token.js';
 
-const stableIdentity = (client) => client?.customerId
-    ? `customer:${client.customerId}`
-    : `session:${String(client?.sessionId || '')}`;
+const stableIdentity = (client) => {
+    const tenant = client?.tenantId || client?.catalogScope?.tenantId || '';
+    const prefix = tenant ? `tenant:${tenant}:` : '';
+    return client?.customerId
+        ? `${prefix}customer:${client.customerId}`
+        : `${prefix}session:${String(client?.sessionId || '')}`;
+};
 
 /**
  * Canonical owner-scoped key for the single active address form in a chat.
@@ -46,7 +50,11 @@ export function createAddressUpdateAdmission({ runtime, getConfig, defaults = {}
         }
 
         const identity = `${stableIdentity(client)}:address-update`;
-        const config = await getConfig(runtime);
+        const config = await getConfig(
+            runtime,
+            client?.catalogScope?.storeCode || '',
+            client?.tenantId || client?.catalogScope?.tenantId || ''
+        );
         const limits = config.rate_limits || {};
         const minute = await runtime.consumeRateLimit(`${identity}:minute`, {
             limit: limits.address_updates_per_minute || defaults.perMinute || 5,

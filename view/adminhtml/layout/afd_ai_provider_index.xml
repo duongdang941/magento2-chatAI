@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+    <head>
+        <css src="Afd_AI::css/provider-manager.css"/>
+    </head>
+    <body>
+        <referenceContainer name="content">
+            <uiComponent name="afd_ai_provider_listing"/>
+            <block class="Afd\AI\Block\Adminhtml\Provider\Modal" name="afd_ai_provider_modal" template="Afd_AI::provider/modal.phtml"/>
+        </referenceContainer>
+    </body>
+</page>

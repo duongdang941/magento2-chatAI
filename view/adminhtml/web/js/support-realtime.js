@@ -2,7 +2,8 @@ define([], function () {
     'use strict';
 
     const socketUrl = (value) => {
-        const url = new URL(String(value || ''), window.location.origin);
+        const fallback = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ai-gateway/`;
+        const url = new URL(String(value || fallback), fallback);
         if (url.protocol === 'http:') url.protocol = 'ws:';
         if (url.protocol === 'https:') url.protocol = 'wss:';
         return url;

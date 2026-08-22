@@ -15,6 +15,30 @@
                 <template x-if="uploadError">
                     <p class="afd-ai-chat__upload-error" x-text="uploadError"></p>
                 </template>
+                <template x-if="voiceState === 'recording' || voiceState === 'transcribing' || voiceError">
+                    <div class="afd-ai-chat__voice-status" :class="'afd-ai-chat__voice-status--' + voiceState" role="status" aria-live="polite">
+                        <span class="afd-ai-chat__voice-orb" aria-hidden="true"><i></i><i></i><i></i></span>
+                        <span x-show="voiceState === 'recording'">Listening <span x-text="voiceDurationSeconds + 's'"></span></span>
+                        <span x-show="voiceState === 'transcribing'">Transcribing your voice…</span>
+                        <span x-show="voiceState === 'error'" x-text="voiceError"></span>
+                        <button type="button" class="afd-ai-chat__voice-cancel" x-show="voiceState === 'recording'" @click="cancelVoiceDictation()">Cancel</button>
+                    </div>
+                </template>
+                <template x-if="liveVoiceState === 'connecting' || liveVoiceState === 'connected' || liveVoiceError">
+                    <div class="afd-ai-chat__voice-status afd-ai-chat__live-voice-status"
+                         :class="'afd-ai-chat__live-voice-status--' + liveVoiceState"
+                         role="status"
+                         aria-live="polite">
+                        <span class="afd-ai-chat__voice-orb" aria-hidden="true"><i></i><i></i><i></i></span>
+                        <span x-show="liveVoiceState === 'connecting'">Connecting Live Voice…</span>
+                        <span x-show="liveVoiceState === 'connected'">Live Voice <span x-text="Math.floor(liveVoiceElapsedSeconds / 60) + ':' + String(liveVoiceElapsedSeconds % 60).padStart(2, '0')"></span></span>
+                        <span x-show="liveVoiceState === 'error'" x-text="liveVoiceError"></span>
+                        <button type="button"
+                                class="afd-ai-chat__voice-cancel"
+                                x-show="liveVoiceState === 'connecting' || liveVoiceState === 'connected'"
+                                @click="endLiveVoice()">End call</button>
+                    </div>
+                </template>
                 <div class="afd-ai-chat__composer-shell"
                      x-show="!supportConversationClosed"
                      :class="{ 'afd-ai-chat__composer-shell--expanded': isComposerExpanded || imageAttachments.length > 0 }">
@@ -35,7 +59,11 @@
                             </template>
                         </div>
                     </template>
-                    <div class="afd-ai-chat__composer-editor">
+                    <div class="afd-ai-chat__composer-editor"
+                         :class="{
+                             'afd-ai-chat__composer-editor--voice-enabled': voiceEnabled,
+                             'afd-ai-chat__composer-editor--live-voice-enabled': liveVoiceEnabled
+                         }">
                         <input x-ref="imageInput"
                                class="afd-ai-chat__file-input"
                                type="file"
@@ -53,14 +81,36 @@
                         <button type="button"
                                 class="afd-ai-chat__input-icon-btn"
                                 :class="{ 'afd-ai-chat__input-icon-btn--active': imageAttachments.length > 0 }"
-                                :disabled="!canUploadImages || isReadingAttachments"
+                                :disabled="!canUploadImages || isReadingAttachments || ['requesting_permission', 'recording', 'transcribing'].includes(voiceState) || ['connecting', 'connected', 'ending'].includes(liveVoiceState)"
                                 @click="openImagePicker()">
                             <span class="material-symbols-outlined">add</span>
                         </button>
+                        <?php if ($block->isVoiceInputEnabled()): ?>
+                            <button type="button"
+                                    class="afd-ai-chat__input-icon-btn afd-ai-chat__voice-btn"
+                                    :class="{ 'afd-ai-chat__voice-btn--recording': voiceState === 'recording', 'afd-ai-chat__voice-btn--busy': voiceState === 'transcribing', 'afd-ai-chat__voice-btn--error': voiceState === 'error' }"
+                                    :disabled="!canStartVoiceDictation() && voiceState !== 'recording'"
+                                    @click="toggleVoiceDictation()"
+                                    :aria-label="voiceButtonLabel()"
+                                    :title="voiceButtonLabel()">
+                                <span class="material-symbols-outlined" x-text="voiceState === 'transcribing' ? 'hourglass_top' : (voiceState === 'recording' ? 'stop_circle' : 'mic')"></span>
+                            </button>
+                        <?php endif; ?>
+                        <?php if ($block->isLiveVoiceEnabled()): ?>
+                            <button type="button"
+                                    class="afd-ai-chat__input-icon-btn afd-ai-chat__live-voice-btn"
+                                    :class="{ 'afd-ai-chat__live-voice-btn--active': liveVoiceState === 'connecting' || liveVoiceState === 'connected' }"
+                                    :disabled="!canStartLiveVoice() && liveVoiceState === 'idle'"
+                                    @click="toggleLiveVoice()"
+                                    :aria-label="liveVoiceButtonLabel()"
+                                    :title="liveVoiceButtonLabel()">
+                                <span class="material-symbols-outlined" x-text="liveVoiceState === 'connecting' ? 'hourglass_top' : (liveVoiceState === 'connected' ? 'call_end' : 'graphic_eq')"></span>
+                            </button>
+                        <?php endif; ?>
                         <div class="afd-ai-chat__composer-spacer"></div>
                         <template x-if="!isLoading">
                             <button type="button" @click="sendMessage"
-                                    :disabled="isReadingAttachments || (!userInput.trim() && imageAttachments.length === 0)"
+                                    :disabled="isReadingAttachments || ['requesting_permission', 'recording', 'transcribing'].includes(voiceState) || (!userInput.trim() && imageAttachments.length === 0)"
                                     class="afd-ai-chat__send-btn"
                                     aria-label="Send message"
                                     title="Send message">

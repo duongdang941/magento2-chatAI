@@ -20,14 +20,13 @@ import {
 } from '../customer/customer-order-tool-arguments.js';
 import { hashKey } from '../gateway/gateway-runtime.js';
 import { guestOrderAction } from '../customer/guest-order-client.js';
-import { createInternalMagentoRequestConfig, createMagentoRequestConfig } from '../gateway/magento-auth.js';
+import { createInternalMagentoRequestConfig } from '../gateway/magento-auth.js';
 import {
     catalogRestUrl,
     catalogScopeCacheIdentity,
     catalogScopeRequestParams
 } from '../catalog/catalog-scope.js';
-
-const MAGENTO_URL = process.env.MAGENTO_API_URL || 'http://afd.test';
+import { resolveMagentoBaseUrl } from '../gateway/magento-url.js';
 
 /**
  * Provider-neutral Magento tool executor. Provider adapters own protocol
@@ -45,8 +44,10 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
         conversationId = null,
         guestId = null,
         shopperMessage = '',
-        catalogScope = null
+        catalogScope = null,
+        magentoBaseUrl = ''
     } = context;
+    const getMagentoUrl = () => resolveMagentoBaseUrl(catalogScope, magentoBaseUrl);
 
     try {
         switch (name) {
@@ -58,7 +59,7 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
                     shopperMessage
                 );
                 Object.assign(params, catalogScopeRequestParams(catalogScope, customerId));
-                const url = catalogRestUrl(MAGENTO_URL, 'afd-ai/products/search', catalogScope);
+                const url = catalogRestUrl(getMagentoUrl(), 'afd-ai/products/search', catalogScope);
                 return cachedMagentoRead(runtime, 'catalog-search', { params, token, catalogScope, customerId }, 60000, async () => {
                     const response = await secureMagentoGet(url, params, magentoOauth);
                     return normalizeMagentoToolResponse(response.data);
@@ -68,7 +69,7 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
             case 'getProductAvailability': {
                 const params = normalizeAvailabilityArguments(args);
                 Object.assign(params, catalogScopeRequestParams(catalogScope, customerId));
-                const url = catalogRestUrl(MAGENTO_URL, 'afd-ai/products/availability', catalogScope);
+                const url = catalogRestUrl(getMagentoUrl(), 'afd-ai/products/availability', catalogScope);
                 return cachedMagentoRead(runtime, 'catalog-availability', { params, token, catalogScope, customerId }, 15000, async () => {
                     const response = await secureMagentoGet(url, params, magentoOauth);
                     return normalizeMagentoToolResponse(response.data);
@@ -84,14 +85,14 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
                 if (!params.sku1 || !params.sku2) {
                     return actionRequired('missing_skus', 'Choose two products to compare.');
                 }
-                const url = catalogRestUrl(MAGENTO_URL, 'afd-ai/products/compare', catalogScope);
+                const url = catalogRestUrl(getMagentoUrl(), 'afd-ai/products/compare', catalogScope);
                 const response = await secureMagentoGet(url, params, magentoOauth);
                 return normalizeMagentoToolResponse(response.data);
             }
 
             case 'listCategories': {
                 const params = catalogScopeRequestParams(catalogScope, customerId);
-                const url = catalogRestUrl(MAGENTO_URL, 'afd-ai/categories', catalogScope);
+                const url = catalogRestUrl(getMagentoUrl(), 'afd-ai/categories', catalogScope);
                 const response = await secureMagentoGet(url, params, magentoOauth);
                 return normalizeMagentoToolResponse(response.data);
             }
@@ -107,18 +108,18 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
             }
 
             case 'getCustomerAddresses':
-                return executeCustomerAddressAction(customerId, 'get');
+                return executeCustomerAddressAction(customerId, 'get', {}, catalogScope);
 
             case 'updateCustomerAddress': {
                 const normalized = normalizeCustomerAddressArguments(args);
                 if (!normalized.addressType || Object.keys(normalized.address).length === 0) {
                     return actionRequired('missing_address_details', 'Submit the secure address form shown in chat.');
                 }
-                return executeCustomerAddressAction(customerId, 'update', normalized);
+                return executeCustomerAddressAction(customerId, 'update', normalized, catalogScope);
             }
 
             case 'getRecentOrders':
-                return executeCustomerOrderAction(customerId, 'list', normalizeRecentOrdersArguments(args));
+                return executeCustomerOrderAction(customerId, 'list', normalizeRecentOrdersArguments(args), catalogScope);
 
             case 'getGuestOrders':
                 if (!validGuestAccess(guestOrderAccess)) return guestAccessRequired();
@@ -126,7 +127,7 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
                     accessToken: guestOrderAccess.token,
                     email: guestOrderAccess.email,
                     limit: normalizeRecentOrdersArguments(args).limit
-                });
+                }, catalogScope);
 
             case 'getGuestOrderDetails': {
                 if (!validGuestAccess(guestOrderAccess)) return guestAccessRequired();
@@ -136,7 +137,7 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
                     accessToken: guestOrderAccess.token,
                     email: guestOrderAccess.email,
                     ...normalized
-                });
+                }, catalogScope);
             }
 
             case 'updateGuestOrderAddress': {
@@ -147,7 +148,7 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
                     accessToken: guestOrderAccess.token,
                     email: guestOrderAccess.email,
                     ...normalized
-                });
+                }, catalogScope);
             }
 
             case 'getOrderDetails':
@@ -157,14 +158,15 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
                 return executeCustomerOrderAction(
                     customerId,
                     name === 'getOrderFulfillment' ? 'fulfillment' : 'details',
-                    normalized
+                    normalized,
+                    catalogScope
                 );
             }
 
             case 'updateOrderAddress': {
                 const normalized = normalizeOrderAddressArguments(args);
                 if (!validAddressUpdate(normalized)) return missingAddressDetails();
-                return executeCustomerOrderAction(customerId, 'update_address', normalized);
+                return executeCustomerOrderAction(customerId, 'update_address', normalized, catalogScope);
             }
 
             case 'cancelOrder': {
@@ -173,7 +175,7 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
                 return executeCustomerOrderAction(customerId, 'cancel', {
                     ...normalized,
                     confirmed: args.confirmed === true
-                });
+                }, catalogScope);
             }
 
             case 'requestReturn': {
@@ -189,7 +191,7 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
                     skus: Array.isArray(args.skus)
                         ? args.skus.slice(0, 20).map((sku) => String(sku).slice(0, 64))
                         : []
-                });
+                }, catalogScope);
             }
 
             case 'searchStoreKnowledge':
@@ -213,7 +215,7 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
 
             case 'getActiveCoupons': {
                 const params = catalogScopeRequestParams(catalogScope, customerId);
-                const url = catalogRestUrl(MAGENTO_URL, 'afd-ai/coupons', catalogScope);
+                const url = catalogRestUrl(getMagentoUrl(), 'afd-ai/coupons', catalogScope);
                 const response = await secureMagentoGet(url, params, magentoOauth);
                 return normalizeMagentoToolResponse(response.data);
             }
@@ -229,18 +231,6 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
             message: 'The store service could not complete this request. Please try again.'
         };
     }
-}
-
-function magentoRequest(method, url, options = {}) {
-    const config = createMagentoRequestConfig(method, url, {
-        timeout: 20000,
-        signParams: options.signParams || {},
-        magentoOauth: options.magentoOauth || {}
-    });
-    if (!config.headers.Authorization) {
-        throw new Error('Magento gateway OAuth credentials are not configured.');
-    }
-    return config;
 }
 
 async function cachedMagentoRead(runtime, namespace, identity, ttlMs, loader) {
@@ -267,16 +257,16 @@ async function cachedMagentoRead(runtime, namespace, identity, ttlMs, loader) {
 
 async function secureMagentoGet(url, params, magentoOauth) {
     const requestUrl = appendQuery(url, params);
-    const oauth = magentoRequest('GET', requestUrl, {
-        signParams: {},
-        magentoOauth
-    });
+    // Catalogue routes are service-to-service endpoints. Their Magento
+    // implementation verifies this HMAC before returning data, so attaching
+    // an OAuth header as well is both redundant and harmful: Magento chooses
+    // the OAuth identity first and rejects a valid internal request when an
+    // integration lacks this module's private ACL resource.
     const internal = createInternalMagentoRequestConfig('GET', requestUrl, '', { timeout: 20000 });
 
     return axios.get(requestUrl, {
-        ...oauth,
         ...internal,
-        headers: { ...oauth.headers, ...internal.headers }
+        headers: internal.headers
     });
 }
 

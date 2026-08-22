@@ -4,14 +4,14 @@
     <route url="/V1/afd-ai/products/search" method="GET">
         <service class="Afd\AI\Api\AgentToolInterface" method="searchProducts"/>
         <resources>
-            <resource ref="Afd_AI::chat_gateway"/>
+            <resource ref="anonymous"/>
         </resources>
     </route>
 
     <route url="/V1/afd-ai/products/availability" method="GET">
         <service class="Afd\AI\Api\AgentToolInterface" method="getProductAvailability"/>
         <resources>
-            <resource ref="Afd_AI::chat_gateway"/>
+            <resource ref="anonymous"/>
         </resources>
     </route>
 
@@ -19,7 +19,7 @@
     <route url="/V1/afd-ai/categories" method="GET">
         <service class="Afd\AI\Api\AgentToolInterface" method="listCategories"/>
         <resources>
-            <resource ref="Afd_AI::chat_gateway"/>
+            <resource ref="anonymous"/>
         </resources>
     </route>
 
@@ -71,14 +71,14 @@
     <route url="/V1/afd-ai/products/compare" method="GET">
         <service class="Afd\AI\Api\AgentToolInterface" method="compareProducts"/>
         <resources>
-            <resource ref="Afd_AI::chat_gateway"/>
+            <resource ref="anonymous"/>
         </resources>
     </route>
 
     <route url="/V1/afd-ai/coupons" method="GET">
         <service class="Afd\AI\Api\AgentToolInterface" method="getActiveCoupons"/>
         <resources>
-            <resource ref="Afd_AI::chat_gateway"/>
+            <resource ref="anonymous"/>
         </resources>
     </route>
 
@@ -199,6 +199,15 @@
     </route>
     <route url="/V1/afd-ai/guest-conversations/update-title" method="POST">
         <service class="Afd\AI\Api\ConversationManagementInterface" method="updateGuestConversationTitle"/>
+        <resources><resource ref="anonymous"/></resources>
+    </route>
+    <!-- Attachment Upload APIs -->
+    <route url="/V1/afd-ai/attachments/init" method="POST">
+        <service class="Afd\AI\Api\AttachmentUploadManagementInterface" method="initiate"/>
+        <resources><resource ref="anonymous"/></resources>
+    </route>
+    <route url="/V1/afd-ai/attachments/complete" method="POST">
+        <service class="Afd\AI\Api\AttachmentUploadManagementInterface" method="complete"/>
         <resources><resource ref="anonymous"/></resources>
     </route>
 </routes>

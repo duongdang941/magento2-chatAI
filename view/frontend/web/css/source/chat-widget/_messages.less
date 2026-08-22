@@ -27,7 +27,9 @@
         min-width: 0;
         overflow-x: hidden;
         overflow-y: auto;
-        overscroll-behavior: contain;
+        overscroll-behavior: none;
+        overflow-anchor: auto;
+        scroll-behavior: auto !important;
         // Reserve the scrollbar rail before streamed text exceeds the visible
         // area. Without it, the reading column repeatedly loses and regains
         // a few pixels as chunks change the scroll height.
@@ -105,6 +107,15 @@
             transform: translateX(50%) translateY(0);
         }
     }
+}
+
+// The spacer is a scroll-range reserve, not visible message padding. It lets
+// a new customer turn sit in the reading area while its short live response
+// grows below; it disappears as soon as the turn needs normal bottom-follow.
+.afd-ai-chat__turn-anchor-spacer {
+    width: 1px;
+    min-height: 0;
+    pointer-events: none;
 }
 
 .afd-ai-chat__feedback-details {
@@ -266,6 +277,24 @@
 
     span:nth-child(2) { animation-delay: 0.14s; }
     span:nth-child(3) { animation-delay: 0.28s; }
+}
+
+/* Codex-style streaming: completed markdown blocks fade in with a small
+   stagger instead of a blinking caret; earlier blocks keep their DOM. */
+@keyframes afd-ai-block-fade-in {
+    to { opacity: 1; }
+}
+
+.afd-ai-chat__block-fade {
+    opacity: 0;
+    animation: afd-ai-block-fade-in 0.2s cubic-bezier(0.37, 0.55, 0.86, 0.88) forwards;
+    animation-delay: var(--fade-delay, 0s);
+}
+
+// Inline streaming paragraphs are wrapped in these spans so each block
+// fades and stacks like a real markdown block.
+.afd-ai-chat__stream-block {
+    display: block;
 }
 
 @keyframes afd-ai-support-typing-dot {
@@ -444,17 +473,20 @@
     padding: 0.1rem 0 0.14rem;
     border: 0;
     background: transparent;
-    color: @afd-chat-text-secondary;
-    line-height: 1.58;
+    color: var(--afd-chat-text-secondary-live, @afd-chat-text-secondary);
+    line-height: 1.6;
 }
 
 .afd-ai-chat__msg-part,
 .afd-ai-chat__streaming-markdown {
     display: block;
+    box-sizing: border-box;
     min-width: 0;
     max-width: 100%;
     width: 100%;
-    contain: inline-size;
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
     overflow-wrap: anywhere;
     word-break: break-word;
     // `marked` renders paragraphs and line breaks as HTML. Preserving source
@@ -464,7 +496,44 @@
 }
 
 .afd-ai-chat__streaming-markdown > * {
+    box-sizing: border-box;
     max-width: 100%;
+}
+
+// Streamed paragraphs are separate span blocks; give them the same
+// breathing room marked paragraphs get from their own margins.
+.afd-ai-chat__stream-block + .afd-ai-chat__stream-block {
+    margin-top: 0.55rem;
+}
+
+.afd-ai-chat__msg-bubble-ai--streaming {
+    // This is an auto-height surface. Paint/layout containment and clipping
+    // create a separately rasterized boundary whose old height can survive for
+    // one frame while a new text line is already visible. Keep it in normal
+    // block flow so background, border and glyphs repaint as one invalidation.
+    display: block;
+    contain: none;
+    overflow: visible;
+    isolation: auto;
+    background-clip: padding-box;
+
+    .afd-ai-chat__streaming-markdown,
+    .afd-ai-chat__streaming-markdown p,
+    .afd-ai-chat__streaming-markdown ul,
+    .afd-ai-chat__streaming-markdown ol,
+    .afd-ai-chat__streaming-markdown li,
+    .afd-ai-chat__streaming-markdown blockquote {
+        font-size: inherit;
+        line-height: inherit;
+    }
+
+    hr,
+    .afd-ai-chat__hr {
+        border: 0;
+        border-top: 1px solid var(--afd-chat-border-live);
+        margin: 0.85rem 0;
+        opacity: 0.6;
+    }
 }
 
 .afd-ai-chat__msg-bubble-user {
@@ -496,6 +565,18 @@
 
 .afd-ai-chat__msg-meta--assistant {
     align-self: flex-start;
+    animation: afd-ai-meta-fade-in 0.22s ease-out;
+}
+
+@keyframes afd-ai-meta-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(2px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .afd-ai-chat__msg-meta--user {
@@ -928,8 +1009,13 @@
 }
 
 .afd-ai-chat__msg-actions--assistant {
+    // ZCode's completed-turn controls sit at the beginning of the footer;
+    // the timestamp follows the icon group instead of pushing it right.
     justify-content: flex-start;
-    margin-left: -0.25rem;
+    margin-left: 0;
+    margin-right: 0;
+    opacity: 1;
+    transform: none;
 }
 
 .afd-ai-chat__msg-actions--user {
@@ -1034,10 +1120,10 @@
 
 .afd-ai-chat__msg-bubble-ai {
     h1, h2, h3, h4, h5, h6 {
-        margin: 0.75rem 0 0.35rem;
+        margin: 0.95rem 0 0.4rem;
         color: @afd-chat-text;
-        font-weight: 720;
-        line-height: 1.25;
+        font-weight: 680;
+        line-height: 1.3;
         letter-spacing: 0;
     }
 
@@ -1045,12 +1131,12 @@
         margin-top: 0;
     }
 
-    h1 { font-size: ~"calc(1.12rem * var(--afd-chat-font-scale))"; }
+    h1 { font-size: ~"calc(1.1rem * var(--afd-chat-font-scale))"; }
     h2 { font-size: ~"calc(1.02rem * var(--afd-chat-font-scale))"; }
-    h3, h4, h5, h6 { font-size: ~"calc(0.92rem * var(--afd-chat-font-scale))"; }
+    h3, h4, h5, h6 { font-size: ~"calc(0.94rem * var(--afd-chat-font-scale))"; }
 
     p {
-        margin: 0.42rem 0;
+        margin: 0.52rem 0;
     }
 
     p:first-child { margin-top: 0; }
@@ -1058,7 +1144,7 @@
 
     strong {
         color: @afd-chat-text;
-        font-weight: 720;
+        font-weight: 680;
     }
 
     // Product cards render their own block/button link styles. Exclude those
@@ -1081,17 +1167,17 @@
     }
 
     ul, ol {
-        margin: 0.55rem 0;
-        padding-left: 1.25rem;
+        margin: 0.6rem 0;
+        padding-left: 1.3rem;
     }
 
     ul.contains-task-list {
-        padding-left: 1.1rem;
+        padding-left: 1.15rem;
     }
 
     li {
-        margin: 0.25rem 0;
-        line-height: 1.5;
+        margin: 0.3rem 0;
+        line-height: 1.55;
     }
 
     li > p {
@@ -1143,13 +1229,16 @@
     }
 
     code {
-        padding: 0.12rem 0.35rem;
-        border: 1px solid ~"color-mix(in srgb, var(--afd-chat-accent-live) 18%, rgba(255, 255, 255, 0.13))";
-        border-radius: 0.35rem;
-        background: #11151b;
-        color: #f0f3f6;
+        // Codex-style inline code: quiet tint, no border box. A bordered
+        // chip around every long CLI flag read as visual noise.
+        padding: 0.1em 0.38em;
+        border: 0;
+        border-radius: 0.3rem;
+        background: rgba(255, 255, 255, 0.07);
+        color: ~"color-mix(in srgb, var(--afd-chat-accent-live, #7aa2ff) 22%, #f0f3f6)";
         font-family: @afd-chat-code-font;
-        font-size: 0.82em;
+        font-size: 0.85em;
+        overflow-wrap: anywhere;
     }
 
     pre {
@@ -1160,6 +1249,11 @@
         border-radius: @afd-chat-radius-sm;
         background: #0d1117;
         color: #e6edf3;
+        // Streaming fences and plain code blocks wrap long CLI commands
+        // instead of overflowing the chat column. Enhanced blocks with a
+        // toolbar keep horizontal scrolling (see __code-block pre).
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
     }
 
     pre code {
@@ -1354,32 +1448,48 @@
 
 .afd-ai-chat__msg-ai--thinking {
     min-height: 0;
-    // Keep the live activity timeline visually separate from the composer.
-    // The bottom margin participates in the scroll height, so auto-scroll
-    // still reveals every activity while leaving a calm reading gap below it.
     margin-bottom: 1.35rem;
     position: relative;
     top: -0.28rem;
 }
 
-.afd-ai-chat__thinking-row {
-    display: inline-flex;
+.afd-ai-chat__thinking-card {
+    display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    width: fit-content;
-    max-width: 100%;
-    gap: 0.28rem;
-    padding: 0.16rem 0;
+    gap: 0.5rem;
+    width: 100%;
+    background: transparent;
+    border: none;
+    padding: 0;
+}
+
+.afd-ai-chat__thinking-header {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--afd-chat-text-faint-live, @afd-chat-text-faint);
+    font-size: ~"calc(0.8rem * var(--afd-chat-font-scale))";
+}
+
+.afd-ai-chat__thinking-icon {
+    font-size: 0.95rem;
+    color: var(--afd-chat-accent-live, @afd-chat-accent);
+    animation: afd-thinking-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes afd-thinking-pulse {
+    0%, 100% { opacity: 0.6; transform: scale(0.95); }
+    50% { opacity: 1; transform: scale(1.05); }
 }
 
 .afd-ai-chat__thinking-shimmer {
     position: relative;
     display: inline-block;
     overflow: hidden;
-    color: @afd-chat-text-muted;
-    font-size: ~"calc(0.82rem * var(--afd-chat-font-scale))";
-    font-weight: 520;
-    line-height: 1.5;
+    color: var(--afd-chat-text-faint-live, @afd-chat-text-faint);
+    font-size: ~"calc(0.8rem * var(--afd-chat-font-scale))";
+    font-weight: 500;
+    line-height: 1.4;
     white-space: nowrap;
 }
 
@@ -1398,15 +1508,475 @@
 .afd-ai-chat__thinking-shimmer-highlight {
     display: block;
     width: 200%;
-    color: @afd-chat-text;
+    color: var(--afd-chat-text-live, @afd-chat-text);
     transform: translateX(50%);
     animation: afd-thinking-shimmer-highlight 1.15s steps(48, end) infinite;
 }
 
+/* Codex-style Reasoning Accordion for completed turns */
+.afd-ai-chat__reasoning-accordion {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 0.65rem;
+    border: none;
+    background: transparent;
+    padding: 0;
+}
+
+.afd-ai-chat__reasoning-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.15rem 0;
+    background: transparent;
+    border: none;
+    color: var(--afd-chat-text-faint-live, @afd-chat-text-faint);
+    font-size: ~"calc(0.78rem * var(--afd-chat-font-scale))";
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    user-select: none;
+    transition: color 0.15s ease;
+
+    &:hover {
+        color: var(--afd-chat-text-live, @afd-chat-text);
+    }
+}
+
+.afd-ai-chat__reasoning-title {
+    flex: none;
+    // Live turns paint this label with the Codex shimmer (see
+    // .afd-ai-chat__shimmer-text); the faint base keeps the completed
+    // "Thought for Ns" header understated.
+}
+
+.afd-ai-chat__reasoning-summary {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--afd-chat-text-secondary-live, var(--afd-chat-text-faint-live, @afd-chat-text-faint));
+    font-size: ~"calc(0.76rem * var(--afd-chat-font-scale))";
+    font-weight: 450;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &::before {
+        content: '·';
+        margin: 0 0.3rem;
+        color: var(--afd-chat-border-live, @afd-chat-border);
+    }
+}
+
+.afd-ai-chat__reasoning-chevron {
+    font-size: 0.95rem;
+    color: inherit;
+    flex-shrink: 0;
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+
+    &.afd-ai-chat__reasoning-chevron--expanded {
+        transform: rotate(180deg);
+    }
+}
+
+.afd-ai-chat__reasoning-content {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 0.35rem 0 0 0;
+    border: none;
+}
+
+.afd-ai-chat__reasoning-timeline,
+.afd-ai-chat__thinking-live-timeline {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0;
+    margin: 0;
+    border: none;
+}
+
+.afd-ai-chat__reasoning-timeline-item,
+.afd-ai-chat__thinking-timeline-item {
+    display: flex;
+    min-width: 0;
+    max-width: 100%;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.afd-ai-chat__reasoning-step-message,
+.afd-ai-chat__thinking-step-message {
+    min-width: 0;
+    max-width: 100%;
+    font-size: ~"calc(0.86rem * var(--afd-chat-font-scale))";
+    color: var(--afd-chat-text-secondary-live, var(--afd-chat-text-live, @afd-chat-text));
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+
+    p {
+        margin: 0 0 0.2rem 0;
+        &:last-child {
+            margin-bottom: 0;
+        }
+    }
+
+    strong, b {
+        font-weight: 600;
+        color: var(--afd-chat-text-live, @afd-chat-text);
+    }
+
+    > strong:first-child,
+    > b:first-child,
+    p:first-child > strong:only-child,
+    p:first-child > b:only-child {
+        display: block;
+        margin-bottom: 0.15rem;
+        font-weight: 600;
+        color: var(--afd-chat-text-live, @afd-chat-text);
+    }
+
+    br + br {
+        display: none;
+    }
+
+    ul, ol {
+        margin: 0.2rem 0 0.35rem 1.15rem;
+        padding: 0;
+    }
+
+    li {
+        margin-bottom: 0.15rem;
+    }
+
+    a, .afd-ai-chat__message-link {
+        color: var(--afd-chat-accent-live, @afd-chat-accent);
+        text-decoration: underline;
+        word-break: break-word;
+    }
+}
+
 .afd-ai-chat__status-line {
-    color: @afd-chat-text-faint;
+    color: var(--afd-chat-text-faint-live, @afd-chat-text-faint);
     font-size: ~"calc(0.72rem * var(--afd-chat-font-scale))";
     line-height: 1.35;
+}
+
+/* ==================== Codex-style streaming elements ==================== */
+
+// Codex's "Thinking"/"Running …" affordance: the label is painted in a dim
+// base color while a bright gradient band sweeps across the glyphs in
+// discrete steps(48) — a typewriter-like cadence rather than a smooth glow.
+@keyframes afd-codex-label-shimmer {
+    0% { background-position: -100% 0; }
+    to { background-position: 250% 0; }
+}
+
+.afd-ai-chat__shimmer-text {
+    --afd-shimmer-base: var(--afd-chat-text-faint-live, @afd-chat-text-faint);
+    --afd-shimmer-contrast: ~"color-mix(in srgb, var(--afd-chat-text-live, #ffffff) 75%, transparent)";
+    display: inline-block;
+    background-color: var(--afd-shimmer-base);
+    background-image: linear-gradient(to right,
+        transparent 0%,
+        var(--afd-shimmer-contrast) 40%,
+        var(--afd-shimmer-contrast) 60%,
+        transparent 100%);
+    background-repeat: no-repeat;
+    background-size: 50% 200%;
+    background-position: -100% 0;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation: afd-codex-label-shimmer 2s steps(48, end) infinite;
+
+    &:hover {
+        background-image: none;
+        color: var(--afd-shimmer-base);
+        -webkit-text-fill-color: var(--afd-shimmer-base);
+        animation: none;
+    }
+}
+
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__shimmer-text {
+    // The dark theme's bright band has a large luminance gap. Its former
+    // light equivalent was only 32% charcoal over a muted grey base, making
+    // the moving band effectively invisible on a white message surface.
+    // Keep the same Codex cadence, but sweep the readable foreground tone
+    // across a quieter base so an active action is unmistakable in light UI.
+    --afd-shimmer-base: var(--afd-chat-text-faint-live, #737373);
+    --afd-shimmer-contrast: var(--afd-chat-text-live, #0d0d0d);
+}
+
+// Animated disclosure used by the Thinking accordion and the finished
+// action group. Animating grid-template-rows gives a Codex-like measured
+// height transition without JavaScript or the x-collapse plugin.
+.afd-ai-chat__collapsible {
+    display: grid;
+    grid-template-rows: 1fr;
+    transition: grid-template-rows 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+
+    > * {
+        min-height: 0;
+        overflow: hidden;
+    }
+}
+
+.afd-ai-chat__collapsible--closed {
+    grid-template-rows: 0fr;
+}
+
+// While the model works, the live reasoning surface grows naturally with its
+// timeline; the messages pane owns scrolling/autoscroll. No capped viewport,
+// no fade mask — nothing is visually clipped mid-thought.
+.afd-ai-chat__reasoning-content--live {
+    overflow: visible;
+}
+
+// Codex renders durations with tabular numerals in a trailing faint tone:
+// "Products checked (5)  2s".
+.afd-ai-chat__tool-activity-timer {
+    flex: 0 0 auto;
+    align-self: center;
+    margin-left: 0.15rem;
+    color: var(--afd-chat-text-faint-live, @afd-chat-text-faint);
+    font-size: ~"calc(0.7rem * var(--afd-chat-font-scale))";
+    font-weight: 460;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.01em;
+    line-height: 1;
+    white-space: nowrap;
+    transition: opacity 0.25s ease;
+}
+
+@keyframes afd-ai-state-pop {
+    from {
+        opacity: 0;
+        transform: scale(0.6);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+// Codex restores full foreground when a row is hovered.
+.afd-ai-chat__tool-activity {
+    .afd-ai-chat__tool-activity-label,
+    .afd-ai-chat__tool-activity-icon {
+        transition: color 0.15s ease;
+    }
+
+    &:hover .afd-ai-chat__tool-activity-label,
+    &:hover .afd-ai-chat__tool-activity-icon {
+        color: var(--afd-chat-text-secondary-live, var(--afd-chat-text-live, @afd-chat-text));
+    }
+}
+
+// Finished turns fold their storefront actions into one summary row, the
+// same way Codex collapses a completed tool group ("Ran # commands").
+.afd-ai-chat__activity-summary {
+    width: 100%;
+    min-width: 0;
+    margin-top: 0.55rem;
+}
+
+.afd-ai-chat__activity-summary-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.1rem 0;
+    border: none;
+    background: transparent;
+    color: var(--afd-chat-text-secondary-live, var(--afd-chat-text-faint-live, @afd-chat-text-faint));
+    font-size: ~"calc(0.8rem * var(--afd-chat-font-scale))";
+    font-weight: 500;
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.15s ease;
+
+    &:hover {
+        color: var(--afd-chat-text-live, @afd-chat-text);
+    }
+}
+
+.afd-ai-chat__activity-summary-icon {
+    font-size: 0.9rem;
+    color: var(--afd-chat-text-faint-live, @afd-chat-text-faint);
+}
+
+.afd-ai-chat__activity-summary .afd-ai-chat__tool-activity-list {
+    padding-top: 0.3rem;
+}
+
+// ZCode's work status is part of the answer flow, not a separate card.
+// It remains above the answer after completion; only its timeline collapses.
+.afd-ai-chat__turn-history {
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0 0 0.7rem;
+    padding: 0 0 0.56rem;
+    border: 0;
+    border-bottom: 1px solid ~"color-mix(in srgb, var(--afd-chat-border-live, @{afd-chat-border}) 50%, transparent)";
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.afd-ai-chat__turn-history-toggle {
+    .afd-chat-button-reset();
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    gap: 0.32rem;
+    width: 100%;
+    padding: 0 0 0.62rem;
+    background: transparent;
+    color: var(--afd-chat-text-secondary-live, var(--afd-chat-text-faint-live, @afd-chat-text-faint));
+    font-size: ~"calc(0.78rem * var(--afd-chat-font-scale))";
+    font-weight: 460;
+    line-height: 1.25;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover,
+    &:focus-visible {
+        color: var(--afd-chat-text-live, @afd-chat-text);
+    }
+}
+
+.afd-ai-chat__turn-history-label {
+    min-width: 0;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.afd-ai-chat__turn-history-chevron {
+    flex: 0 0 auto;
+    color: var(--afd-chat-text-faint-live, @afd-chat-text-faint);
+    font-size: 0.92rem;
+    line-height: 1;
+    opacity: 0.72;
+    transition: transform 0.18s @afd-chat-ease;
+
+    &.afd-ai-chat__turn-history-chevron--open {
+        transform: rotate(90deg);
+    }
+}
+
+.afd-ai-chat__turn-history-panel {
+    width: 100%;
+}
+
+.afd-ai-chat__turn-history-panel-inner {
+    min-width: 0;
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 0.16s ease 0.06s, transform 0.3s @afd-chat-ease;
+}
+
+.afd-ai-chat__turn-history-panel.afd-ai-chat__collapsible--closed {
+    pointer-events: none;
+
+    .afd-ai-chat__turn-history-panel-inner {
+        opacity: 0;
+        transform: translateY(-0.3rem);
+        transition: opacity 0.1s ease, transform 0.2s @afd-chat-ease;
+    }
+}
+
+.afd-ai-chat__turn-history-content {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0.68rem 0 0.22rem;
+    border-top: 0;
+}
+
+// The outer work row is the only disclosure. Keeping this flat list avoids
+// repeating the same tool once in a Thought summary and once in an action
+// summary beneath it.
+.afd-ai-chat__turn-history-content .afd-ai-chat__reasoning-timeline + .afd-ai-chat__reasoning-timeline {
+    margin-top: 0.5rem;
+}
+
+.afd-ai-chat__msg-meta--assistant {
+    justify-content: flex-start;
+    gap: 0.42rem;
+}
+
+.afd-ai-chat__message-time {
+    color: var(--afd-chat-text-faint-live, @afd-chat-text-faint);
+    font-size: ~"calc(0.72rem * var(--afd-chat-font-scale))";
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+// Codex animates newly mounted timeline entries in with a small "chip"
+// entrance (translate + scale) instead of popping them into place.
+@keyframes afd-ai-chip-enter {
+    0% {
+        opacity: 0;
+        transform: translate(-8px, 4px) scale(0.92);
+    }
+
+    100% {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+.afd-ai-chat__reasoning-timeline-item,
+.afd-ai-chat__thinking-timeline-item {
+    animation: afd-ai-chip-enter 0.28s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+// The finished action group and the turn footer appear when the turn
+// completes; give them the same soft entrance.
+.afd-ai-chat__activity-summary,
+.afd-ai-chat__turn-divider {
+    animation: afd-ai-chip-enter 0.28s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .afd-ai-chat__shimmer-text {
+        background-image: none;
+        color: var(--afd-shimmer-base);
+        -webkit-text-fill-color: var(--afd-shimmer-base);
+        animation: none;
+    }
+
+    .afd-ai-chat__block-fade {
+        animation-duration: 0s;
+        animation-delay: 0s !important;
+        opacity: 1;
+    }
+
+    .afd-ai-chat__collapsible {
+        transition: none;
+    }
+
+    .afd-ai-chat__turn-history-panel-inner {
+        transition: none;
+    }
+
+    .afd-ai-chat__reasoning-timeline-item,
+    .afd-ai-chat__thinking-timeline-item,
+    .afd-ai-chat__activity-summary,
+    .afd-ai-chat__turn-divider {
+        animation: none;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1561,7 +2131,6 @@
     background: #f6f8fa;
     color: #24292f;
 }
-
 .afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__code-block {
     border-color: ~"color-mix(in srgb, var(--afd-chat-accent-live) 16%, #d0d7de)";
     background: #ffffff;
@@ -1736,45 +2305,63 @@
 
 // Visible, customer-safe action feedback. This intentionally reports only the
 // storefront action name, never chain-of-thought or internal request details.
+// Codex proportions: one single-line row — quiet icon, truncated label,
+// trailing tabular duration ("Products checked (5)  2s").
 .afd-ai-chat {
     &__tool-activity {
-        display: inline-flex;
+        display: flex;
         align-items: center;
-        width: fit-content;
+        width: 100%;
         max-width: 100%;
-        gap: 0.45rem;
-        min-height: 1.25rem;
+        gap: 0.34rem;
+        min-height: 1.28rem;
         margin: 0;
         padding: 0;
-        color: #aaaab2;
-        font-size: ~"calc(0.78rem * var(--afd-chat-font-scale))";
-        font-weight: 520;
-        letter-spacing: 0.002em;
-        line-height: 1.4;
+        // Actions are Codex-style secondary status, never peer text to the
+        // reasoning sentence above them. Keep their neutral tone and smaller
+        // type distinct until the shopper intentionally hovers the row.
+        color: var(--afd-chat-text-muted-live, #9299a6);
+        font-size: ~"calc(0.76rem * var(--afd-chat-font-scale))";
+        font-weight: 460;
+        letter-spacing: 0;
+        line-height: 1.35;
 
         &-list {
             display: flex;
             flex-direction: column;
             align-items: flex-start;
-            gap: 0.28rem;
+            gap: 0.42rem;
             width: 100%;
         }
 
-        &--completed .afd-ai-chat__tool-activity-icon,
-        &--completed .afd-ai-chat__tool-activity-state {
-            color: #55a66a;
+        &--completed .afd-ai-chat__tool-activity-icon {
+            color: var(--afd-chat-text-faint-live, #8f8f99);
         }
 
         &--failed .afd-ai-chat__tool-activity-icon,
         &--failed .afd-ai-chat__tool-activity-state {
             color: @afd-chat-danger;
         }
+
+        &--failed .afd-ai-chat__tool-activity-label {
+            color: ~"color-mix(in srgb, @{afd-chat-danger} 72%, var(--afd-chat-text-secondary-live, #c7c7d0))";
+        }
     }
 
     &__tool-activity-icon {
         flex: 0 0 auto;
-        color: #90909a;
-        font-size: 1rem;
+        // Material Symbols have their own internal font metrics. Give every
+        // action icon a fixed, centred box so its visual centre stays aligned
+        // with the label and the trailing duration in every browser/theme.
+        display: inline-flex;
+        align-items: center;
+        align-self: center;
+        justify-content: center;
+        width: 1rem;
+        height: 1.026rem;
+        color: var(--afd-chat-text-faint-live, #a3a8b2);
+        font-size: 0.82rem;
+        line-height: 1;
 
         &--spinning {
             animation: none !important;
@@ -1782,15 +2369,22 @@
     }
 
     &__tool-activity-label {
+        flex: 0 1 auto;
+        min-width: 0;
+        line-height: 1.35;
+        // Codex truncates row labels to one line so the trailing duration
+        // never wraps underneath the action text.
         overflow: hidden;
         text-overflow: ellipsis;
-        white-space: normal;
+        white-space: nowrap;
     }
 
     &__tool-activity-state {
         flex: 0 0 auto;
-        margin-left: 0.1rem;
-        font-size: 0.9rem;
+        align-self: auto;
+        font-size: 0.85rem;
+        line-height: 1;
+        animation: afd-ai-state-pop 0.18s ease-out;
     }
 
     // A stopped run remains part of the transcript. Keep its action compact
@@ -1868,11 +2462,17 @@
         }
 
         .afd-ai-chat__tool-activity {
-            color: #667085;
+            // Match Codex's finished-action hierarchy: the label is readable
+            // body-secondary text, while the icon and duration remain quiet.
+            color: var(--afd-chat-text-secondary-live);
         }
 
         .afd-ai-chat__tool-activity-icon {
-            color: #64748b;
+            color: var(--afd-chat-text-faint-live);
+        }
+
+        .afd-ai-chat__tool-activity--completed .afd-ai-chat__tool-activity-icon {
+            color: var(--afd-chat-text-faint-live);
         }
 
         .afd-ai-chat__run-interruption {

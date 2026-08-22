@@ -19,4 +19,16 @@
     <event name="catalogrule_after_apply">
         <observer name="afd_ai_invalidate_catalog_on_rule_apply" instance="Afd\AI\Observer\InvalidateGatewayCatalogCache"/>
     </event>
+    <event name="checkout_submit_before">
+        <observer name="afd_ai_record_checkout_attribution" instance="Afd\AI\Observer\RecordCommerceAnalytics"/>
+    </event>
+    <event name="sales_order_place_after">
+        <observer name="afd_ai_record_order_attribution" instance="Afd\AI\Observer\RecordCommerceAnalytics"/>
+    </event>
+    <event name="sales_order_creditmemo_save_after">
+        <observer name="afd_ai_record_refund_attribution" instance="Afd\AI\Observer\RecordCommerceAnalytics"/>
+    </event>
+    <event name="sales_order_cancel_after">
+        <observer name="afd_ai_record_cancel_attribution" instance="Afd\AI\Observer\RecordOrderCancellationAnalytics"/>
+    </event>
 </config>

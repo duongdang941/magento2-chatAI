@@ -5,12 +5,11 @@ namespace Afd\AI\Model\Maintenance;
 
 use Afd\AI\Model\Order\GuestOrderAccessRepository;
 use Magento\Framework\App\Filesystem\DirectoryList;
-use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\Filesystem;
 use Magento\Framework\Filesystem\Directory\WriteInterface;
 use Psr\Log\LoggerInterface;
 
-/** Removes expired verification rows and unreferenced generated images. */
+/** Removes expired verification rows and unreferenced generated/attachment files. */
 class ExpiredDataCleaner
 {
     private const GENERATED_IMAGE_PATH = 'afd-ai/generated';
@@ -23,13 +22,14 @@ class ExpiredDataCleaner
     public function __construct(
         Filesystem $filesystem,
         private readonly GuestOrderAccessRepository $guestOrderAccessRepository,
-        private readonly ResourceConnection $resource,
+        private readonly GeneratedImageReferenceRepository $generatedImageReferenceRepository,
+        private readonly ChatAttachmentCleaner $chatAttachmentCleaner,
         private readonly LoggerInterface $logger
     ) {
         $this->mediaDirectory = $filesystem->getDirectoryWrite(DirectoryList::MEDIA);
     }
 
-    /** @return array{guest_access_rows:int,generated_images:int} */
+    /** @return array{guest_access_rows:int,generated_images:int,chat_attachments:int} */
     public function execute(?int $now = null): array
     {
         $now ??= time();
@@ -40,6 +40,7 @@ class ExpiredDataCleaner
         return [
             'guest_access_rows' => $deletedRows,
             'generated_images' => $this->deleteUnreferencedGeneratedImages($now),
+            'chat_attachments' => $this->chatAttachmentCleaner->execute($now),
         ];
     }
 
@@ -72,7 +73,7 @@ class ExpiredDataCleaner
             $modifiedAt = (int)($stat['mtime'] ?? 0);
             if ($modifiedAt <= 0
                 || $modifiedAt > $now - self::ORPHAN_IMAGE_RETENTION_SECONDS
-                || $this->isReferenced(basename($relativePath))
+                || $this->generatedImageReferenceRepository->isReferenced(basename($relativePath))
             ) {
                 return false;
             }
@@ -93,19 +94,4 @@ class ExpiredDataCleaner
             && preg_match('/\.(?:png|jpe?g|webp)$/i', $relativePath) === 1;
     }
 
-    private function isReferenced(string $filename): bool
-    {
-        if (!preg_match('/^[A-Za-z0-9._-]{1,180}$/', $filename)) {
-            return true;
-        }
-
-        $connection = $this->resource->getConnection();
-        $select = $connection->select()
-            ->from($this->resource->getTableName('afd_ai_message'), ['entity_id'])
-            ->where('content LIKE ?', '%' . $filename . '%')
-            ->orWhere('attachment LIKE ?', '%' . $filename . '%')
-            ->limit(1);
-
-        return $connection->fetchOne($select) !== false;
-    }
 }

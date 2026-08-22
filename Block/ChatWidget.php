@@ -45,7 +45,7 @@ class ChatWidget extends Template
      */
     public function getChatServerUrl(): string
     {
-        return $this->aiConfig->getChatServerUrl() ?: 'ws://127.0.0.1:3001';
+        return trim((string)$this->aiConfig->getChatServerUrl());
     }
 
     /**
@@ -54,6 +54,56 @@ class ChatWidget extends Template
     public function getCustomerId(): ?int
     {
         return $this->customerSession->isLoggedIn() ? (int)$this->customerSession->getCustomerId() : null;
+    }
+
+    /** Expose only the feature flag; provider credentials remain server-side. */
+    public function isVoiceInputEnabled(): bool
+    {
+        return (bool)$this->aiConfig->getVoiceConfig()['enabled'];
+    }
+
+    public function getVoiceMaximumDuration(): int
+    {
+        return (int)$this->aiConfig->getVoiceConfig()['max_duration_seconds'];
+    }
+
+    /**
+     * The browser receives only an enable flag. OpenAI credentials and model
+     * selection are kept in Magento configuration and pushed to Node only.
+     */
+    public function isLiveVoiceEnabled(): bool
+    {
+        $voice = $this->aiConfig->getVoiceConfig();
+        return (bool)($voice['live']['enabled'] ?? false);
+    }
+
+    public function getLiveVoiceMaximumDuration(): int
+    {
+        $voice = $this->aiConfig->getVoiceConfig();
+        return (int)($voice['live']['max_duration_seconds'] ?? 600);
+    }
+
+    /** Browser-side preflight limits; no provider or service credential is exposed. */
+    public function getAttachmentLimits(): array
+    {
+        $config = $this->aiConfig->getAttachmentConfig();
+        return [
+            'maxImageBytes' => (int)$config['max_image_bytes'],
+            'maxImages' => (int)$config['max_images_per_message'],
+            'maxTotalImageBytes' => (int)$config['max_total_image_bytes'],
+            'maxTotalEncodedBytes' => (int)$config['max_total_encoded_bytes'],
+            'maxTotalPixels' => (int)$config['max_total_pixels'],
+            // Keep the browser preflight aligned with the gateway default.
+            // Deployments that override MAX_WS_PAYLOAD_BYTES should also
+            // override this value in their storefront integration.
+            'maxWebSocketPayloadBytes' => 8 * 1024 * 1024,
+        ];
+    }
+
+    /** Expose only non-sensitive customer-experience rollout flags. */
+    public function getFeatureConfig(): array
+    {
+        return $this->aiConfig->getFeatureConfig();
     }
 
     /**

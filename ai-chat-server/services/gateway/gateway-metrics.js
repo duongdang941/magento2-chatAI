@@ -6,6 +6,7 @@ export class GatewayMetrics {
     constructor() {
         this.counters = new Map();
         this.latencies = new Map();
+        this.byteTotals = new Map();
     }
 
     increment(name, labels = {}) {
@@ -19,6 +20,14 @@ export class GatewayMetrics {
         current.count += 1;
         current.sum += Math.max(0, Number(seconds) || 0);
         this.latencies.set(key, current);
+    }
+
+    observeBytes(name, bytes, labels = {}) {
+        const key = this.key(name, labels);
+        const current = this.byteTotals.get(key) || { count: 0, sum: 0 };
+        current.count += 1;
+        current.sum += Math.max(0, Math.trunc(Number(bytes) || 0));
+        this.byteTotals.set(key, current);
     }
 
     key(name, labels) {
@@ -61,6 +70,12 @@ export class GatewayMetrics {
             const labelString = this.formatLabels(labels);
             lines.push(`afd_ai_gateway_${name}_seconds_sum${labelString} ${value.sum}`);
             lines.push(`afd_ai_gateway_${name}_seconds_count${labelString} ${value.count}`);
+        }
+        for (const [key, value] of this.byteTotals.entries()) {
+            const { name, labels } = this.parseKey(key);
+            const labelString = this.formatLabels(labels);
+            lines.push(`afd_ai_gateway_${name}_bytes_sum${labelString} ${value.sum}`);
+            lines.push(`afd_ai_gateway_${name}_bytes_count${labelString} ${value.count}`);
         }
 
         return lines.join('\n') + '\n';

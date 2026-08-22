@@ -9,6 +9,7 @@ use Afd\AI\Api\Data\ConversationInterfaceFactory;
 use Afd\AI\Api\Data\MessageInterfaceFactory;
 use Afd\AI\Api\MessageRepositoryInterface;
 use Afd\AI\Model\Conversation\MessagePageLoader;
+use Afd\AI\Model\Maintenance\GeneratedImageReferenceRepository;
 use Magento\Framework\Api\SearchCriteriaBuilder;
 use Magento\Framework\Api\SortOrderBuilder;
 use Afd\AI\Model\Security\NodeRequestAuthorizer;
@@ -31,6 +32,7 @@ class ConversationManagement implements ConversationManagementInterface
     private NodeRequestAuthorizer $nodeRequestAuthorizer;
     private SupportInboxService $supportInboxService;
     private StoreManagerInterface $storeManager;
+    private GeneratedImageReferenceRepository $generatedImageReferenceRepository;
     private $logger;
 
     public function __construct(
@@ -46,6 +48,7 @@ class ConversationManagement implements ConversationManagementInterface
         NodeRequestAuthorizer $nodeRequestAuthorizer,
         SupportInboxService $supportInboxService,
         StoreManagerInterface $storeManager,
+        GeneratedImageReferenceRepository $generatedImageReferenceRepository,
         LoggerInterface $logger
     ) {
         $this->conversationRepository = $conversationRepository;
@@ -60,6 +63,7 @@ class ConversationManagement implements ConversationManagementInterface
         $this->nodeRequestAuthorizer = $nodeRequestAuthorizer;
         $this->supportInboxService = $supportInboxService;
         $this->storeManager = $storeManager;
+        $this->generatedImageReferenceRepository = $generatedImageReferenceRepository;
         $this->logger = $logger;
     }
 
@@ -224,11 +228,21 @@ class ConversationManagement implements ConversationManagementInterface
             $message->setRole($role);
             $message->setContent($content);
             if ($role === 'user' && $attachment !== null && trim($attachment) !== '') {
-                $message->setAttachment(
-                    $this->chatAttachmentStorage->storeFromJson($attachment, $customerId, $conversationId)
-                );
+                $decoded = json_decode($attachment, true);
+                if (is_array($decoded) && (isset($decoded['attachments'][0]['attachment_id']) || isset($decoded['attachments'][0]['url']) || isset($decoded['attachment_id']))) {
+                    $message->setAttachment($attachment);
+                } else {
+                    $message->setAttachment(
+                        $this->chatAttachmentStorage->storeFromJson($attachment, $customerId, $conversationId)
+                    );
+                }
             }
             $this->messageRepository->save($message);
+            $this->generatedImageReferenceRepository->replaceForMessage(
+                (int)$message->getEntityId(),
+                $role,
+                $content
+            );
 
             if ($role === 'user') {
                 $this->supportInboxService->recordCustomerMessage($conversationId);
@@ -286,11 +300,10 @@ class ConversationManagement implements ConversationManagementInterface
                 return $this->closeSupportConversation($conversation);
             }
 
-            $connection = $this->resourceConnection->getConnection();
-            $messageTable = $this->resourceConnection->getTableName('afd_ai_message');
-            $connection->delete($messageTable, ['conversation_id = ?' => $conversationId]);
+            $this->deleteConversationRows($conversationId);
+            // File cleanup is deliberately post-commit and idempotent. A stale
+            // private directory is safer than a partially deleted transcript.
             $this->chatAttachmentStorage->deleteConversationAttachments((int)$customerId, $conversationId);
-            $this->conversationRepository->delete($conversation);
             return true;
         } catch (\Exception $e) {
             $this->logger->error('ConversationManagement::deleteConversation error: ' . $e->getMessage());
@@ -301,13 +314,13 @@ class ConversationManagement implements ConversationManagementInterface
     /**
      * @inheritdoc
      */
-    public function touchConversation(int $conversationId): bool
+    public function touchConversation(int $conversationId, int $customerId): bool
     {
         $this->nodeRequestAuthorizer->assertAuthorized();
 
         try {
-            $conversation = $this->conversationRepository->getById($conversationId);
-            if (!$this->matchesCurrentStoreScope($conversation)) {
+            $conversation = $this->getCustomerOwnedConversation($conversationId, $customerId);
+            if (!$conversation) {
                 return false;
             }
             $this->conversationRepository->save($conversation);
@@ -439,7 +452,12 @@ class ConversationManagement implements ConversationManagementInterface
         $message->setRole($role);
         $message->setContent($content);
         if ($role === 'user' && $attachment !== null && trim($attachment) !== '') {
-            $message->setAttachment($this->chatAttachmentStorage->storeFromJson($attachment, $guestId, $conversationId));
+            $decoded = json_decode($attachment, true);
+            if (is_array($decoded) && (isset($decoded['attachments'][0]['attachment_id']) || isset($decoded['attachments'][0]['url']) || isset($decoded['attachment_id']))) {
+                $message->setAttachment($attachment);
+            } else {
+                $message->setAttachment($this->chatAttachmentStorage->storeFromJson($attachment, $guestId, $conversationId));
+            }
         }
         $this->messageRepository->save($message);
         if ($role === 'user') {
@@ -485,10 +503,8 @@ class ConversationManagement implements ConversationManagementInterface
         }
 
         try {
-            $connection = $this->resourceConnection->getConnection();
-            $connection->delete($this->resourceConnection->getTableName('afd_ai_message'), ['conversation_id = ?' => $conversationId]);
+            $this->deleteConversationRows($conversationId);
             $this->chatAttachmentStorage->deleteConversationAttachments($guestId, $conversationId);
-            $this->conversationRepository->delete($conversation);
             return true;
         } catch (\Exception $exception) {
             $this->logger->error('ConversationManagement::deleteGuestConversation error: ' . $exception->getMessage());
@@ -516,11 +532,18 @@ class ConversationManagement implements ConversationManagementInterface
             );
 
             if ($conversationIds) {
-                $connection->delete($messageTable, ['conversation_id IN (?)' => $conversationIds]);
+                $connection->beginTransaction();
+                try {
+                    $connection->delete($messageTable, ['conversation_id IN (?)' => $conversationIds]);
+                    $connection->delete($conversationTable, ['conversation_id IN (?)' => $conversationIds]);
+                    $connection->commit();
+                } catch (\Throwable $exception) {
+                    $connection->rollBack();
+                    throw $exception;
+                }
                 foreach ($conversationIds as $conversationId) {
                     $this->chatAttachmentStorage->deleteConversationAttachments($guestId, (int)$conversationId);
                 }
-                $connection->delete($conversationTable, ['conversation_id IN (?)' => $conversationIds]);
             }
             return true;
         } catch (\Exception $exception) {
@@ -626,6 +649,26 @@ class ConversationManagement implements ConversationManagementInterface
                 : null;
         } catch (\Throwable) {
             return null;
+        }
+    }
+
+    private function deleteConversationRows(int $conversationId): void
+    {
+        $connection = $this->resourceConnection->getConnection();
+        $connection->beginTransaction();
+        try {
+            $connection->delete(
+                $this->resourceConnection->getTableName('afd_ai_message'),
+                ['conversation_id = ?' => $conversationId]
+            );
+            $connection->delete(
+                $this->resourceConnection->getTableName('afd_ai_conversation'),
+                ['conversation_id = ?' => $conversationId]
+            );
+            $connection->commit();
+        } catch (\Throwable $exception) {
+            $connection->rollBack();
+            throw $exception;
         }
     }
 

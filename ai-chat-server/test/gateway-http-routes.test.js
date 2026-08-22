@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import test from 'node:test';
-import { registerGatewayHttpRoutes, verifyConfigPush } from '../services/gateway/gateway-http-routes.js';
+import {
+    registerGatewayHttpRoutes,
+    validateSyncProviderPayload,
+    verifyConfigPush
+} from '../services/gateway/gateway-http-routes.js';
 
-function signedRequest(body, secret, timestamp = Math.floor(Date.now() / 1000).toString()) {
+function signedRequest(body, secret, timestamp = Math.floor(Date.now() / 1000).toString(), path = '/internal/config') {
     const signature = crypto
         .createHmac('sha256', secret)
-        .update(`${timestamp}.${body}`, 'utf8')
+        .update(`${timestamp}.POST.${path}.${body}`, 'utf8')
         .digest('hex');
     const headers = {
         'X-Afd-AI-Timestamp': timestamp,
@@ -15,22 +19,105 @@ function signedRequest(body, secret, timestamp = Math.floor(Date.now() / 1000).t
 
     return {
         rawBody: body,
+        method: 'POST',
+        originalUrl: path,
         get(name) {
             return headers[name] || '';
         }
     };
 }
 
-test('accepts only a fresh configuration signature bound to the raw body', () => {
+test('accepts only a fresh configuration signature bound to method, path and raw body', () => {
     const secret = 's'.repeat(32);
     const request = signedRequest('{"version":1}', secret);
 
     assert.equal(verifyConfigPush(request, secret), true);
     assert.equal(verifyConfigPush({ ...request, rawBody: '{"version":2}' }, secret), false);
+    assert.equal(verifyConfigPush({ ...request, originalUrl: '/internal/session-revoke' }, secret), false);
+    assert.equal(verifyConfigPush({ ...request, method: 'PUT' }, secret), false);
     assert.equal(
         verifyConfigPush(signedRequest('{}', secret, '1'), secret),
         false
     );
+
+    const proxiedRequest = signedRequest('{"version":1}', secret, undefined, '/internal/config');
+    proxiedRequest.originalUrl = '/ai-gateway/internal/config';
+    assert.equal(verifyConfigPush(proxiedRequest, secret), true);
+});
+
+test('requires the synchronized provider to match the Magento-selected provider', () => {
+    const base = {
+        version: 2,
+        sync_id: 'a'.repeat(32),
+        sync_provider: { provider_id: 7, provider_code: 'gemini' },
+        config: {
+            default: {
+                provider: 'gemini',
+                providers: {
+                    gemini: { provider_id: 7, is_active: true }
+                }
+            }
+        }
+    };
+
+    assert.doesNotThrow(() => validateSyncProviderPayload(base));
+    assert.throws(
+        () => validateSyncProviderPayload({
+            ...base,
+            sync_provider: { provider_id: 8, provider_code: 'cockpit' }
+        }),
+        (error) => error.code === 'CONFIG_PROVIDER_MISMATCH' && error.status === 409
+    );
+    assert.throws(
+        () => validateSyncProviderPayload({
+            ...base,
+            sync_provider: { provider_id: 8, provider_code: 'gemini' }
+        }),
+        (error) => error.code === 'CONFIG_PROVIDER_ID_MISMATCH' && error.status === 409
+    );
+    assert.throws(
+        () => validateSyncProviderPayload({
+            ...base,
+            sync_provider: undefined
+        }),
+        (error) => error.code === 'CONFIG_PROVIDER_MISMATCH' && error.status === 409
+    );
+    assert.doesNotThrow(() => validateSyncProviderPayload({
+        ...base,
+        sync_provider: { provider_code: 'gemini' },
+        config: { default: { provider: 'gemini', providers: {} } }
+    }));
+    assert.throws(
+        () => validateSyncProviderPayload({
+            ...base,
+            sync_provider: { provider_id: 9, provider_code: 'custom-ai' },
+            config: { default: { provider: 'custom-ai', providers: {} } }
+        }),
+        (error) => error.code === 'CONFIG_PROVIDER_NOT_REGISTERED' && error.status === 409
+    );
+});
+
+test('requires a tenant identity for version 3 configuration pushes', () => {
+    const payload = {
+        version: 3,
+        sync_id: 'e'.repeat(32),
+        sync_provider: { provider_id: 7, provider_code: 'gemini' },
+        config: {
+            default: {
+                provider: 'gemini',
+                providers: { gemini: { provider_id: 7, is_active: true } }
+            }
+        }
+    };
+
+    assert.throws(
+        () => validateSyncProviderPayload(payload),
+        (error) => error.code === 'CONFIG_TENANT_INVALID' && error.status === 422
+    );
+    assert.doesNotThrow(() => validateSyncProviderPayload({
+        ...payload,
+        config: { ...payload.config, tenant_id: 'f'.repeat(64) }
+    }));
 });
 
 test('health route exposes only status and caches the Magento probe', async () => {
@@ -60,9 +147,12 @@ test('health route exposes only status and caches the Magento probe', async () =
     await health({}, response);
     await health({}, response);
 
+    const proxiedHealth = routes.get('GET /ai-gateway/health');
+    assert.equal(typeof proxiedHealth, 'function');
+
     assert.deepEqual(responses, [
-        { statusCode: 200, payload: { status: 'ok' } },
-        { statusCode: 200, payload: { status: 'ok' } }
+        { statusCode: 200, payload: { status: 'ok', providers: [] } },
+        { statusCode: 200, payload: { status: 'ok', providers: [] } }
     ]);
     assert.equal(probeCount, 1);
 });
@@ -103,7 +193,7 @@ test('support notification is signed, replay protected, and broadcasts only norm
         message_id: 41
     };
     const body = JSON.stringify(payload);
-    const request = Object.assign(signedRequest(body, 's'.repeat(32)), { body: payload });
+    const request = Object.assign(signedRequest(body, 's'.repeat(32), undefined, '/internal/support-message'), { body: payload });
     const responses = [];
     const response = {
         status(code) { this.statusCode = code; return this; },
@@ -145,7 +235,7 @@ test('support mode notification broadcasts only a bounded agent label', async ()
         agent_label: 'A'.repeat(120)
     };
     const body = JSON.stringify(payload);
-    const request = Object.assign(signedRequest(body, 's'.repeat(32)), { body: payload });
+    const request = Object.assign(signedRequest(body, 's'.repeat(32), undefined, '/internal/support-mode'), { body: payload });
     let responsePayload;
     await routes.get('POST /internal/support-mode')(request, {
         status() { return this; },
@@ -196,7 +286,10 @@ test('support message mutation is signed, replay protected, and broadcasts bound
         deleted_at: ''
     };
     const body = JSON.stringify(payload);
-    const request = Object.assign(signedRequest(body, 's'.repeat(32)), { body: payload });
+    const request = Object.assign(
+        signedRequest(body, 's'.repeat(32), undefined, '/internal/support-message-mutation'),
+        { body: payload }
+    );
     const responses = [];
     const response = {
         status(code) { this.statusCode = code; return this; },

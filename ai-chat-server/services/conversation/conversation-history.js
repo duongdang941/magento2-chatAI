@@ -1,6 +1,10 @@
 import { sanitizeCustomerResponse } from './customer-response-sanitizer.js';
 import { normalizeOrderAddressFormPart } from '../customer/order-address-form.js';
 import { coalesceProductParts } from '../catalog/product-presentation.js';
+import { contextBytes, fitHistoryToBudget, truncateUtf8Middle } from '../orchestration/context-budget.js';
+import { normalizeProviderResponseMetadata } from '../orchestration/provider-response-envelope.js';
+
+const CATALOG_CONTEXT_MARKER = '[CATALOG_CONTEXT:';
 
 export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } = {}) {
     function extractTextFromParts(parts) {
@@ -28,7 +32,7 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
             : String(message?.content || message?.text || '');
         const text = rawText.replace(/\n*\[CATALOG_CONTEXT:[\s\S]*$/u, '').trim();
         const imageParts = sourceParts
-            .filter((part) => part?.type === 'image' && /^https?:\/\//i.test(String(part.url || '')))
+            .filter((part) => part?.type === 'image' && /^(?:https?:\/\/|\/media\/afd-ai\/generated\/)/i.test(String(part.url || '')))
             .map((part) => ({
                 type: 'image',
                 url: String(part.url),
@@ -97,6 +101,9 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
                         sender_label: storedPayload.source === 'support_agent'
                             ? String(storedPayload.sender_label || 'Support team').slice(0, 80)
                             : '',
+                        ...(normalizeProviderResponseMetadata(storedPayload.provider_meta)
+                            ? { provider_meta: normalizeProviderResponseMetadata(storedPayload.provider_meta) }
+                            : {}),
                         interrupted,
                         stopped_after_seconds: stoppedAfterSeconds
                     };
@@ -165,6 +172,8 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
             is_deleted: message?.is_deleted === true,
             deleted_at: String(message?.deleted_at || '').slice(0, 32)
         };
+        const providerMeta = normalizeProviderResponseMetadata(message?.provider_meta);
+        if (providerMeta) metadata.provider_meta = providerMeta;
         if (!includeFeedback) return metadata;
 
         const rating = String(message?.feedback || '').toLowerCase();
@@ -177,21 +186,21 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
     }
 
     function normalizeStoredAttachment(attachment) {
-        const type = String(attachment.mime_type).toLowerCase();
-        if (attachment.url) {
-            return {
-                name: attachment.name || 'product-image',
-                type,
-                size: Number(attachment.size) || 0,
-                previewUrl: String(attachment.url)
-            };
-        }
-        if (!attachment.data) return null;
+        if (!attachment || typeof attachment !== 'object') return null;
+        const type = String(attachment.mime_type || attachment.type || 'image/jpeg').toLowerCase();
+        const previewUrl = String(
+            attachment.previewUrl ||
+            attachment.url ||
+            (attachment.attachment_id ? `/afd_ai/chat/attachment?id=${encodeURIComponent(attachment.attachment_id)}` : '') ||
+            (attachment.data ? `data:${type};base64,${attachment.data}` : '')
+        );
+        if (!previewUrl) return null;
         return {
             name: attachment.name || 'product-image',
             type,
-            size: Math.floor(String(attachment.data).length * 0.75),
-            previewUrl: `data:${type};base64,${attachment.data}`
+            size: Number(attachment.size) || (attachment.data ? Math.floor(String(attachment.data).length * 0.75) : 0),
+            attachment_id: attachment.attachment_id || null,
+            previewUrl
         };
     }
 
@@ -200,7 +209,11 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
         if (part.type === 'products') {
             return { id, type: 'products', html: part.html || '', payload: part.payload || null };
         }
-        if (part.type === 'image' && /^https?:\/\//i.test(String(part.url || ''))) {
+        if (part.type === 'reasoning') {
+            const reasoning = normalizeReasoningPart(part);
+            return reasoning ? { id, ...reasoning } : { id, type: 'reasoning', events: [], steps: [], activities: [] };
+        }
+        if (part.type === 'image' && /^(?:https?:\/\/|\/media\/afd-ai\/generated\/)/i.test(String(part.url || ''))) {
             return {
                 id,
                 type: 'image',
@@ -230,7 +243,12 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
         return { id, type: 'text', raw, html: raw };
     }
 
-    function trimHistoryForModel(history, requestedLimit = maxModelHistoryMessages) {
+    function trimHistoryForModel(
+        history,
+        requestedLimit = maxModelHistoryMessages,
+        requestedTokenBudget = 12000,
+        onStats = null
+    ) {
         if (!Array.isArray(history)) return [];
 
         const parsedLimit = Number(requestedLimit);
@@ -238,18 +256,68 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
             ? Math.max(1, Math.min(Math.trunc(parsedLimit), 40))
             : maxModelHistoryMessages;
 
-        return history
+        let latestCatalogContext = '';
+        const normalized = history
             .filter((message) => message && ['user', 'assistant', 'model'].includes(message.role))
             .map((message) => {
                 const role = message.role === 'assistant' ? 'model' : message.role;
                 const text = Array.isArray(message.parts)
                     ? message.parts.map((part) => part?.text || part?.raw || '').filter(Boolean).join('\n\n')
                     : String(message.content || message.text || '');
-                const trimmed = text.trim();
-                return trimmed ? { role, parts: [{ text: trimmed.slice(0, 4000) }] } : null;
+                const split = splitCatalogContext(text);
+                if (split.catalogContext) latestCatalogContext = split.catalogContext;
+                const trimmed = split.visibleText.trim();
+                return trimmed ? { role, parts: [{ text: trimmed }] } : null;
             })
-            .filter(Boolean)
-            .slice(-limit);
+            .filter(Boolean);
+
+        const parsedTokenBudget = Number(requestedTokenBudget);
+        const tokenBudget = Number.isFinite(parsedTokenBudget)
+            ? Math.max(512, Math.min(Math.trunc(parsedTokenBudget), 64000))
+            : 12000;
+        const maxMemoryBytes = Math.min(8000, Math.floor((tokenBudget * 4) / 3));
+        const memoryText = latestCatalogContext
+            ? truncateUtf8Middle(latestCatalogContext, maxMemoryBytes)
+            : '';
+        const memoryMessage = memoryText
+            ? { role: 'model', parts: [{ text: memoryText }] }
+            : null;
+        const memoryTokens = memoryMessage ? Math.ceil(contextBytes(memoryMessage) / 4) : 0;
+        const recentHistory = fitHistoryToBudget(normalized, {
+            maxMessages: limit,
+            maxTokens: Math.max(64, tokenBudget - memoryTokens)
+        });
+
+        const modelHistory = memoryMessage ? [memoryMessage, ...recentHistory] : recentHistory;
+        if (typeof onStats === 'function') {
+            const legacyView = normalized.slice(-limit);
+            const rawBytes = contextBytes(legacyView);
+            const modelBytes = contextBytes(modelHistory);
+            onStats({
+                rawBytes,
+                modelBytes,
+                savedBytes: Math.max(0, rawBytes - modelBytes),
+                rawEstimatedTokens: Math.ceil(rawBytes / 4),
+                modelEstimatedTokens: Math.ceil(modelBytes / 4),
+                reductionRatio: rawBytes > 0 ? Math.max(0, (rawBytes - modelBytes) / rawBytes) : 0,
+                inputMessages: normalized.length,
+                modelMessages: modelHistory.length,
+                latestCatalogMemory: Boolean(memoryMessage),
+                budgetTokens: tokenBudget
+            });
+        }
+        return modelHistory;
+    }
+
+    function splitCatalogContext(value) {
+        const text = String(value || '');
+        const markerIndex = text.lastIndexOf(CATALOG_CONTEXT_MARKER);
+        if (markerIndex < 0) return { visibleText: text, catalogContext: '' };
+
+        return {
+            visibleText: text.slice(0, markerIndex).trimEnd(),
+            catalogContext: text.slice(markerIndex).trim()
+        };
     }
 
     function buildAssistantStoragePayload(parts, metadata = {}) {
@@ -271,6 +339,8 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
                 Math.floor(Number(metadata.stopped_after_seconds) || 0)
             );
         }
+        const providerMeta = normalizeProviderResponseMetadata(metadata.provider_meta);
+        if (providerMeta) payload.provider_meta = providerMeta;
         return JSON.stringify(payload);
     }
 
@@ -280,11 +350,22 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
             const html = (part.html || '').trim();
             const payload = part.payload && typeof part.payload === 'object' ? part.payload : null;
             if (!payload && !html) return null;
-            return payload ? { type: 'products', payload } : { type: 'products', html };
+            // Keep both representations.  The payload is the safe, compact
+            // source used for pagination and follow-up questions, while the
+            // HTML is the Magento-rendered presentation (including image
+            // URLs, price formatting and add-to-cart forms).  Dropping HTML
+            // whenever a payload existed made a product result disappear
+            // after a history reload in clients that do not re-render it.
+            return {
+                type: 'products',
+                ...(html ? { html } : {}),
+                ...(payload ? { payload } : {})
+            };
         }
+        if (part.type === 'reasoning') return normalizeReasoningPart(part);
         if (part.type === 'image') {
             const url = String(part.url || '').trim();
-            if (!/^https?:\/\//i.test(url)) return null;
+            if (!/^(?:https?:\/\/|\/media\/afd-ai\/generated\/)/i.test(url)) return null;
             return {
                 type: 'image',
                 url,
@@ -307,6 +388,56 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
         if (part.type === 'order_address_form') return normalizeOrderAddressFormPart(part);
         const raw = part.raw || part.text || '';
         return raw ? { type: 'text', raw } : null;
+    }
+
+    /**
+     * Tool activity is public progress metadata; retain only its small,
+     * allow-listed display fields. Reasoning text is already customer-visible
+     * in the live UI, so keep it bounded and sanitized for history parity.
+     */
+    function normalizeReasoningPart(part) {
+        const sourceEvents = Array.isArray(part?.events) ? part.events : [
+            ...(Array.isArray(part?.steps) ? part.steps : []),
+            ...(Array.isArray(part?.activities) ? part.activities : [])
+        ];
+        const events = [];
+        const seen = new Set();
+
+        for (const source of sourceEvents.slice(0, 24)) {
+            if (!source || typeof source !== 'object') continue;
+            const type = source.type === 'activity' ? 'activity' : (source.type === 'step' ? 'step' : '');
+            if (!type) continue;
+            const id = String(source.id || `${type}-${events.length}`).slice(0, 120);
+            const key = `${type}:${id}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+
+            if (type === 'activity') {
+                const tool = String(source.tool || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 80);
+                if (!tool) continue;
+                const resultCount = Number(source.result_count);
+                events.push({
+                    id,
+                    type,
+                    tool,
+                    state: ['running', 'completed', 'failed'].includes(String(source.state || ''))
+                        ? String(source.state)
+                        : 'completed',
+                    ...(Number.isFinite(resultCount) && resultCount >= 0
+                        ? { result_count: Math.min(10000, Math.floor(resultCount)) }
+                        : {})
+                });
+                continue;
+            }
+
+            const content = sanitizeCustomerResponse(String(source.content || '')).slice(0, 1600).trim();
+            if (content) events.push({ id, type, content });
+        }
+
+        if (events.length === 0) return null;
+        const steps = events.filter(event => event.type === 'step');
+        const activities = events.filter(event => event.type === 'activity');
+        return { type: 'reasoning', events, steps, activities };
     }
 
     function buildConversationTitle(sourceText, options = {}) {

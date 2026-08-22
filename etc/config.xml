@@ -5,14 +5,10 @@
             <general>
                 <enabled>0</enabled>
                 <persist_guest_history>1</persist_guest_history>
-                <chat_server_url>ws://127.0.0.1:3001</chat_server_url>
-                <provider>cockpit</provider>
-                <cockpit_base_url>http://127.0.0.1:49998/v1</cockpit_base_url>
-                <cockpit_model>gpt-5.6-luna</cockpit_model>
-                <image_generation_enabled>1</image_generation_enabled>
-                <cockpit_image_model>gpt-image-2</cockpit_image_model>
-                <cockpit_image_size>1024x1024</cockpit_image_size>
-                <cockpit_image_quality>medium</cockpit_image_quality>
+                <provider></provider>
+                <model></model>
+                <thought_level></thought_level>
+                <image_generation_enabled>0</image_generation_enabled>
             </general>
             <agent>
                 <max_tool_rounds>8</max_tool_rounds>
@@ -21,6 +17,8 @@
                 <block_duplicate_tool_calls>1</block_duplicate_tool_calls>
                 <max_output_tokens>2048</max_output_tokens>
                 <max_model_history_messages>20</max_model_history_messages>
+                <max_history_tokens>12000</max_history_tokens>
+                <max_tool_context_tokens>6000</max_tool_context_tokens>
                 <provider_stream_timeout_ms>120000</provider_stream_timeout_ms>
             </agent>
             <image_generation>
@@ -32,6 +30,13 @@
                 <cooldown_seconds>60</cooldown_seconds>
                 <max_concurrent_per_identity>1</max_concurrent_per_identity>
             </image_generation>
+            <features>
+                <candidate_memory_enabled>1</candidate_memory_enabled>
+                <product_advisor_enabled>0</product_advisor_enabled>
+                <proactive_suggestions_enabled>0</proactive_suggestions_enabled>
+                <analytics_attribution_enabled>0</analytics_attribution_enabled>
+                <guardrails_enabled>1</guardrails_enabled>
+            </features>
             <rate_limits>
                 <messages_per_minute>15</messages_per_minute>
                 <product_pages_per_minute>30</product_pages_per_minute>
@@ -47,7 +52,32 @@
             <attachments>
                 <max_image_bytes>4194304</max_image_bytes>
                 <max_images_per_message>4</max_images_per_message>
+                <max_total_image_bytes>6291456</max_total_image_bytes>
+                <max_total_encoded_bytes>6291456</max_total_encoded_bytes>
+                <max_total_pixels>30000000</max_total_pixels>
+                <vision_concurrency>4</vision_concurrency>
+                <cost_units_per_minute>30</cost_units_per_minute>
+                <network_cost_units_per_minute>120</network_cost_units_per_minute>
+                <global_cost_units_per_minute>1200</global_cost_units_per_minute>
+                <min_free_bytes>104857600</min_free_bytes>
+                <max_owner_storage_bytes>67108864</max_owner_storage_bytes>
+                <max_total_storage_bytes>1073741824</max_total_storage_bytes>
+                <orphan_retention_seconds>604800</orphan_retention_seconds>
+                <cleanup_dry_run>0</cleanup_dry_run>
             </attachments>
+            <voice>
+                <enabled>1</enabled>
+                <transcription_model></transcription_model>
+                <max_duration_seconds>120</max_duration_seconds>
+                <max_audio_bytes>4194304</max_audio_bytes>
+                <requests_per_minute>6</requests_per_minute>
+                <max_concurrent_per_identity>1</max_concurrent_per_identity>
+                <timeout_ms>120000</timeout_ms>
+                <live_enabled>0</live_enabled>
+                <live_model></live_model>
+                <live_max_sessions_per_minute>3</live_max_sessions_per_minute>
+                <live_max_duration_seconds>600</live_max_duration_seconds>
+            </voice>
             <knowledge>
                 <enabled>1</enabled>
             </knowledge>

@@ -31,10 +31,20 @@ const internalIdentifierPattern = new RegExp(
     'gi'
 );
 const maxIdentifierLength = Math.max(...INTERNAL_IDENTIFIERS.map((value) => value.length));
+// Magento installations that still use utf8mb3 cannot persist four-byte
+// Unicode characters (most emoji/decorative pictograms). Remove them before
+// streaming and persistence so the history never turns them into `?` bytes.
+const unsupportedUnicodePattern = /[\u{10000}-\u{10FFFF}]/gu;
+// Older rows may already contain replacement question marks immediately before
+// a Markdown link. Remove only that malformed boundary, never normal prose
+// question marks.
+const malformedIconBoundaryPattern = /\?{2,}(?=\s*(?:\[[^\]\n]+\]\(|https?:\/\/))/gu;
 
 export function sanitizeCustomerResponse(value) {
     return String(value || '')
         .replace(internalIdentifierPattern, '')
+        .replace(unsupportedUnicodePattern, '')
+        .replace(malformedIconBoundaryPattern, '')
         // Removing an identifier can leave an awkward double space before
         // punctuation; normalize only the affected boundary, not Markdown.
         .replace(/[ \t]{2,}/g, ' ')

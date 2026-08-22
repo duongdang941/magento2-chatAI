@@ -34,6 +34,7 @@ test('validates a short-lived Magento WebSocket ticket', () => {
         aud: 'afd-ai-websocket',
         sub: '42',
         sid: 'session-hash',
+        gid: 'a'.repeat(64),
         sct: encryptCheckoutSessionId('checkout-session-id', secret),
         scn: 'PHPSESSID',
         jti: 'ticket-id',
@@ -46,12 +47,49 @@ test('validates a short-lived Magento WebSocket ticket', () => {
     assert.deepEqual({ ...verified, expiresAt: undefined }, {
         customerId: 42,
         sessionId: 'session-hash',
+        guestHistoryId: 'a'.repeat(64),
         sessionCookie: 'PHPSESSID=checkout-session-id',
         ticketId: 'ticket-id',
         role: 'customer',
         source: 'ticket',
         expiresAt: undefined
     });
+});
+
+test('uses the signed durable guest identity when present', () => {
+    const secret = 'g'.repeat(32);
+    const now = Math.floor(Date.now() / 1000);
+    const guestHistoryId = 'f'.repeat(64);
+    const ticket = sign({
+        aud: 'afd-ai-websocket',
+        sid: 'checkout-session-hash',
+        gid: guestHistoryId,
+        sct: encryptCheckoutSessionId('checkout-session-id', secret),
+        scn: 'PHPSESSID',
+        jti: 'guest-history-ticket',
+        iat: now,
+        exp: now + 60
+    }, secret);
+
+    const verified = verifyWebSocketTicket(ticket, secret);
+    assert.equal(verified.sessionId, 'checkout-session-hash');
+    assert.equal(verified.guestHistoryId, guestHistoryId);
+});
+
+test('rejects a guest ticket without the Magento-issued chat identity', () => {
+    const secret = 'h'.repeat(32);
+    const now = Math.floor(Date.now() / 1000);
+    const ticket = sign({
+        aud: 'afd-ai-websocket',
+        sid: 'session-hash',
+        sct: encryptCheckoutSessionId('checkout-session-id', secret),
+        scn: 'PHPSESSID',
+        jti: 'guest-ticket-without-gid',
+        iat: now,
+        exp: now + 60
+    }, secret);
+
+    assert.throws(() => verifyWebSocketTicket(ticket, secret), /guest chat identity/i);
 });
 
 test('preserves the signed Magento store and customer group scope', () => {
@@ -78,6 +116,28 @@ test('preserves the signed Magento store and customer group scope', () => {
         storeCode: 'parteimitglied_de',
         customerGroupId: 3
     });
+});
+
+test('preserves the signed Magento installation tenant on the catalogue scope', () => {
+    const secret = 't'.repeat(32);
+    const now = Math.floor(Date.now() / 1000);
+    const tenantId = 'a'.repeat(64);
+    const ticket = sign({
+        aud: 'afd-ai-websocket',
+        sid: 'session-hash',
+        gid: 'c'.repeat(64),
+        sct: encryptCheckoutSessionId('checkout-session-id', secret),
+        scn: 'PHPSESSID',
+        tenant_id: tenantId,
+        catalog_scope: { store_code: 'default', customer_group_id: 0 },
+        jti: 'tenant-ticket-id',
+        iat: now,
+        exp: now + 60
+    }, secret);
+
+    const verified = verifyWebSocketTicket(ticket, secret);
+    assert.equal(verified.tenantId, tenantId);
+    assert.equal(verified.catalogScope.tenantId, tenantId);
 });
 
 test('validates a support administrator WebSocket ticket without a checkout session', () => {

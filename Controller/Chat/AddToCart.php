@@ -4,6 +4,9 @@ declare(strict_types=1);
 namespace Afd\AI\Controller\Chat;
 
 use Afd\AI\Model\Tool\CartTool;
+use Afd\AI\Model\Analytics\AnalyticsEventService;
+use Afd\AI\Model\Security\GuestChatIdentity;
+use Magento\Customer\Model\Session as CustomerSession;
 use Magento\Framework\App\Action\HttpPostActionInterface;
 use Magento\Framework\App\CsrfAwareActionInterface;
 use Magento\Framework\App\Request\Http as HttpRequest;
@@ -27,6 +30,9 @@ class AddToCart implements HttpPostActionInterface, CsrfAwareActionInterface
         private readonly HttpRequest $request,
         private readonly ResultFactory $resultFactory,
         private readonly CartTool $cartTool,
+        private readonly AnalyticsEventService $analytics,
+        private readonly CustomerSession $customerSession,
+        private readonly GuestChatIdentity $guestChatIdentity,
         private readonly FormKey $formKey,
         private readonly LoggerInterface $logger
     ) {
@@ -70,7 +76,7 @@ class AddToCart implements HttpPostActionInterface, CsrfAwareActionInterface
                 ]);
             }
 
-            return $resultJson->setData($action === 'remove'
+            $result = $action === 'remove'
                 ? $this->cartTool->removeSelectedProductFromCart($sku, $cartTarget)
                 : $this->cartTool->addSelectedProductToCart(
                     $sku,
@@ -78,7 +84,26 @@ class AddToCart implements HttpPostActionInterface, CsrfAwareActionInterface
                     $selectedOptions,
                     $cartTarget,
                     $useDefaultQty
-                ));
+                );
+            if (($result['status'] ?? '') === 'success' && $action === 'add') {
+                try {
+                    $this->analytics->record([
+                        'event_id' => (string)($payload['analyticsEventId'] ?? ''),
+                        'event_name' => 'add_to_cart',
+                        'conversation_id' => max(0, (int)($payload['conversationId'] ?? 0)),
+                        'quote_id' => max(0, (int)($result['quote_id'] ?? 0)),
+                        'customer_id' => (int)$this->customerSession->getCustomerId(),
+                        'guest_id' => $this->customerSession->isLoggedIn() ? '' : $this->guestChatIdentity->resolve(),
+                        'payload' => ['product_skus' => [$sku], 'feature_flags' => ['analytics_attribution_enabled' => true]],
+                    ]);
+                } catch (\Throwable) {
+                    // Telemetry must never change an otherwise verified cart result.
+                }
+            }
+            // Quote IDs are correlation keys for Magento only, never an AI
+            // tool result or a browser-facing part of the chat contract.
+            unset($result['quote_id']);
+            return $resultJson->setData($result);
         } catch (\Throwable $exception) {
             $this->logger->warning('Afd AI cart request failed.', [
                 'exception' => $exception,

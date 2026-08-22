@@ -1,426 +1,332 @@
 <?xml version="1.0"?>
-<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
     <system>
-        <tab id="afd" translate="label" sortOrder="100">
-            <label>Afd Extensions</label>
-        </tab>
-
-        <section id="afd_ai" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+        <tab id="afd" translate="label" sortOrder="900">
             <label>Store Assistant</label>
+        </tab>
+        <section id="afd_ai" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+            <label>AI Assistant</label>
             <tab>afd</tab>
-            <resource>Afd_AI::config</resource>
-            <group id="general" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
-                <label>General &amp; Chat</label>
+            <resource>Afd_AI::config_afd_ai</resource>
+
+            <!-- General Chat Group -->
+            <group id="general" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>General Chat</label>
+
+                <!-- Enable Store Assistant (Top Level Master Switch) -->
                 <field id="enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
                     <label>Enable Store Assistant</label>
                     <comment>Enable AI chat for storefront shoppers.</comment>
                     <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    <frontend_model>Afd\AI\Block\Adminhtml\System\Config\EnableField</frontend_model>
                 </field>
-                <field id="persist_guest_history" translate="label comment" type="select" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+
+                <!-- AI Provider (Immediately below Enable Store Assistant) -->
+                <field id="provider" translate="label comment" type="select" sortOrder="15" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>AI Provider</label>
+                    <comment>Choose the active Model Provider configured in Model Providers.</comment>
+                    <config_path>afd_ai/general/provider</config_path>
+                    <source_model>Afd\AI\Model\Config\Source\AiProvider</source_model>
+                    <depends>
+                        <field id="enabled">1</field>
+                    </depends>
+                </field>
+
+                <!-- AI Model (Immediately below AI Provider) -->
+                <field id="model" translate="label comment" type="select" sortOrder="18" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>AI Model</label>
+                    <comment>Select the model to serve chat completions.</comment>
+                    <config_path>afd_ai/general/model</config_path>
+                    <source_model>Afd\AI\Model\Config\Source\AiModel</source_model>
+                    <frontend_model>Afd\AI\Block\Adminhtml\System\Config\ModelSelect</frontend_model>
+                    <depends>
+                        <field id="enabled">1</field>
+                    </depends>
+                </field>
+
+                <field id="thought_level" translate="label comment" type="select" sortOrder="19" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Thought Level</label>
+                    <comment>Visible only when the selected model supports configurable reasoning.</comment>
+                    <config_path>afd_ai/general/thought_level</config_path>
+                    <source_model>Afd\AI\Model\Config\Source\ThoughtLevel</source_model>
+                    <frontend_model>Afd\AI\Block\Adminhtml\System\Config\ThoughtLevelSelect</frontend_model>
+                    <depends>
+                        <field id="enabled">1</field>
+                    </depends>
+                </field>
+
+                <field id="persist_guest_history" translate="label comment" type="select" sortOrder="25" showInDefault="1" showInWebsite="1" showInStore="1">
                     <label>Persist Guest Chat History</label>
-                    <comment>Store guest conversations in the AI database so they remain available after the browser is reopened. Ownership uses an opaque hashed session identifier.</comment>
+                    <comment>Store guest conversations in the AI database so they remain available after the browser is reopened. Ownership uses an opaque, HTTP-only browser identifier.</comment>
                     <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    <depends>
+                        <field id="enabled">1</field>
+                    </depends>
                 </field>
-                <field id="expose_coupon_codes" translate="label comment" type="select" sortOrder="25" showInDefault="1" showInWebsite="1" showInStore="1">
+
+                <field id="expose_coupon_codes" translate="label comment" type="select" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
                     <label>Allow AI to Share Coupon Codes</label>
                     <comment>Disabled by default. Enable only for coupon rules whose codes are safe to disclose to every eligible shopper in this store view.</comment>
                     <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    <depends>
+                        <field id="enabled">1</field>
+                    </depends>
                 </field>
-                <field id="chat_server_url" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="0" showInStore="0">
+
+                <field id="chat_server_url" translate="label comment" type="text" sortOrder="40" showInDefault="1" showInWebsite="0" showInStore="0">
                     <label>Chat Server WebSocket URL</label>
-                    <comment>Public WebSocket URL used by the storefront, for example ws://127.0.0.1:3001.</comment>
+                    <comment>Optional override for a local or separate gateway. Leave empty in production to use this store's secure Base URL with /ai-gateway/.</comment>
+                    <depends>
+                        <field id="enabled">1</field>
+                    </depends>
                 </field>
             </group>
-            <group id="attachments" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
-                <label>Message Image Attachments</label>
-                <field id="max_image_bytes" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Maximum Uploaded Image Size (Bytes)</label>
-                    <comment>Allowed range: 262144–16777216 bytes. The WebSocket infrastructure limit must be at least as large.</comment>
-                    <config_path>afd_ai/attachments/max_image_bytes</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-                <field id="max_images_per_message" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Maximum Images per Message</label>
-                    <comment>Allowed range: 1–4.</comment>
-                    <config_path>afd_ai/attachments/max_images_per_message</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-            </group>
-        </section>
 
-        <section id="afd_ai_providers" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
-            <label>AI Providers</label>
-            <tab>afd</tab>
-            <resource>Afd_AI::config</resource>
-            <group id="general" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
-                <label>Provider &amp; Model</label>
-                <field id="provider" translate="label" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>AI Provider</label>
-                    <config_path>afd_ai/general/provider</config_path>
-                    <source_model>Afd\AI\Model\Config\Source\AiProvider</source_model>
-                </field>
-                <field id="gemini_api_key" translate="label" type="obscure" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Gemini API Key</label>
-                    <config_path>afd_ai/general/gemini_api_key</config_path>
-                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
-                    <depends><field id="provider">gemini</field></depends>
-                </field>
-                <field id="gemini_model" translate="label" type="select" sortOrder="21" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Gemini Model</label>
-                    <config_path>afd_ai/general/gemini_model</config_path>
-                    <source_model>Afd\AI\Model\Config\Source\GeminiModel</source_model>
-                    <depends><field id="provider">gemini</field></depends>
-                </field>
-                <field id="openai_api_key" translate="label" type="obscure" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>OpenAI API Key</label>
-                    <config_path>afd_ai/general/openai_api_key</config_path>
-                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
-                    <depends><field id="provider">openai</field></depends>
-                </field>
-                <field id="openai_model" translate="label" type="select" sortOrder="31" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>OpenAI Model</label>
-                    <config_path>afd_ai/general/openai_model</config_path>
-                    <source_model>Afd\AI\Model\Config\Source\OpenAiModel</source_model>
-                    <depends><field id="provider">openai</field></depends>
-                </field>
-                <field id="openrouter_api_key" translate="label" type="obscure" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>OpenRouter API Key</label>
-                    <config_path>afd_ai/general/openrouter_api_key</config_path>
-                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
-                    <depends><field id="provider">openrouter</field></depends>
-                </field>
-                <field id="openrouter_model" translate="label" type="select" sortOrder="41" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>OpenRouter Model</label>
-                    <config_path>afd_ai/general/openrouter_model</config_path>
-                    <source_model>Afd\AI\Model\Config\Source\OpenRouterModel</source_model>
-                    <depends><field id="provider">openrouter</field></depends>
-                </field>
-                <field id="nine_router_api_key" translate="label" type="obscure" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>9router API Key</label>
-                    <config_path>afd_ai/general/nine_router_api_key</config_path>
-                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
-                    <depends><field id="provider">9router</field></depends>
-                </field>
-                <field id="nine_router_base_url" translate="label comment" type="text" sortOrder="51" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>9router Base URL</label>
-                    <comment>OpenAI-compatible endpoint URL.</comment>
-                    <config_path>afd_ai/general/nine_router_base_url</config_path>
-                    <depends><field id="provider">9router</field></depends>
-                </field>
-                <field id="nine_router_model" translate="label comment" type="text" sortOrder="52" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>9router Model</label>
-                    <comment>Model ID returned by the provider.</comment>
-                    <config_path>afd_ai/general/nine_router_model</config_path>
-                    <depends><field id="provider">9router</field></depends>
-                </field>
-                <field id="cockpit_api_key" translate="label" type="obscure" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Cockpit API Key</label>
-                    <config_path>afd_ai/general/cockpit_api_key</config_path>
-                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
-                    <depends><field id="provider">cockpit</field></depends>
-                </field>
-                <field id="cockpit_base_url" translate="label comment" type="text" sortOrder="61" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Cockpit OpenAI-compatible Base URL</label>
-                    <comment>Local Cockpit API, for example http://127.0.0.1:49998/v1.</comment>
-                    <config_path>afd_ai/general/cockpit_base_url</config_path>
-                    <depends><field id="provider">cockpit</field></depends>
-                </field>
-                <field id="cockpit_model" translate="label comment" type="text" sortOrder="62" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Cockpit Model</label>
-                    <comment>Model ID offered by Cockpit.</comment>
-                    <config_path>afd_ai/general/cockpit_model</config_path>
-                    <depends><field id="provider">cockpit</field></depends>
-                </field>
-            </group>
-        </section>
-
-        <section id="afd_ai_agent" translate="label" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
-            <label>Agent Behaviour</label>
-            <tab>afd</tab>
-            <resource>Afd_AI::config</resource>
-            <group id="general" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
-                <label>Quality &amp; Tool Budget</label>
-                <field id="max_tool_rounds" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Maximum Agent Tool Rounds</label>
-                    <comment>Provider reasoning rounds per response. Allowed range: 1–12. Higher values improve difficult retrieval but increase latency and usage.</comment>
-                    <config_path>afd_ai/agent/max_tool_rounds</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-                <field id="max_tool_executions" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Maximum Tool Executions per Message</label>
-                    <comment>Total Magento, web and image tool executions. Allowed range: 1–30.</comment>
-                    <config_path>afd_ai/agent/max_tool_executions</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-                <field id="max_category_calls" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Maximum Category Lookups per Message</label>
-                    <comment>Allowed range: 1–10. Product searches are not counted as category lookups.</comment>
-                    <config_path>afd_ai/agent/max_category_calls</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-                <field id="block_duplicate_tool_calls" translate="label comment" type="select" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Block Duplicate Tool Calls</label>
-                    <comment>Prevent the model from repeating the same tool with identical arguments in one response.</comment>
-                    <config_path>afd_ai/agent/block_duplicate_tool_calls</config_path>
+            <group id="features" translate="label comment" type="text" sortOrder="25" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Rollout &amp; Experimental Features</label>
+                <comment>Per-store kill switches for new customer-facing capabilities. Leave a feature disabled until its acceptance tests and rollout plan are approved.</comment>
+                <field id="candidate_memory_enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable Candidate Memory</label>
+                    <comment>Allows the Product Advisor rollout to retain verified product references between turns. Disabled until that flow is released.</comment>
+                    <config_path>afd_ai/features/candidate_memory_enabled</config_path>
                     <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
                 </field>
-                <field id="max_output_tokens" translate="label comment" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Maximum Output Tokens</label>
-                    <comment>Allowed range: 256–8192. Provider support may vary.</comment>
-                    <config_path>afd_ai/agent/max_output_tokens</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-                <field id="max_model_history_messages" translate="label comment" type="text" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Messages Included in Model Context</label>
-                    <comment>Recent messages sent to the model. Allowed range: 4–40.</comment>
-                    <config_path>afd_ai/agent/max_model_history_messages</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-                <field id="provider_stream_timeout_ms" translate="label comment" type="text" sortOrder="70" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Provider Stream Timeout (Milliseconds)</label>
-                    <comment>Allowed range: 10000–300000.</comment>
-                    <config_path>afd_ai/agent/provider_stream_timeout_ms</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-            </group>
-        </section>
-
-        <section id="afd_ai_images" translate="label" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
-            <label>Image Generation</label>
-            <tab>afd</tab>
-            <resource>Afd_AI::config</resource>
-            <group id="general" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
-                <label>Image Model &amp; Quality</label>
-                <field id="enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Enable Image Generation</label>
-                    <comment>Allow image generation through Cockpit or OpenAI.</comment>
-                    <config_path>afd_ai/general/image_generation_enabled</config_path>
+                <field id="product_advisor_enabled" translate="label comment" type="select" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable Product Advisor</label>
+                    <comment>Enables the guided product-finder experience after its release gate has passed.</comment>
+                    <config_path>afd_ai/features/product_advisor_enabled</config_path>
                     <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
                 </field>
-                <field id="model" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Image Model</label>
-                    <comment>Image model exposed by the selected provider, normally gpt-image-2.</comment>
-                    <config_path>afd_ai/general/cockpit_image_model</config_path>
+                <field id="proactive_suggestions_enabled" translate="label comment" type="select" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable Proactive Suggestions</label>
+                    <comment>Allows contextual suggestions only for this store after shopper-interaction and consent rules have been configured.</comment>
+                    <config_path>afd_ai/features/proactive_suggestions_enabled</config_path>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
                 </field>
-                <field id="size" translate="label" type="select" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Generated Image Size</label>
-                    <config_path>afd_ai/general/cockpit_image_size</config_path>
-                    <source_model>Afd\AI\Model\Config\Source\ImageSize</source_model>
+                <field id="analytics_attribution_enabled" translate="label comment" type="select" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable AI Attribution Events</label>
+                    <comment>Enables assisted-conversion event collection after storefront consent and the attribution data model are released.</comment>
+                    <config_path>afd_ai/features/analytics_attribution_enabled</config_path>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
                 </field>
-                <field id="quality" translate="label comment" type="select" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Generated Image Quality</label>
-                    <comment>Higher quality normally consumes more provider quota.</comment>
-                    <config_path>afd_ai/general/cockpit_image_quality</config_path>
-                    <source_model>Afd\AI\Model\Config\Source\ImageQuality</source_model>
-                </field>
-                <field id="timeout_ms" translate="label comment" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Generation Timeout (Milliseconds)</label>
-                    <comment>Allowed range: 30000–300000.</comment>
-                    <config_path>afd_ai/image_generation/timeout_ms</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-            </group>
-            <group id="limits" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
-                <label>Image Usage Limits</label>
-                <field id="customer_per_hour" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Logged-in Customer Images per Hour</label>
-                    <comment>Allowed range: 1–100.</comment>
-                    <config_path>afd_ai/image_generation/customer_per_hour</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-                <field id="customer_per_day" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Logged-in Customer Images per Day</label>
-                    <comment>Allowed range: 1–500.</comment>
-                    <config_path>afd_ai/image_generation/customer_per_day</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-                <field id="guest_per_hour" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Guest Images per Hour</label>
-                    <comment>Applied to the stable guest browser identity. Allowed range: 1–50.</comment>
-                    <config_path>afd_ai/image_generation/guest_per_hour</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-                <field id="guest_per_day" translate="label comment" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Guest Images per Day</label>
-                    <comment>Allowed range: 1–200.</comment>
-                    <config_path>afd_ai/image_generation/guest_per_day</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-                <field id="cooldown_seconds" translate="label comment" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Image Request Cooldown (Seconds)</label>
-                    <comment>Minimum delay between requests by the same shopper. Allowed range: 0–3600.</comment>
-                    <config_path>afd_ai/image_generation/cooldown_seconds</config_path>
-                    <validate>validate-number</validate>
-                </field>
-                <field id="max_concurrent_per_identity" translate="label comment" type="text" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Concurrent Images per Shopper</label>
-                    <comment>Allowed range: 1–3. Keep at 1 for predictable provider usage.</comment>
-                    <config_path>afd_ai/image_generation/max_concurrent_per_identity</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
+                <field id="guardrails_enabled" translate="label comment" type="select" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable Commerce Guardrails</label>
+                    <comment>Applies provider-neutral authorization checks for customer, verified-order, destructive and paid actions. Keep enabled in every production store.</comment>
+                    <config_path>afd_ai/features/guardrails_enabled</config_path>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
                 </field>
             </group>
-        </section>
 
-        <section id="afd_ai_limits" translate="label" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
-            <label>Traffic &amp; Capacity</label>
-            <tab>afd</tab>
-            <resource>Afd_AI::config</resource>
-            <group id="traffic" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
-                <label>Shopper Rate Limits</label>
+            <group id="attachments" translate="label" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Images &amp; Attachments</label>
+                <comment>Image generation and attachment controls.</comment>
+                <group id="generation" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Image Generation</label>
+                    <comment>These settings control image requests after a provider image model has been configured.</comment>
+                    <field id="image_generation_enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Enable Image Generation</label>
+                        <comment>Allow the selected AI provider to generate images.</comment>
+                        <config_path>afd_ai/general/image_generation_enabled</config_path>
+                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                        <depends>
+                            <field id="afd_ai/general/enabled">1</field>
+                        </depends>
+                    </field>
+                    <field id="image_transport" translate="label comment" type="select" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Image API</label>
+                        <comment>Choose the image transport for the selected provider and model. Leave empty to use the safe SVG fallback.</comment>
+                        <config_path>afd_ai/image_generation/transport</config_path>
+                        <source_model>Afd\AI\Model\Config\Source\ImageTransport</source_model>
+                        <depends>
+                            <field id="afd_ai/general/enabled">1</field>
+                            <field id="image_generation_enabled">1</field>
+                        </depends>
+                    </field>
+                    <field id="image_model" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Image Model</label>
+                        <comment>Optional provider image model. Leave empty when the selected Image API chooses its own model.</comment>
+                        <config_path>afd_ai/image_generation/model</config_path>
+                        <depends>
+                            <field id="afd_ai/general/enabled">1</field>
+                            <field id="image_generation_enabled">1</field>
+                        </depends>
+                    </field>
+                    <field id="image_size" translate="label" type="select" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Generated Image Size</label>
+                        <config_path>afd_ai/general/cockpit_image_size</config_path>
+                        <source_model>Afd\AI\Model\Config\Source\ImageSize</source_model>
+                        <depends>
+                            <field id="afd_ai/general/enabled">1</field>
+                            <field id="image_generation_enabled">1</field>
+                        </depends>
+                    </field>
+                    <field id="image_timeout_ms" translate="label comment" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Image Generation Timeout (Milliseconds)</label>
+                        <comment>Allowed range: 30000–300000.</comment>
+                        <config_path>afd_ai/image_generation/timeout_ms</config_path>
+                        <validate>validate-number validate-greater-than-zero</validate>
+                        <depends>
+                            <field id="afd_ai/general/enabled">1</field>
+                            <field id="image_generation_enabled">1</field>
+                        </depends>
+                    </field>
+                </group>
+            </group>
+
+            <group id="rate_limiting" translate="label" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>Traffic Guardrails</label>
                 <field id="messages_per_minute" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Messages per Minute</label>
-                    <comment>Per customer or stable guest session. Allowed range: 1–120.</comment>
+                    <label>Messages Per Minute</label>
+                    <comment>Allowed range: 1–300.</comment>
                     <config_path>afd_ai/rate_limits/messages_per_minute</config_path>
                     <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-                <field id="product_pages_per_minute" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Product Pages per Minute</label>
-                    <comment>Pagination requests per shopper. Allowed range: 1–120.</comment>
-                    <config_path>afd_ai/rate_limits/product_pages_per_minute</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-                <field id="address_updates_per_minute" translate="label" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Address Updates per Minute</label>
-                    <config_path>afd_ai/rate_limits/address_updates_per_minute</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-                <field id="address_updates_per_hour" translate="label" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Address Updates per Hour</label>
-                    <config_path>afd_ai/rate_limits/address_updates_per_hour</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
                 </field>
             </group>
-            <group id="capacity" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0">
-                <label>Gateway Capacity</label>
+
+            <group id="capacity" translate="label" type="text" sortOrder="45" showInDefault="1" showInWebsite="0" showInStore="0">
+                <label>Concurrency &amp; Queueing</label>
                 <field id="concurrent_model_requests" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0">
-                    <label>Concurrent Model Requests</label>
-                    <comment>Global shared capacity across gateway replicas. Allowed range: 1–1000.</comment>
+                    <label>Maximum Concurrent Requests</label>
+                    <comment>Allowed range: 1–500.</comment>
                     <config_path>afd_ai/capacity/concurrent_model_requests</config_path>
                     <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-                <field id="queue_depth" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0">
-                    <label>Maximum Queue Depth</label>
-                    <comment>Allowed range: 1–10000.</comment>
-                    <config_path>afd_ai/capacity/queue_depth</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-                <field id="queue_wait_ms" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="0" showInStore="0">
-                    <label>Maximum Queue Wait (Milliseconds)</label>
-                    <comment>Allowed range: 1000–300000.</comment>
-                    <config_path>afd_ai/capacity/queue_wait_ms</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-                <field id="model_lease_ms" translate="label comment" type="text" sortOrder="40" showInDefault="1" showInWebsite="0" showInStore="0">
-                    <label>Model Request Lease (Milliseconds)</label>
-                    <comment>Allowed range: 10000–600000 and should exceed the provider timeout.</comment>
-                    <config_path>afd_ai/capacity/model_lease_ms</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
                 </field>
             </group>
-        </section>
 
-        <section id="afd_ai_knowledge" translate="label" type="text" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="1">
-            <label>Store Knowledge</label>
-            <tab>afd</tab>
-            <resource>Afd_AI::config</resource>
-            <group id="general" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+            <group id="store_knowledge" translate="label" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
                 <label>Magento Content</label>
                 <field id="enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
                     <label>Search Magento CMS Content</label>
                     <comment>Use active CMS pages and blocks as authoritative sources for policies, delivery, payment, warranty and FAQ answers.</comment>
                     <config_path>afd_ai/knowledge/enabled</config_path>
                     <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
                 </field>
             </group>
-        </section>
 
-        <section id="afd_ai_support" translate="label" type="text" sortOrder="70" showInDefault="1" showInWebsite="1" showInStore="1">
-            <label>Human Handoff</label>
-            <tab>afd</tab>
-            <resource>Afd_AI::config</resource>
-            <group id="general" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+            <group id="human_handoff" translate="label" type="text" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="1">
                 <label>Support Team</label>
                 <field id="enabled" translate="label" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
                     <label>Enable Human Handoff</label>
                     <config_path>afd_ai/support/enabled</config_path>
                     <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
                 </field>
                 <field id="recipient_email" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
                     <label>Support Queue Email</label>
                     <comment>Cases are always saved before email is attempted.</comment>
                     <config_path>afd_ai/support/recipient_email</config_path>
                     <validate>validate-email</validate>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                        <field id="enabled">1</field>
+                    </depends>
                 </field>
             </group>
-        </section>
 
-        <section id="afd_ai_privacy" translate="label" type="text" sortOrder="80" showInDefault="1" showInWebsite="1" showInStore="1">
-            <label>Privacy &amp; Retention</label>
-            <tab>afd</tab>
-            <resource>Afd_AI::config</resource>
-            <group id="general" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+            <group id="privacy_retention" translate="label" type="text" sortOrder="70" showInDefault="1" showInWebsite="1" showInStore="1">
                 <label>Data Retention</label>
                 <field id="conversation_retention_days" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
                     <label>Conversation Retention (Days)</label>
                     <comment>Allowed range: 1–730 days.</comment>
                     <config_path>afd_ai/privacy/conversation_retention_days</config_path>
                     <validate>validate-number validate-greater-than-zero</validate>
-                </field>
-                <field id="resolved_case_retention_days" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Resolved Case Retention (Days)</label>
-                    <comment>Allowed range: 1–2555 days.</comment>
-                    <config_path>afd_ai/privacy/resolved_case_retention_days</config_path>
-                    <validate>validate-number validate-greater-than-zero</validate>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
                 </field>
             </group>
-        </section>
 
-        <section id="afd_ai_integration" translate="label" type="text" sortOrder="90" showInDefault="1" showInWebsite="0" showInStore="0">
-            <label>Gateway Integration</label>
-            <tab>afd</tab>
-            <resource>Afd_AI::config</resource>
-            <group id="oauth" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0">
+            <group id="magento_oauth" translate="label" type="text" sortOrder="80" showInDefault="1" showInWebsite="0" showInStore="0">
                 <label>Magento OAuth</label>
                 <field id="consumer_key" translate="label" type="obscure" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0">
                     <label>Consumer Key</label>
                     <config_path>afd_ai/general/magento_consumer_key</config_path>
-                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
+                    <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
                 </field>
                 <field id="consumer_secret" translate="label" type="obscure" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0">
                     <label>Consumer Secret</label>
                     <config_path>afd_ai/general/magento_consumer_secret</config_path>
-                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
+                    <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
                 </field>
                 <field id="access_token" translate="label" type="obscure" sortOrder="30" showInDefault="1" showInWebsite="0" showInStore="0">
                     <label>Access Token</label>
                     <config_path>afd_ai/general/magento_access_token</config_path>
-                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
+                    <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
                 </field>
                 <field id="access_token_secret" translate="label" type="obscure" sortOrder="40" showInDefault="1" showInWebsite="0" showInStore="0">
                     <label>Access Token Secret</label>
                     <config_path>afd_ai/general/magento_access_token_secret</config_path>
-                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
+                    <backend_model>Afd\AI\Model\Config\Backend\VisibleValue</backend_model>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
                 </field>
             </group>
-            <group id="security" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0">
+
+            <group id="gateway_security" translate="label" type="text" sortOrder="90" showInDefault="1" showInWebsite="0" showInStore="0">
                 <label>Gateway Security &amp; Sync</label>
-                <field id="node_sync_secret" translate="label comment" type="obscure" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0">
+                <field id="node_sync_secret" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="0" showInStore="0">
                     <label>Node Service HMAC Secret</label>
-                    <comment>At least 32 characters and must match AI_NODE_SYNC_SECRET in the Node environment. It is never sent to Node.</comment>
+                    <comment>This value is read-only so an Admin configuration save cannot change it. Copy it to every Node gateway as AI_NODE_SYNC_SECRET. To retrieve both active Node credentials from the command line, run: bin/magento afd:ai:gateway:credentials</comment>
                     <config_path>afd_ai/general/node_sync_secret</config_path>
-                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
+                    <backend_model>Afd\AI\Model\Config\Backend\ProtectedGatewaySecret</backend_model>
+                    <frontend_model>Afd\AI\Block\Adminhtml\System\Config\GatewaySecret</frontend_model>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
                 </field>
-                <field id="ws_ticket_secret" translate="label comment" type="obscure" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0">
+                <field id="ws_ticket_secret" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0">
                     <label>WebSocket Ticket Secret</label>
-                    <comment>At least 32 characters and must match AI_WS_TICKET_SECRET on every gateway replica.</comment>
+                    <comment>This value is read-only so an Admin configuration save cannot change it. Copy it to every Node gateway as AI_WS_TICKET_SECRET. To retrieve both active Node credentials from the command line, run: bin/magento afd:ai:gateway:credentials</comment>
                     <config_path>afd_ai/general/ws_ticket_secret</config_path>
-                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
+                    <backend_model>Afd\AI\Model\Config\Backend\ProtectedGatewaySecret</backend_model>
+                    <frontend_model>Afd\AI\Block\Adminhtml\System\Config\GatewaySecret</frontend_model>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
                 </field>
                 <field id="node_sync_status" translate="label" type="note" sortOrder="30" showInDefault="1" showInWebsite="0" showInStore="0">
                     <label>Node Configuration Sync Status</label>
                     <config_path>afd_ai/general/node_sync_status</config_path>
                     <frontend_model>Afd\AI\Block\Adminhtml\System\Config\NodeSyncStatus</frontend_model>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
                 </field>
             </group>
         </section>

@@ -12,7 +12,8 @@ export async function acquireImageGenerationAdmission({
     runtime,
     identity,
     isCustomer,
-    config = {}
+    config = {},
+    chargeProviderImageQuota = true
 } = {}) {
     if (!runtime || !identity) {
         return { allowed: false, reason: 'image_identity_unavailable', retryAfterMs: 0 };
@@ -26,31 +27,33 @@ export async function acquireImageGenerationAdmission({
         ? readLimit(imageConfig.customer_per_day, 10, 1, 500)
         : readLimit(imageConfig.guest_per_day, 5, 1, 200);
     const cooldownSeconds = readLimit(imageConfig.cooldown_seconds, 60, 0, 3600);
-    const checks = [
-        runtime.consumeRateLimit(`${identity}:image:hour`, {
-            limit: hourlyLimit,
-            windowMs: 60 * 60 * 1000
-        }),
-        runtime.consumeRateLimit(`${identity}:image:day`, {
-            limit: dailyLimit,
-            windowMs: 24 * 60 * 60 * 1000
-        })
-    ];
-    if (cooldownSeconds > 0) {
-        checks.push(runtime.consumeRateLimit(`${identity}:image:cooldown`, {
-            limit: 1,
-            windowMs: cooldownSeconds * 1000
-        }));
-    }
+    if (chargeProviderImageQuota) {
+        const checks = [
+            runtime.consumeRateLimit(`${identity}:image:hour`, {
+                limit: hourlyLimit,
+                windowMs: 60 * 60 * 1000
+            }),
+            runtime.consumeRateLimit(`${identity}:image:day`, {
+                limit: dailyLimit,
+                windowMs: 24 * 60 * 60 * 1000
+            })
+        ];
+        if (cooldownSeconds > 0) {
+            checks.push(runtime.consumeRateLimit(`${identity}:image:cooldown`, {
+                limit: 1,
+                windowMs: cooldownSeconds * 1000
+            }));
+        }
 
-    const results = await Promise.all(checks);
-    const denied = results.filter((result) => !result.allowed);
-    if (denied.length > 0) {
-        return {
-            allowed: false,
-            reason: 'image_rate_limited',
-            retryAfterMs: Math.max(...denied.map((result) => Number(result.retryAfterMs) || 0))
-        };
+        const results = await Promise.all(checks);
+        const denied = results.filter((result) => !result.allowed);
+        if (denied.length > 0) {
+            return {
+                allowed: false,
+                reason: 'image_rate_limited',
+                retryAfterMs: Math.max(...denied.map((result) => Number(result.retryAfterMs) || 0))
+            };
+        }
     }
 
     const timeoutMs = readLimit(imageConfig.timeout_ms, 180000, 30000, 300000);

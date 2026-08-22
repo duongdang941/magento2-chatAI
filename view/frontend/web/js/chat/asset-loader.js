@@ -30,6 +30,24 @@
             script.async = true;
             script.addEventListener('load', () => {
                 script.dataset.loaded = 'true';
+                if (typeof window.require === 'function') {
+                    try {
+                        if (name === 'marked' && typeof window.marked === 'undefined') {
+                            window.require(['marked'], (m) => {
+                                window.marked = m?.marked || m?.default || m;
+                                resolve();
+                            }, () => resolve());
+                            return;
+                        }
+                        if (name === 'purify' && typeof window.DOMPurify === 'undefined') {
+                            window.require(['DOMPurify'], (p) => {
+                                window.DOMPurify = p?.default || p;
+                                resolve();
+                            }, () => resolve());
+                            return;
+                        }
+                    } catch (e) {}
+                }
                 resolve();
             }, { once: true });
             script.addEventListener('error', reject, { once: true });

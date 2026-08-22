@@ -62,12 +62,22 @@ const {
                         : (message.attachment && typeof message.attachment === 'object' ? [message.attachment] : []);
                     const attachments = attachmentCandidates
                         .map((attachment) => {
-                            const previewUrl = String(attachment.previewUrl || attachment.url || '');
-                            if (!previewUrl) return null;
+                            if (!attachment || typeof attachment !== 'object') return null;
+                            const type = String(attachment.type || attachment.mime_type || 'image/jpeg');
+                            const attachmentId = attachment.attachment_id || null;
+                            let previewUrl = String(attachment.previewUrl || attachment.url || '');
+                            if (attachmentId && (!previewUrl || previewUrl.startsWith('blob:'))) {
+                                previewUrl = `/afd_ai/chat/attachment?id=${encodeURIComponent(attachmentId)}`;
+                            }
+                            if ((!previewUrl || previewUrl.startsWith('blob:')) && (attachment.data || attachment.base64)) {
+                                previewUrl = `data:${type};base64,${attachment.data || attachment.base64}`;
+                            }
+                            if (!previewUrl || previewUrl.startsWith('blob:')) return null;
                             return {
                                 name: String(attachment.name || 'image'),
                                 size: Number(attachment.size) || 0,
-                                type: String(attachment.type || attachment.mime_type || ''),
+                                type,
+                                attachment_id: attachmentId,
                                 previewUrl
                             };
                         })
@@ -180,6 +190,22 @@ const {
 
                         if (part.type === 'order_address_form') {
                             return this.createOrderAddressFormPart(part);
+                        }
+
+                        if (part.type === 'reasoning') {
+                            return {
+                                id,
+                                type: 'reasoning',
+                                events: Array.isArray(part.events) ? part.events : [],
+                                steps: Array.isArray(part.steps) ? part.steps : [],
+                                activities: Array.isArray(part.activities) ? part.activities : [],
+                                // `isExpanded` is UI state, not stream data. A
+                                // stale serialized false value must not hide a
+                                // newly hydrated Thinking timeline; only the
+                                // explicit manual flag is authoritative.
+                                isManuallyCollapsed: part.isManuallyCollapsed === true,
+                                isExpanded: part.isManuallyCollapsed !== true
+                            };
                         }
 
                         const raw = sanitizeCustomerResponseText(part.raw || part.text || '');

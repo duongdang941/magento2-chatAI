@@ -4,45 +4,36 @@ import {
 } from '../conversation/message-parts.js';
 import { summarizeError } from '../gateway/error-summary.js';
 import { createSmoothChunkEmitter } from '../conversation/smooth-chunk-emitter.js';
+import { emitProductPresentation } from '../catalog/product-presentation.js';
 import {
-    createCatalogToolPresentation,
-    emitProductPresentation
-} from '../catalog/product-presentation.js';
-import {
-    MAX_CATALOG_TOOL_ROUNDS,
-    catalogCoverageInstruction
+    MAX_CATALOG_TOOL_ROUNDS
 } from '../catalog/catalog-agent-guidance.js';
-import {
-    createToolActivityId,
-    emitToolActivity
-} from './tool-activity.js';
 import { createCustomerTurnBuffer } from '../conversation/customer-turn-buffer.js';
 import { createResponseProgressPulse } from '../conversation/response-progress-pulse.js';
-import { createToolExecutionBudget, toolBudgetMessage } from './tool-execution-budget.js';
-import { buildCustomerAddressFormPayload, buildOrderAddressFormPayload } from '../customer/order-address-form.js';
 import {
     guestOrderAccessInstruction
 } from '../customer/guest-order-access-guidance.js';
-import {
-    responseLanguageInstruction
-} from '../conversation/response-language-guidance.js';
-import {
-    isResolvedCatalogIdentity,
-    isTerminalCatalogMiss,
-    resolvedCatalogIdentityBlock,
-    unavailableCatalogMessage
-} from '../catalog/catalog-tool-outcome.js';
 import { geminiToolDefinitions } from '../tools/tool-registry.js';
 import { buildAgentSystemInstruction } from './agent-system-guidance.js';
 import { pageContextInstruction } from '../catalog/page-context.js';
-import { executeRegisteredMagentoTool } from '../tools/magento-tool-executor.js';
-import { createCatalogQueryContinuity } from '../catalog/catalog-query-continuity.js';
+import {
+    buildFallbackMessage,
+    createProviderNeutralToolFlow
+} from './provider-neutral-tool-flow.js';
+import {
+    addProviderCitations,
+    createProviderResponseEnvelope,
+    finalizeProviderResponseEnvelope,
+    mergeProviderUsage
+} from './provider-response-envelope.js';
 
 // ==================== TOOLS DEFINITION ====================
 
 const tools = geminiToolDefinitions();
 
-const systemInstruction = buildAgentSystemInstruction();
+// Gemini now receives the same canonical tool surface as every
+// OpenAI-compatible adapter. Provider-specific capabilities still report a
+// clear unavailable result at execution time when needed.
 const PROVISIONAL_TEXT_HOLD_MS = 900;
 
 // ==================== ORCHESTRATOR ====================
@@ -57,11 +48,19 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         const apiKey = config.api_key || process.env.GEMINI_API_KEY;
         const modelName = config.model || "gemini-1.5-flash";
         const agentConfig = config.agent || {};
+        const systemInstruction = buildAgentSystemInstruction({
+            extendedTools: true,
+            productAdvisorEnabled: config.features?.product_advisor_enabled === true
+        });
         const maxToolRounds = Math.max(1, Math.min(Number(agentConfig.max_tool_rounds) || MAX_CATALOG_TOOL_ROUNDS, 12));
         const maxOutputTokens = Math.max(256, Math.min(Number(agentConfig.max_output_tokens) || 2048, 8192));
         const providerTimeoutMs = Math.max(10000, Math.min(Number(agentConfig.provider_stream_timeout_ms) || 120000, 300000));
-        const toolBudget = createToolExecutionBudget(agentConfig);
-        const catalogQueryContinuity = createCatalogQueryContinuity();
+        const providerResponse = createProviderResponseEnvelope({
+            provider: config.provider || 'gemini',
+            protocol: config.api_format || 'gemini-stream',
+            model: modelName
+        });
+        let finishReason = '';
 
         console.log(`[Gemini] Starting stream with model: ${modelName}`);
 
@@ -76,6 +75,22 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         const currentUserMessage = typeof userMessage === 'object' && userMessage !== null
             ? userMessage
             : { text: userMessage };
+        const toolFlow = createProviderNeutralToolFlow({
+            ws,
+            customerToken,
+            config,
+            options,
+            agentConfig,
+            currentUserMessage,
+            provider: config.provider || 'gemini',
+            providerConnection: {
+                baseUrl: config.base_url || process.env.GEMINI_ENDPOINT || 'https://generativelanguage.googleapis.com/v1beta',
+                apiKey,
+                model: config.grounding_model || process.env.GEMINI_MODEL_GROUNDING || modelName
+            },
+            signal,
+            isCancelled
+        });
         const genAI = new GoogleGenerativeAI(apiKey);
         const model = genAI.getGenerativeModel({
             model: modelName,
@@ -106,8 +121,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 currentUserMessage.text || currentUserMessage.content || ''
             )
         });
-        const preferredAddress = extractPreferredAddress(history);
-
         let isDone = false;
         let iteration = 0;
         let hasVisibleText = false;
@@ -115,8 +128,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         let lastToolOutcome = null;
         let toolErrorMessage = '';
         let pendingProductPresentation = null;
-        let terminalCatalogMessage = '';
-        let catalogIdentityResolved = false;
 
         while (!isDone && iteration < maxToolRounds) {
             if (isCancelled()) {
@@ -126,7 +137,20 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             iteration++;
             console.log(`[Gemini] Iteration ${iteration}, Turn: ${chatHistory[chatHistory.length - 1].role}`);
 
-            const request = { contents: chatHistory };
+            // Keep tool-selection policy provider-neutral. Gemini needs its
+            // own wire format, but the decision comes from the same shared
+            // catalogue policy as OpenAI-compatible providers.
+            const request = {
+                contents: chatHistory,
+                ...(toolFlow.shouldForceProductSearch() ? {
+                    toolConfig: {
+                        functionCallingConfig: {
+                            mode: 'ANY',
+                            allowedFunctionNames: ['searchProducts']
+                        }
+                    }
+                } : {})
+            };
             const result = await model.generateContentStream(request, {
                 ...(signal ? { signal } : {}),
                 timeout: providerTimeoutMs
@@ -134,38 +158,23 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
 
             let combinedParts = [];
             let functionCalls = [];
-            const customerTurn = createCustomerTurnBuffer();
+            const currentStepId = 'step-' + (iteration + 1) + '-' + Math.random().toString(36).slice(2, 7);
             const smoothEmitter = createSmoothChunkEmitter({
                 emit: content => ws.send(JSON.stringify({ type: 'chunk', content })),
                 isCancelled
             });
-            let releaseTimer = null;
-            let provisionalTextWasEmitted = false;
-            let customerTextStreamingEnabled = false;
-            const releaseCustomerText = () => {
-                const customerText = customerTurn.release();
-                if (!customerText) return;
-                provisionalTextWasEmitted = true;
-                smoothEmitter.push(customerText);
-            };
-            const scheduleCustomerTextRelease = () => {
-                if (releaseTimer !== null) return;
-                releaseTimer = setTimeout(() => {
-                    releaseTimer = null;
-                    customerTextStreamingEnabled = true;
-                    releaseCustomerText();
-                }, PROVISIONAL_TEXT_HOLD_MS);
-            };
-            const clearCustomerTextRelease = () => {
-                if (releaseTimer === null) return;
-                clearTimeout(releaseTimer);
-                releaseTimer = null;
-            };
-            const bufferCustomerText = (content) => {
-                customerTurn.push(content);
-                if (customerTextStreamingEnabled) releaseCustomerText();
-                else scheduleCustomerTextRelease();
-            };
+            const thinkingEmitter = createSmoothChunkEmitter({
+                emit: delta => ws.send(JSON.stringify({
+                    type: 'thinking_delta',
+                    step_id: currentStepId,
+                    delta
+                })),
+                isCancelled,
+                intervalMs: 18,
+                targetFrames: 6,
+                minChars: 1,
+                maxChars: 24
+            });
 
             for await (const chunk of result.stream) {
                 if (isCancelled()) {
@@ -173,16 +182,22 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 }
 
                 const parts = chunk.candidates?.[0]?.content?.parts;
+                mergeProviderUsage(providerResponse, chunk.usageMetadata);
+                finishReason = chunk.candidates?.[0]?.finishReason || finishReason;
+                addProviderCitations(providerResponse, chunk.candidates?.[0]?.groundingMetadata?.groundingChunks);
                 if (parts) {
                     for (const part of parts) {
-                        if (part.text) {
-                            // Gemini can emit prose before function calls in the
-                            // same turn. Buffer it until the complete turn proves
-                            // it is a customer response rather than tool narration.
-                            bufferCustomerText(part.text);
+                        if (part.thought === true || part.thought) {
+                            thinkingEmitter.push(part.text || '');
+                        } else if (part.text) {
+                            smoothEmitter.push(part.text);
+                            hasVisibleText = true;
                         }
 
-                        combinedParts.push(part);
+                        const normalizedPart = normalizeGeminiModelPart(part);
+                        if (normalizedPart) {
+                            combinedParts.push(normalizedPart);
+                        }
                     }
                 }
                 
@@ -192,6 +207,11 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                     if (calls) functionCalls.push(...calls);
                 } catch (e) {}
             }
+
+            // Keep the reasoning timeline ahead of the next tool/final frame.
+            // Provider thought parts can arrive as large bursts; the emitter
+            // above paints those bursts in small ordered deltas.
+            await thinkingEmitter.drain();
 
             if (combinedParts.length > 0) {
                 chatHistory.push({
@@ -204,291 +224,38 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 return { cancelled: true };
             }
 
-            // If AI called tools, we need to execute and continue
-            if (functionCalls.length > 0) {
-                clearCustomerTextRelease();
-                customerTurn.discard();
-                if (provisionalTextWasEmitted) {
-                    smoothEmitter.discard();
-                    ws.send(JSON.stringify({ type: 'discard_thinking_text' }));
-                }
-                const functionResponses = await Promise.all(
-                    functionCalls.map(async (fnCall) => {
-                        if (isCancelled()) {
-                            return null;
-                        }
-
-                        const name = fnCall.name;
-                        const args = catalogQueryContinuity.normalize(name, fnCall.args);
-                        if (catalogIdentityResolved && ['searchProducts', 'listCategories'].includes(name)) {
-                            const blocked = resolvedCatalogIdentityBlock();
-                            return {
-                                outcome: { name, query: String(args.query || ''), content: blocked },
-                                error: '',
-                                productPresentation: null,
-                                functionResponse: { name, response: { content: blocked } }
-                            };
-                        }
-                        const reservation = toolBudget.reserve(name, args);
-                        if (!reservation.allowed) {
-                            return {
-                                outcome: {
-                                    name,
-                                    query: String(args.query || ''),
-                                    content: {
-                                        status: 'blocked',
-                                        reason: reservation.reason,
-                                        message: toolBudgetMessage(reservation.reason)
-                                    }
-                                },
-                                error: '',
-                                productPresentation: null,
-                                functionResponse: {
-                                    name,
-                                    response: {
-                                        content: {
-                                            status: 'blocked',
-                                            reason: reservation.reason,
-                                            message: toolBudgetMessage(reservation.reason)
-                                        }
-                                    }
-                                }
-                            };
-                        }
-                        console.log(`[Gemini] AI Calling Tool: ${name}`, args);
-                        const activityId = createToolActivityId(fnCall.id, name);
-                        emitToolActivity(ws, {
-                            activityId,
-                            toolName: name,
-                            state: 'running'
-                        });
-                        const content = await executeRegisteredMagentoTool(name, args, {
-                            token: customerToken,
-                            magentoOauth: config.magento_oauth,
-                            runtime: options.runtime || null,
-                            sessionCookie: options.sessionCookie || '',
-                            requestBrowserCart: options.requestBrowserCart,
-                            customerId: options.customerId || null,
-                            guestOrderAccess: options.guestOrderAccess || null,
-                            conversationId: options.conversationId || null,
-                            catalogScope: options.catalogScope || null,
-                            shopperMessage: currentUserMessage.text || currentUserMessage.content || ''
-                        });
-                        if (requiresGuestOrderAccessForm(name, content)) {
-                            ws.send(JSON.stringify({
-                                type: 'guest_order_access_required',
-                                state: 'email'
-                            }));
-                        }
-                        if (options.requestOrderAddressForm === true) {
-                            const addressForm = buildOrderAddressFormPayload(name, content, {
-                                accessExpiresAt: options.guestOrderAccess?.expiresAt,
-                                customerId: options.customerId,
-                                sessionId: options.guestOrderAccess?.sessionId,
-                                conversationId: options.conversationId
-                            });
-                            if (addressForm) {
-                                ws.send(JSON.stringify(addressForm));
-                            }
-                        }
-                        const customerAddressForm = buildCustomerAddressFormPayload(name, content, {
-                            customerId: options.customerId,
-                            conversationId: options.conversationId,
-                            requestAddressForm: options.requestCustomerAddressForm === true
-                        });
-                        if (customerAddressForm) {
-                            ws.send(JSON.stringify(customerAddressForm));
-                        }
-                        const toolFailed = Boolean(content?.error) || String(content?.status || '').toLowerCase() === 'error';
-                        emitToolActivity(ws, {
-                            activityId,
-                            toolName: name,
-                            state: toolFailed ? 'failed' : 'completed',
-                            result: content
-                        });
-                        let catalogPresentation = null;
-                        let productPresentation = null;
-                        if (name === 'searchProducts') {
-                            const presentation = createCatalogToolPresentation(content, args);
-                            catalogPresentation = presentation.catalog;
-                            productPresentation = presentation.event;
-                        }
-                        
-                        // Prepare summary response for Gemini to avoid sending huge HTML strings
-                        let aiResponseData = content;
-                        if (name === 'searchProducts') {
-                            const { items, pagination, scope } = catalogPresentation;
-                            aiResponseData = content.error ? { error: content.error } : {
-                                query: String(args.query || ''),
-                                products_found: items.length,
-                                total_products: pagination.total,
-                                pagination,
-                                category: scope,
-                                products: items.map((item) => ({
-                                    id: item.id,
-                                    sku: item.sku,
-                                    name: item.name,
-                                    price: item.price,
-                                    in_stock: item.in_stock,
-                                    url: item.url,
-                                    direct_addable: item.direct_addable === true,
-                                    minimum_qty: item.minimum_qty,
-                                    maximum_qty: item.maximum_qty,
-                                    qty_increment: item.qty_increment,
-                                    default_add_qty: item.default_add_qty,
-                                    variant_options: item.variant_options
-                                })),
-                                response_language_instruction: responseLanguageInstruction(
-                                    args.responseLanguage,
-                                    args.responseLanguageEvidence,
-                                    currentUserMessage.text || currentUserMessage.content || '',
-                                    args.query
-                                ),
-                                instruction: scope.unavailable_query_match
-                                    ? 'A close catalogue identity exists but is disabled. Stop retrieval. Do not browse a similar-sounding category and do not substitute another product. State that no currently available exact match was found.'
-                                    : (items.length > 0
-                                        ? `Only mention products returned in this page. direct_addable is Magento-validated: state that a product can be added immediately only when it is true. A default_add_qty above 1 must be stated as the minimum directly addable quantity, with qty_increment when relevant. When this search used directAddOnly, every returned product meets that requirement. ${catalogCoverageInstruction(pagination)} Do not invent products from later pages.`
-                                        : 'No products matched this retrieval. Before concluding there is no match, inspect categories or retry a meaningfully different query/category when that can resolve the request.')
-                            };
-                        } else if (name === 'listCategories') {
-                            const categories = Array.isArray(content.data) ? content.data : [];
-                            aiResponseData = {
-                                categories: categories
-                                    .map((category) => ({
-                                        id: Number(category?.id || 0),
-                                        name: String(category?.name || ''),
-                                        url: String(category?.url || ''),
-                                        product_count: Number(category?.product_count || 0),
-                                        parent_id: Number(category?.parent_id || 0),
-                                        level: Number(category?.level || 0)
-                                    }))
-                                    .filter((category) => category.id > 0 && category.name)
-                                    .slice(0, 200),
-                                response_language_instruction: responseLanguageInstruction(
-                                    args.responseLanguage,
-                                    args.responseLanguageEvidence,
-                                    currentUserMessage.text || currentUserMessage.content || '',
-                                    args.query
-                                ),
-                                instruction: 'Only describe the exact returned Magento categories. A category count is not a list of products.'
-                            };
-                        } else if (name === 'getProductAvailability') {
-                            aiResponseData = Array.isArray(content.data) && content.data[0]
-                                ? content.data[0]
-                                : { error: content.error || 'Availability could not be checked.' };
-                        } else if ((name === 'addToCart' || name === 'removeFromCart') && !content?.error) {
-                            const cartLabel = content?.cart_type === 'request_quote'
-                                ? 'storefront Quote Cart (Anfrage-Zettel)'
-                                : 'normal storefront shopping cart';
-                            aiResponseData = {
-                                ...content,
-                                instruction: String(content?.status || '').toLowerCase() === 'success'
-                                    ? (name === 'removeFromCart'
-                                        ? `Confirm the exact product was removed from the ${cartLabel}. Do not claim the other cart changed.`
-                                        : `Confirm the exact product, quantity, and selected options were added to the ${cartLabel}. Do not claim the other cart changed or that a different variant was added.`)
-                                    : String(content?.reason || '').toLowerCase() === 'product_not_found_in_cart'
-                                        ? `State that the product was not present in the ${cartLabel}; do not claim anything was removed.`
-                                        : String(content?.reason || '').toLowerCase() === 'invalid_quantity'
-                                            ? 'The product does not need product-page configuration. Explain the returned minimum, maximum, and increment rules. Ask for a valid quantity; do not claim the cart changed.'
-                                        : 'This is a selection or product-page requirement, not an out-of-stock result. Do not say unavailable unless the returned reason is out_of_stock.'
-                            };
-                        } else if ((name === 'getCustomerAddresses' || name === 'updateCustomerAddress') && !content?.error) {
-                            const status = String(content?.status || '').toLowerCase();
-                            aiResponseData = {
-                                ...content,
-                                instruction: status === 'success'
-                                    ? (name === 'getCustomerAddresses'
-                                        ? (options.requestCustomerAddressForm === true
-                                            ? 'The secure account-address form is already shown. Briefly tell the signed-in shopper they can edit their default billing and shipping addresses there.'
-                                            : 'Summarize only the returned default billing and shipping addresses. The shopper asked to view them, so do not say that a form is open or invite form submission.')
-                                        : 'Confirm only the returned default billing or shipping account address was updated.')
-                                    : 'Explain that account addresses require sign-in or correct form values. Never expose or alter another customer’s address.'
-                            };
-                        } else if ([
-                            'getRecentOrders',
-                            'getGuestOrders',
-                            'getGuestOrderDetails',
-                            'getOrderDetails',
-                            'updateGuestOrderAddress',
-                            'updateOrderAddress'
-                        ].includes(name) && !content?.error) {
-                            const status = String(content?.status || '').toLowerCase();
-                            aiResponseData = {
-                                ...content,
-                                instruction: status === 'success'
-                                    ? (['updateOrderAddress', 'updateGuestOrderAddress'].includes(name)
-                                        ? 'Confirm only the returned order number and address type were updated. Do not claim shipping, taxes, payment, or another order changed.'
-                                        : 'Use only the returned order data. Do not expose another customer’s data or invent an order status.')
-                                    : 'Explain the returned account, ownership, shipment, or missing-address limitation concisely. Do not reveal internal authorization details or guess another order.'
-                            };
-                        }
-
-                        const outcome = {
-                            name,
-                            query: String(args.query || ''),
-                            responseLanguage: String(args.responseLanguage || args.response_language || ''),
-                            ...(name === 'searchProducts' ? {
-                                catalogRequest: {
-                                    exactIdentity: args.exactIdentity === true || args.exact_identity === true,
-                                    categoryId: Math.max(0, Math.trunc(Number(args.categoryId || args.category_id) || 0)),
-                                    minPrice: Number(args.minPrice || args.min_price) || 0,
-                                    maxPrice: Number(args.maxPrice || args.max_price) || 0,
-                                    directAddOnly: args.directAddOnly === true || args.direct_add_only === true
-                                }
-                            } : {}),
-                            content
-                        };
-                        if (typeof options.onToolOutcome === 'function') {
-                            options.onToolOutcome(outcome);
-                        }
-
-                        return {
-                            outcome: {
-                                ...outcome
-                            },
-                            error: toolFailed
-                                ? String(content?.error || content?.message || 'The storefront cart request failed.')
-                                : '',
-                            productPresentation,
-                            functionResponse: {
-                                name,
-                                response: { content: aiResponseData }
-                            }
-                        };
-                    })
-                );
+            // If AI did not call any tools, this is the final customer answer
+            if (functionCalls.length === 0) {
+                await smoothEmitter.drain();
+                break;
+            }
+                const functionResponses = await Promise.all(functionCalls.map(async (fnCall) => {
+                    if (isCancelled()) return null;
+                    const result = await toolFlow.execute({
+                        id: fnCall.id,
+                        name: fnCall.name,
+                        args: fnCall.args
+                    });
+                    return {
+                        ...result,
+                        functionResponse: createGeminiFunctionResponsePart(result.name, result.modelContext)
+                    };
+                }));
 
                 if (isCancelled()) {
                     return { cancelled: true };
                 }
 
                 const completedFunctionResponses = functionResponses.filter(Boolean);
-                // Promise completion order is not a presentation contract.
-                // Reconcile results in the original tool-call order returned
-                // by Promise.all, retaining only the last successful search.
-                completedFunctionResponses.forEach((result) => {
-                    catalogQueryContinuity.observe(
-                        result.outcome?.name,
-                        { query: result.outcome?.query },
-                        result.outcome?.content
-                    );
-                    lastToolOutcome = result.outcome;
-                    if (isResolvedCatalogIdentity(result.outcome)) {
-                        catalogIdentityResolved = true;
-                    }
-                    if (result.outcome?.name === 'searchProducts'
-                        && !catalogIdentityResolved
-                        && isTerminalCatalogMiss(result.outcome.content)) {
-                        terminalCatalogMessage = unavailableCatalogMessage(result.outcome);
-                        pendingProductPresentation = null;
-                        hasVisibleProducts = false;
-                    }
-                    if (result.productPresentation && !terminalCatalogMessage) {
-                        pendingProductPresentation = result.productPresentation;
-                        hasVisibleProducts = true;
-                    }
-                    if (result.error) toolErrorMessage = result.error;
-                });
+                // Gemini can run more than one function call in a turn. Their
+                // network completion order is not a storefront presentation
+                // contract, so restore the model's original call order before
+                // choosing the final card, terminal result, or fallback.
+                const toolState = toolFlow.reconcile(completedFunctionResponses);
+                lastToolOutcome = toolState.lastToolOutcome || lastToolOutcome;
+                hasVisibleProducts = toolState.hasVisibleProducts;
+                pendingProductPresentation = toolState.pendingProductPresentation;
+                toolErrorMessage = toolState.toolErrorMessage || toolErrorMessage;
 
                 // Append provider-compatible function responses to history.
                 chatHistory.push({
@@ -503,24 +270,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                     }));
                     break;
                 }
-
-                if (terminalCatalogMessage) {
-                    await emitFinalText(ws, terminalCatalogMessage, isCancelled);
-                    hasVisibleText = true;
-                    isDone = true;
-                }
-
-            } else {
-                clearCustomerTextRelease();
-                releaseCustomerText();
-                const finalCustomerText = customerTurn.commit();
-                if (finalCustomerText) {
-                    smoothEmitter.push(finalCustomerText);
-                }
-                if (provisionalTextWasEmitted || finalCustomerText) hasVisibleText = true;
-                await smoothEmitter.drain();
-                isDone = true;
-            }
         }
 
         if (!hasVisibleText) {
@@ -530,7 +279,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
 
             await emitFinalText(
                 ws,
-                buildFallbackMessage(lastToolOutcome, hasVisibleProducts, preferredAddress),
+                buildFallbackMessage(),
                 isCancelled
             );
         }
@@ -540,7 +289,10 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         }
 
         emitProductPresentation(ws, pendingProductPresentation);
-        ws.send(JSON.stringify({ type: 'done' }));
+        ws.send(JSON.stringify({
+            type: 'done',
+            provider_meta: finalizeProviderResponseEnvelope(providerResponse, finishReason || 'stop')
+        }));
         return { cancelled: false };
 
     } catch (error) {
@@ -556,6 +308,69 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
     }
 };
 
+/**
+ * Gemini function results must be a Part containing `functionResponse`.
+ *
+ * The model's call is already stored as a `functionCall` Part. Sending the
+ * response fields directly as a Part makes the next Gemini turn fail schema
+ * validation after Magento has finished a tool request.
+ */
+export function createGeminiFunctionResponsePart(name, content) {
+    return {
+        functionResponse: {
+            name: String(name || ''),
+            response: { content }
+        }
+    };
+}
+
+/**
+ * The Gemini SDK normally returns canonical Part objects, but some model
+ * responses include convenience fields alongside a functionCall (for example
+ * a top-level `name`). Sending those fields back in the next request makes the
+ * Gemini API reject the entire turn with "Unknown name ... at contents[..]".
+ * Keep only fields accepted by the Gemini Part schema before retaining the
+ * model turn in chat history.
+ */
+export function normalizeGeminiModelPart(part) {
+    if (!part || typeof part !== 'object') return null;
+
+    if (typeof part.text === 'string' && part.text) {
+        return {
+            text: part.text,
+            ...(typeof part.thoughtSignature === 'string' && part.thoughtSignature
+                ? { thoughtSignature: part.thoughtSignature }
+                : {})
+        };
+    }
+
+    const functionCall = part.functionCall || part.function_call;
+    if (functionCall && typeof functionCall === 'object' && String(functionCall.name || '').trim()) {
+        return {
+            functionCall: {
+                name: String(functionCall.name).trim(),
+                args: functionCall.args && typeof functionCall.args === 'object'
+                    ? functionCall.args
+                    : {}
+            },
+            ...(typeof part.thoughtSignature === 'string' && part.thoughtSignature
+                ? { thoughtSignature: part.thoughtSignature }
+                : {})
+        };
+    }
+
+    const inlineData = part.inlineData || part.inline_data;
+    if (inlineData && typeof inlineData === 'object') {
+        const mimeType = String(inlineData.mimeType || inlineData.mime_type || '').trim();
+        const data = String(inlineData.data || '').trim();
+        if (mimeType && data) {
+            return { inlineData: { mimeType, data } };
+        }
+    }
+
+    return null;
+}
+
 function formatGeminiError(error) {
     const message = String(error?.message || '');
     if (error?.status === 429 || /quota|too many requests|rate[- ]?limit/i.test(message)) {
@@ -567,11 +382,11 @@ function formatGeminiError(error) {
     }
 
     if (/invalid image|image data.*valid image|does not represent a valid image|corrupt image|malformed image/i.test(message)) {
-        return 'Ảnh không hợp lệ hoặc không đọc được. Hãy thử ảnh JPG, PNG hoặc WebP khác.';
+        return 'The uploaded image is invalid or could not be read. Please try a different JPG, PNG, or WebP image.';
     }
 
     if (/image|vision|multimodal|inline_data|unsupported.*image/i.test(message)) {
-        return 'Mô hình AI hiện tại chưa hỗ trợ ảnh. Hãy đổi sang model có vision hoặc kiểm tra lại provider.';
+        return 'The current AI model does not support images. Please switch to a vision-capable model or check your provider settings.';
     }
 
     return 'The AI service could not complete this response. Please try again.';
@@ -594,116 +409,3 @@ async function emitFinalText(ws, content, isCancelled) {
         }
     }
 }
-
-function requiresGuestOrderAccessForm(name, content) {
-    if (!['getGuestOrders', 'getGuestOrderDetails', 'updateGuestOrderAddress'].includes(name)) {
-        return false;
-    }
-
-    return ['guest_access_required', 'guest_reverification_required']
-        .includes(String(content?.reason || '').toLowerCase());
-}
-
-function buildFallbackMessage(lastToolOutcome, hasVisibleProducts, preferredAddress = '') {
-    let message;
-
-    if (hasVisibleProducts) {
-        const products = Array.isArray(lastToolOutcome?.content?.data) ? lastToolOutcome.content.data : [];
-        const count = products.length;
-        if (count > 0) {
-            const names = products
-                .slice(0, 2)
-                .map((item) => String(item?.name || '').trim())
-                .filter(Boolean);
-            const examples = names.length > 0 ? `, ví dụ ${names.join(' và ')}` : '';
-            message = `Mình tìm được ${count} sản phẩm phù hợp${examples}. Bạn có thể chọn một sản phẩm bên dưới hoặc nói thêm tiêu chí để mình lọc tiếp.`;
-            return applyPreferredAddress(message, preferredAddress);
-        }
-
-        message = 'Mình tìm được sản phẩm phù hợp. Bạn có thể chọn một sản phẩm bên dưới hoặc nói thêm tiêu chí để mình lọc tiếp.';
-        return applyPreferredAddress(message, preferredAddress);
-    }
-
-    if (lastToolOutcome?.name === 'searchProducts') {
-        const products = Array.isArray(lastToolOutcome.content?.data) ? lastToolOutcome.content.data : [];
-        if (products.length === 0) {
-            message = 'Mình chưa tìm thấy sản phẩm khớp chính xác với yêu cầu này. Bạn có thể cho mình thêm category, màu, size, brand hoặc mức giá để mình lọc chính xác hơn.';
-            return applyPreferredAddress(message, preferredAddress);
-        }
-    }
-
-    if (lastToolOutcome?.name === 'listCategories') {
-        const categories = Array.isArray(lastToolOutcome.content?.data) ? lastToolOutcome.content.data : [];
-        if (categories.length > 0) {
-            message = 'Mình đã lấy danh mục sản phẩm của cửa hàng. Bạn có thể nói rõ nhóm bạn muốn xem, ví dụ áo thun, quà tặng hoặc đồ mùa hè.';
-            return applyPreferredAddress(message, preferredAddress);
-        }
-    }
-
-    message = 'Mình đã xử lý yêu cầu nhưng chưa tạo được câu trả lời phù hợp. Bạn thử mô tả cụ thể hơn để mình tìm chính xác hơn nhé.';
-    return applyPreferredAddress(message, preferredAddress);
-}
-
-function extractPreferredAddress(history = []) {
-    if (!Array.isArray(history) || history.length === 0) return '';
-
-    const text = history
-        .map((message) => {
-            if (Array.isArray(message?.parts)) {
-                return message.parts.map((part) => part?.text || part?.raw || '').join('\n');
-            }
-            return String(message?.content || message?.text || '');
-        })
-        .join('\n')
-        .slice(-6000);
-
-    const normalized = normalizeVietnameseText(text);
-    const patterns = [
-        /\b(?:hay\s+)?goi\s+(?:toi|minh|tui|to|em|anh|chi|tao)\s+la\s+([a-z0-9 _-]{1,40})/i,
-        /\bcall\s+me\s+([a-z0-9 _-]{1,40})/i
-    ];
-
-    for (const pattern of patterns) {
-        const match = normalized.match(pattern);
-        if (!match?.[1]) continue;
-
-        const address = match[1]
-            .replace(/\b(duoc chu|duoc khong|duoc|khong|nhe|nha|please|ok|okay|from now on|tu gio)\b.*$/i, '')
-            .replace(/\s+/g, ' ')
-            .trim();
-
-        if (address) {
-            if (address === 'dai ca') return 'đại ca';
-            return address.slice(0, 40);
-        }
-    }
-
-    return '';
-}
-
-function applyPreferredAddress(message, preferredAddress = '') {
-    const address = String(preferredAddress || '').trim();
-    if (!address) return message;
-
-    const label = address.charAt(0).toUpperCase() + address.slice(1);
-    if (normalizeVietnameseText(message).startsWith(`${normalizeVietnameseText(address)},`)) {
-        return message;
-    }
-
-    return `${label}, ${message.charAt(0).toLowerCase()}${message.slice(1)}`;
-}
-
-function normalizeVietnameseText(value) {
-    return String(value || '')
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/đ/g, 'd')
-        .replace(/[^a-z0-9 _\-\n]+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-}
-
-/**
- * Calls Magento REST APIs
- */

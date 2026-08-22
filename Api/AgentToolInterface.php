@@ -14,6 +14,7 @@ interface AgentToolInterface
      * @param int|null $categoryId
      * @param float|null $minPrice
      * @param float|null $maxPrice
+     * @param string|null $priceCurrency ISO 4217 currency of explicit price constraints
      * @param bool|null $directAddOnly
      * @param bool|null $exactIdentity
      * @param string|null $excludedTerms JSON list of product-name terms explicitly rejected by the shopper
@@ -28,6 +29,7 @@ interface AgentToolInterface
         int $categoryId = 0,
         float $minPrice = 0.0,
         float $maxPrice = 0.0,
+        string $priceCurrency = '',
         bool $directAddOnly = false,
         bool $exactIdentity = false,
         string $excludedTerms = '',

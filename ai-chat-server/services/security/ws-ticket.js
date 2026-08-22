@@ -4,6 +4,7 @@ import { normalizePageContext } from '../catalog/page-context.js';
 
 const TOKEN_AUDIENCE = 'afd-ai-websocket';
 const MAX_CLOCK_SKEW_SECONDS = 15;
+const TENANT_ID_PATTERN = /^[a-f0-9]{64}$/i;
 
 function base64UrlDecode(value) {
     const normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
@@ -24,6 +25,11 @@ function validSignature(signature, expected) {
     const actual = Buffer.from(String(signature));
     const expectedBuffer = Buffer.from(expected);
     return actual.length === expectedBuffer.length && crypto.timingSafeEqual(actual, expectedBuffer);
+}
+
+function normalizeTenantId(value) {
+    const tenantId = String(value || '').trim().toLowerCase();
+    return TENANT_ID_PATTERN.test(tenantId) ? tenantId : '';
 }
 
 function decryptCheckoutSession(encryptedSession, secret) {
@@ -114,8 +120,20 @@ export function verifyWebSocketTicket(ticket, secret = process.env.AI_WS_TICKET_
     }
 
     const customerId = Number(claims.sub || 0);
-    const catalogScope = normalizeCatalogScope(claims.catalog_scope);
+    const rawTenantId = String(claims.tenant_id || '').trim();
+    if (rawTenantId !== '' && !TENANT_ID_PATTERN.test(rawTenantId)) {
+        throw new Error('WebSocket ticket tenant identity is invalid.');
+    }
+    const tenantId = normalizeTenantId(rawTenantId);
+    const catalogScope = normalizeCatalogScope({
+        ...(claims.catalog_scope && typeof claims.catalog_scope === 'object' ? claims.catalog_scope : {}),
+        ...(tenantId ? { tenant_id: tenantId } : {})
+    });
     const pageContext = normalizePageContext(claims.page_context);
+    const guestHistoryId = String(claims.gid || '').toLowerCase();
+    if (!customerId && !/^[a-f0-9]{64}$/.test(guestHistoryId)) {
+        throw new Error('WebSocket guest chat identity is invalid.');
+    }
     const checkoutSessionId = decryptCheckoutSession(claims.sct, secret);
     const checkoutSessionName = String(claims.scn || '').trim();
     if (!checkoutSessionId || !/^[A-Za-z0-9_-]{1,80}$/.test(checkoutSessionName)) {
@@ -125,11 +143,13 @@ export function verifyWebSocketTicket(ticket, secret = process.env.AI_WS_TICKET_
     return {
         customerId: Number.isInteger(customerId) && customerId > 0 ? customerId : null,
         sessionId: String(claims.sid),
+        guestHistoryId,
         sessionCookie: `${checkoutSessionName}=${encodeURIComponent(checkoutSessionId)}`,
         ticketId: String(claims.jti),
         expiresAt: Number(claims.exp) * 1000,
         role: 'customer',
         source: 'ticket',
+        ...(tenantId ? { tenantId } : {}),
         ...(catalogScope ? { catalogScope } : {}),
         ...(pageContext ? { pageContext } : {})
     };

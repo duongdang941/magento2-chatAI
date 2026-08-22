@@ -8,6 +8,7 @@ use Magento\Framework\App\RequestInterface;
 use Magento\Framework\Controller\ResultFactory;
 use Magento\Framework\Controller\Result\Json;
 use Afd\AI\Api\ConversationRepositoryInterface;
+use Afd\AI\Model\Conversation\ConversationStoreScope;
 use Magento\Framework\Api\SearchCriteriaBuilder;
 use Magento\Framework\Api\SortOrderBuilder;
 use Magento\Customer\Model\Session as CustomerSession;
@@ -24,6 +25,7 @@ class Conversations implements HttpGetActionInterface
     private $customerSession;
     private $logger;
     private $request;
+    private ConversationStoreScope $conversationStoreScope;
 
     public function __construct(
         ResultFactory $resultFactory,
@@ -32,7 +34,8 @@ class Conversations implements HttpGetActionInterface
         SortOrderBuilder $sortOrderBuilder,
         CustomerSession $customerSession,
         LoggerInterface $logger,
-        RequestInterface $request
+        RequestInterface $request,
+        ConversationStoreScope $conversationStoreScope
     ) {
         $this->resultFactory = $resultFactory;
         $this->conversationRepository = $conversationRepository;
@@ -41,6 +44,7 @@ class Conversations implements HttpGetActionInterface
         $this->customerSession = $customerSession;
         $this->logger = $logger;
         $this->request = $request;
+        $this->conversationStoreScope = $conversationStoreScope;
     }
 
     public function execute()
@@ -63,6 +67,7 @@ class Conversations implements HttpGetActionInterface
             }
 
             $page = max(1, (int)$this->request->getParam('page', 1));
+            $scope = $this->conversationStoreScope->current();
 
             $sortOrder = $this->sortOrderBuilder
                 ->setField('updated_at')
@@ -71,6 +76,9 @@ class Conversations implements HttpGetActionInterface
 
             $searchCriteria = $this->searchCriteriaBuilder
                 ->addFilter('customer_id', $customerId)
+                ->addFilter('store_id', $scope['store_id'])
+                ->addFilter('website_id', $scope['website_id'])
+                ->addFilter('is_archived', 0)
                 ->addSortOrder($sortOrder)
                 ->setPageSize(self::PAGE_SIZE)
                 ->setCurrentPage($page)

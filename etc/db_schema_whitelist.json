@@ -16,7 +16,25 @@
             "AFD_AI_CONV_CUSTOMER_UPDATED_AT": true,
             "AFD_AI_CONV_GUEST_UPDATED_AT": true,
             "AFD_AI_CONV_STORE_CUSTOMER_UPDATED_AT": true,
-            "AFD_AI_CONV_STORE_GUEST_UPDATED_AT": true
+            "AFD_AI_CONV_STORE_GUEST_UPDATED_AT": true,
+            "AFD_AI_CONVERSATION_CUSTOMER_ID_UPDATED_AT": true,
+            "AFD_AI_CONVERSATION_GUEST_ID_UPDATED_AT": true,
+            "AFD_AI_CONVERSATION_STORE_ID_CUSTOMER_ID_UPDATED_AT": true,
+            "AFD_AI_CONVERSATION_STORE_ID_GUEST_ID_UPDATED_AT": true
+        },
+        "constraint": {
+            "PRIMARY": true
+        }
+    },
+    "afd_ai_guest_identity": {
+        "column": {
+            "token_hash": true,
+            "created_at": true,
+            "last_seen_at": true
+        },
+        "index": {
+            "AFD_AI_GUEST_IDENTITY_LAST_SEEN": true,
+            "AFD_AI_GUEST_IDENTITY_LAST_SEEN_AT": true
         },
         "constraint": {
             "PRIMARY": true
@@ -40,11 +58,14 @@
             "AFD_AI_MESSAGE_SESSION_CREATED_AT": true,
             "AFD_AI_MESSAGE_CUSTOMER_ID": true,
             "AFD_AI_MESSAGE_CONVERSATION_ENTITY_ID": true,
-            "AFD_AI_MESSAGE_CONVERSATION_CREATED_AT": true
+            "AFD_AI_MESSAGE_CONVERSATION_CREATED_AT": true,
+            "AFD_AI_MESSAGE_SESSION_ID_CREATED_AT": true,
+            "AFD_AI_MESSAGE_CONVERSATION_ID_ENTITY_ID": true
         },
         "constraint": {
             "PRIMARY": true,
-            "AFD_AI_MSG_CONV_ID_AFD_AI_CONV_CONV_ID": true
+            "AFD_AI_MSG_CONV_ID_AFD_AI_CONV_CONV_ID": true,
+            "FK_160A1DB964E69F9F5D489E31EF138A75": true
         }
     },
     "afd_ai_support_case": {
@@ -86,14 +107,24 @@
             "AFD_AI_CASE_STATUS_UPDATED_AT": true,
             "AFD_AI_CASE_EMAIL_UPDATED_AT": true,
             "AFD_AI_CASE_ADMIN_UNREAD": true,
-            "AFD_AI_CASE_TAKEOVER_CONVERSATION": true
+            "AFD_AI_CASE_TAKEOVER_CONVERSATION": true,
+            "AFD_AI_SUPPORT_CASE_CUSTOMER_ID_CREATED_AT": true,
+            "AFD_AI_SUPPORT_CASE_GUEST_ID_CREATED_AT": true,
+            "AFD_AI_SUPPORT_CASE_STORE_ID_WEBSITE_ID_UPDATED_AT": true,
+            "AFD_AI_SUPPORT_CASE_STATUS_UPDATED_AT": true,
+            "AFD_AI_SUPPORT_CASE_CONTACT_EMAIL_HASH_UPDATED_AT": true,
+            "AFD_AI_SUPPORT_CASE_ADMIN_UNREAD_COUNT_UPDATED_AT": true,
+            "AFD_AI_SUPPORT_CASE_TAKEOVER_STATE_CONVERSATION_ID": true
         },
         "constraint": {
             "PRIMARY": true,
             "AFD_AI_SUPPORT_CASE_PUBLIC_ID": true,
             "AFD_AI_CASE_CONV_ID_AFD_AI_CONV_CONV_ID": true,
             "AFD_AI_CASE_SOURCE_CONV_ID_AFD_AI_CONV_CONV_ID": true,
-            "AFD_AI_CASE_MSG_ID_AFD_AI_MSG_ENTITY_ID": true
+            "AFD_AI_CASE_MSG_ID_AFD_AI_MSG_ENTITY_ID": true,
+            "FK_4F1563C98A5D90D97BAD75AB04D9BDE0": true,
+            "FK_FE0B4A9A1D11520F5B7EDEFC0D4E5117": true,
+            "AFD_AI_SUPPORT_CASE_MESSAGE_ID_AFD_AI_MESSAGE_ENTITY_ID": true
         }
     },
     "afd_ai_feedback": {
@@ -116,7 +147,128 @@
             "PRIMARY": true,
             "AFD_AI_FEEDBACK_MESSAGE_ID": true,
             "AFD_AI_FEEDBACK_CONV_ID_AFD_AI_CONV_CONV_ID": true,
-            "AFD_AI_FEEDBACK_MSG_ID_AFD_AI_MSG_ENTITY_ID": true
+            "AFD_AI_FEEDBACK_MSG_ID_AFD_AI_MSG_ENTITY_ID": true,
+            "FK_121A15C043BD9B8D43C25604E8253CBB": true,
+            "AFD_AI_FEEDBACK_MESSAGE_ID_AFD_AI_MESSAGE_ENTITY_ID": true
+        }
+    },
+    "afd_ai_generated_image_reference": {
+        "column": {
+            "message_id": true,
+            "filename": true,
+            "created_at": true
+        },
+        "index": {
+            "AFD_AI_GENERATED_IMAGE_REFERENCE_FILENAME": true
+        },
+        "constraint": {
+            "PRIMARY": true,
+            "FK_F69F00A2F08DBE3ABB1B7364F4DACA51": true
+        }
+    },
+    "afd_ai_guest_order_access": {
+        "column": {
+            "entity_id": true,
+            "email_hash": true,
+            "session_id": true,
+            "code_hash": true,
+            "access_token_hash": true,
+            "send_count": true,
+            "attempts": true,
+            "expires_at": true,
+            "verified_at": true,
+            "access_expires_at": true,
+            "created_at": true
+        },
+        "index": {
+            "AFD_AI_GUEST_ORDER_ACCESS_ACCESS_TOKEN_HASH": true
+        },
+        "constraint": {
+            "PRIMARY": true,
+            "AFD_AI_GUEST_ORDER_ACCESS_EMAIL_HASH_SESSION_ID": true
+        }
+    },
+    "afd_ai_knowledge_document": {
+        "column": {
+            "entity_id": true,
+            "title": true,
+            "identifier": true,
+            "content": true,
+            "source_url": true,
+            "language": true,
+            "status": true,
+            "store_id": true,
+            "website_id": true,
+            "customer_group_id": true,
+            "version": true,
+            "effective_at": true,
+            "expires_at": true,
+            "created_by": true,
+            "updated_by": true,
+            "created_at": true,
+            "updated_at": true
+        },
+        "index": {
+            "AFD_AI_KNOWLEDGE_DOCUMENT_STORE_ID_WEBSITE_ID_STATUS_UPDATED_AT": true,
+            "AFD_AI_KNOWLEDGE_DOCUMENT_IDENTIFIER_VERSION": true,
+            "AFD_AI_KNOWLEDGE_DOCUMENT_EFFECTIVE_AT_EXPIRES_AT": true
+        },
+        "constraint": {
+            "PRIMARY": true
+        }
+    },
+    "afd_ai_analytics_event": {
+        "column": {
+            "event_id": true,
+            "event_name": true,
+            "conversation_id": true,
+            "candidate_set_id": true,
+            "quote_id": true,
+            "order_increment_id": true,
+            "customer_id": true,
+            "guest_id": true,
+            "store_id": true,
+            "website_id": true,
+            "provider": true,
+            "model": true,
+            "payload_json": true,
+            "occurred_at": true,
+            "created_at": true
+        },
+        "index": {
+            "AFD_AI_ANALYTICS_EVENT_STORE_ID_EVENT_NAME_OCCURRED_AT": true,
+            "AFD_AI_ANALYTICS_EVENT_CONVERSATION_ID_OCCURRED_AT": true,
+            "AFD_AI_ANALYTICS_EVENT_CANDIDATE_SET_ID_OCCURRED_AT": true,
+            "AFD_AI_ANALYTICS_EVENT_QUOTE_ID_OCCURRED_AT": true,
+            "AFD_AI_ANALYTICS_EVENT_ORDER_INCREMENT_ID_OCCURRED_AT": true
+        },
+        "constraint": {
+            "PRIMARY": true
+        }
+    },
+    "afd_ai_guardrail_audit": {
+        "column": {
+            "audit_id": true,
+            "decision_id": true,
+            "conversation_id": true,
+            "tool_name": true,
+            "decision": true,
+            "reason": true,
+            "risk": true,
+            "provider": true,
+            "store_id": true,
+            "website_id": true,
+            "customer_id": true,
+            "guest_id": true,
+            "created_at": true
+        },
+        "index": {
+            "AFD_AI_GUARDRAIL_AUDIT_STORE_ID_CREATED_AT": true,
+            "AFD_AI_GUARDRAIL_AUDIT_CONVERSATION_ID_CREATED_AT": true
+        },
+        "constraint": {
+            "PRIMARY": true,
+            "AFD_AI_GUARDRAIL_AUDIT_DECISION_ID": true
         }
     }
 }

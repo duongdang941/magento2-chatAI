@@ -3,9 +3,10 @@
     <policies>
         <policy id="connect-src">
             <values>
-                <value id="afd_ai_websocket" type="host">ws://localhost:3001</value>
-                <value id="afd_ai_websocket_loopback" type="host">ws://127.0.0.1:3001</value>
-                <value id="afd_ai_websocket_store" type="host">ws://afd.test:3001</value>
+                <!-- Live Voice uses a short-lived credential and WebRTC
+                     signalling directly with OpenAI. The long-lived key is
+                     never available in the browser. -->
+                <value id="afd_ai_openai_realtime" type="host">api.openai.com</value>
             </values>
         </policy>
     </policies>

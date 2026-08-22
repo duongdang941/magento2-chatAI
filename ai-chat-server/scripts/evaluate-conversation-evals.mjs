@@ -9,10 +9,18 @@ import { conversationScenarios } from '../evals/conversation-scenarios.mjs';
 const options = parseArgs(process.argv.slice(2));
 const limit = clampNumber(options.limit, conversationScenarios.length, 1, conversationScenarios.length);
 const concurrency = clampNumber(options.concurrency || process.env.AI_EVAL_CONCURRENCY, 4, 1, 8);
-const storefrontUrl = String(process.env.AI_EVAL_STOREFRONT_URL || 'http://afd.test').replace(/\/+$/, '');
-const wsUrl = String(process.env.AI_EVAL_WS_URL || 'ws://127.0.0.1:3001').replace(/\/+$/, '');
+const storefrontUrl = requiredUrl('AI_EVAL_STOREFRONT_URL', /^https?:\/\//i);
+const wsUrl = requiredUrl('AI_EVAL_WS_URL', /^wss?:\/\//i);
 const reportDirectory = resolve(process.cwd(), 'evals/reports');
 const scenarios = conversationScenarios.slice(0, limit);
+
+function requiredUrl(name, pattern) {
+    const value = String(process.env[name] || '').trim().replace(/\/+$/, '');
+    if (!pattern.test(value)) {
+        throw new Error(`${name} must be supplied by the target environment.`);
+    }
+    return value;
+}
 
 console.log(`Running ${scenarios.length} conversation scenarios with concurrency ${concurrency}.`);
 const results = await runWithConcurrency(scenarios, concurrency, runScenario);
@@ -119,6 +127,9 @@ async function runTurn(socket, text, history, requestId) {
                 return;
             }
             if (event.type === 'status') statuses.push(String(event.content || ''));
+            if (event.type === 'tool_activity' && event.state === 'running') {
+                statuses.push(toolActivityStatus(event.tool));
+            }
             if (event.type === 'chunk') responseText += String(event.content || '');
             if (event.type === 'products_html' && Array.isArray(event.products?.items)) {
                 products.push(...event.products.items);
@@ -143,6 +154,18 @@ async function runTurn(socket, text, history, requestId) {
 
     await finished;
     return { text: responseText.trim(), statuses, products };
+}
+
+function toolActivityStatus(toolName) {
+    switch (String(toolName || '')) {
+        case 'searchProducts':
+        case 'listCategories':
+            return 'Searching products';
+        case 'getProductAvailability':
+            return 'Checking live availability';
+        default:
+            return `Using ${String(toolName || 'store tool')}`;
+    }
 }
 
 function evaluateTurn(turn, response) {

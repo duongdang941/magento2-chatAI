@@ -9,6 +9,7 @@ use Magento\Directory\Model\AllowedCountries;
 use Magento\Directory\Model\Country;
 use Magento\Directory\Model\CountryFactory;
 use Magento\Directory\Model\RegionFactory;
+use Magento\Framework\Exception\LocalizedException;
 use Magento\Sales\Model\Order;
 use Magento\Store\Api\Data\StoreInterface;
 use Magento\Store\Model\StoreManagerInterface;
@@ -48,6 +49,8 @@ class OrderAddressUpdaterTest extends TestCase
         $metadata->method('isRegionRequired')->willReturn(false);
 
         $address = new FakeOrderAddress();
+        $address->data['city'] = 'Berlin';
+        $address->data['postcode'] = '10115';
         $this->createUpdater($metadata)->apply($address, $changes, 1);
 
         self::assertSame('Max Mustermann', $address->data['firstname']);
@@ -55,6 +58,33 @@ class OrderAddressUpdaterTest extends TestCase
         self::assertSame('Berlin', $address->data['city']);
         self::assertSame('DE', $address->data['country_id']);
         self::assertSame('030 123', $address->data['telephone']);
+    }
+
+    public function testApplyRejectsDestinationChangesThatWouldRequireTotalRecalculation(): void
+    {
+        $metadata = $this->getMockBuilder(OrderAddressFormMetadata::class)
+            ->disableOriginalConstructor()
+            ->onlyMethods(['filterEditableChanges', 'requiredCodes', 'isZipRequired', 'isRegionRequired'])
+            ->getMock();
+        $changes = [
+            'street' => ['New street 9'],
+            'city' => 'Hamburg',
+            'postcode' => '10115',
+            'country_id' => 'DE',
+        ];
+        $metadata->method('filterEditableChanges')->willReturn($changes);
+        $metadata->method('requiredCodes')->willReturn([]);
+        $metadata->method('isZipRequired')->willReturn(true);
+        $metadata->method('isRegionRequired')->willReturn(false);
+
+        $address = new FakeOrderAddress();
+        $address->data['city'] = 'Berlin';
+        $address->data['postcode'] = '10115';
+
+        $this->expectException(LocalizedException::class);
+        $this->expectExceptionMessage('may change tax or shipping charges');
+
+        $this->createUpdater($metadata)->apply($address, $changes, 1);
     }
 
     private function createUpdater(?OrderAddressFormMetadata $metadata = null): OrderAddressUpdater

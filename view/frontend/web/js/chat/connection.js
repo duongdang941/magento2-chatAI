@@ -22,12 +22,19 @@ const {
 
         return {
             initChat() {
+                this.initVoiceDictation?.();
+                this.initLiveVoice?.();
                 this.restoreUiSettings();
                 this.applyUiSettings();
                 this.restoreLauncherPosition();
                 this.restoreChatWindowLayout();
                 this.imageGenerationTimer = window.setInterval(() => {
                     if (this.isLoading) this.imageGenerationNow = Date.now();
+                }, 1000);
+                // Codex refreshes running timers once per second; the tick
+                // only mutates reactive state while a turn is in flight.
+                this.streamClockTimer = window.setInterval(() => {
+                    if (this.isLoading) this.streamNow = Date.now();
                 }, 1000);
                 window.addEventListener('resize', () => {
                     this.clampLauncherPosition();
@@ -48,6 +55,8 @@ const {
                         this.$nextTick(() => this.syncSupportTyping());
                     } else {
                         this.stopSupportTyping();
+                        if (this.voiceState === 'recording') this.cancelVoiceDictation();
+                        if (this.liveVoiceState !== 'idle') this.endLiveVoice?.();
                     }
                     this.syncPetAnimation();
                 });
@@ -124,6 +133,16 @@ const {
                         this.socket.onopen = () => {
                             this.wsConnected = true;
                             this.wsHasEverConnected = true;
+                            // A slow first TLS/WebSocket handshake can trip
+                            // the history watchdog before auth arrives. Once
+                            // the socket is healthy, remove only notices that
+                            // describe the now-recovered transport. Keeping a
+                            // stale gateway error alongside an Online status
+                            // makes the chat appear broken even though it can
+                            // already accept the next customer message.
+                            this.clearTransportNotice('history-load-timeout');
+                            this.clearTransportNotice('socket-auth-failed');
+                            this.clearTransportNotice('secure-gateway-unavailable');
                         };
                         this.socket.onmessage = (event) => { try { this.handleWsMessage(JSON.parse(event.data)); } catch(e) {} };
                         this.socket.onclose = () => {
@@ -226,7 +245,37 @@ const {
             },
 
             handleWsMessage(data) {
+                if (data.type === 'voice_transcript') {
+                    this.receiveVoiceTranscript(data);
+                    return;
+                }
+                if (data.type === 'voice_error') {
+                    this.receiveVoiceError(data);
+                    return;
+                }
+                if (data.type === 'live_voice_session') {
+                    this.connectLiveVoiceSession(data);
+                    return;
+                }
+                if (data.type === 'live_voice_error') {
+                    this.receiveLiveVoiceError(data);
+                    return;
+                }
+                if (data.type === 'live_voice_tool_result') {
+                    this.receiveLiveVoiceToolResult(data);
+                    return;
+                }
+                if (data.type === 'live_voice_saved') {
+                    this.receiveLiveVoiceSaved(data);
+                    return;
+                }
+                if (data.type === 'live_voice_save_error') {
+                    this.receiveLiveVoiceSaveError(data);
+                    return;
+                }
                 if (data.type === 'auth') {
+                    this.clearTransportNotice('history-load-timeout');
+                    this.clearTransportNotice('socket-auth-failed');
                     this.isLoggedIn = data.isLoggedIn;
                     this.hasConversationHistory = data.historyAvailable === true;
                     this.chatSyncScope = String(data.historyScope || '');
@@ -239,6 +288,8 @@ const {
                     return;
                 }
                 if (data.type === 'conversations') {
+                    this.clearTransportNotice('history-load-timeout');
+                    this.clearTransportNotice('conversation-load-failed');
                     this.applyConversationPage(data);
                     return;
                 }
@@ -335,7 +386,13 @@ const {
                     return;
                 }
                 if (data.type === 'conversation_messages') {
+                    console.log('[AFD-AI-CHAT] WS received conversation_messages:', data);
+                    if (data.status === 'success') {
+                        this.clearTransportNotice('history-load-timeout');
+                        this.clearTransportNotice('history-load-failed');
+                    }
                     if (!this.isCurrentConversationResponse(data)) {
+                        console.warn('[AFD-AI-CHAT] Ignored conversation_messages not matching current load token/id:', { data, activeId: this.activeConversationId, token: this.activeHistoryLoadToken });
                         if (data.append === true) {
                             this.isLoadingOlderMessages = false;
                             this.historyScrollHeightBeforeLoad = 0;
@@ -432,8 +489,11 @@ const {
             },
 
             guestSessionSnapshotStorageKey() {
-                if (this.isLoggedIn || !this.chatSyncScope) return '';
-                return 'afd-ai-chat-guest-session-v1:' + this.chatSyncScope;
+                if (this.isLoggedIn) return '';
+                // The Magento guest session fingerprint can rotate on reload (especially after HTTP-to-HTTPS changes).
+                // Scope the browser fallback to the site origin so the current guest chat remains restorable.
+                const origin = String(window.location?.origin || 'default-origin');
+                return 'afd-ai-chat-guest-session-v2:' + origin;
             },
 
             scheduleGuestSessionSnapshot(delay = 80) {
@@ -490,8 +550,21 @@ const {
                 if (!key) return false;
 
                 try {
-                    const snapshot = JSON.parse(sessionStorage.getItem(key) || 'null');
-                    if (!snapshot || snapshot.version !== 1 || !Array.isArray(snapshot.messages)) {
+                    const snapshotKeys = [key];
+                    if (this.chatSyncScope) {
+                        snapshotKeys.push('afd-ai-chat-guest-session-v1:' + this.chatSyncScope);
+                    }
+                    let snapshot = null;
+                    for (const snapshotKey of snapshotKeys) {
+                        try {
+                            const candidate = JSON.parse(sessionStorage.getItem(snapshotKey) || 'null');
+                            if (candidate?.version === 1 && Array.isArray(candidate.messages)) {
+                                snapshot = candidate;
+                                break;
+                            }
+                        } catch (error) {}
+                    }
+                    if (!snapshot) {
                         return false;
                     }
                     if (!this.applyCrossTabMessageSnapshot(snapshot.messages, snapshot.conversationId)) {
@@ -561,6 +634,9 @@ const {
                     source: message.source === 'support_agent' ? 'support_agent' : '',
                     senderLabel: String(message.senderLabel || '').slice(0, 80),
                     content: String(message.content || ''),
+                    ...(message.provider_meta && typeof message.provider_meta === 'object' ? {
+                        provider_meta: this.serializeCrossTabPayload(message.provider_meta)
+                    } : {}),
                     feedbackEnabled: message.feedbackEnabled === true,
                     feedback: ['positive', 'negative'].includes(String(message.feedback || ''))
                         ? String(message.feedback)
@@ -570,12 +646,21 @@ const {
                     feedbackDetailsSaved: message.feedbackDetailsSaved === true,
                     interrupted: message.interrupted === true,
                     stoppedAfterSeconds: Math.max(0, Number(message.stoppedAfterSeconds) || 0),
-                    attachments: Array.isArray(message.attachments) ? message.attachments.map((attachment) => ({
-                        name: String(attachment.name || 'image'),
-                        size: Number(attachment.size) || 0,
-                        type: String(attachment.type || ''),
-                        previewUrl: String(attachment.previewUrl || '')
-                    })) : [],
+                    attachments: Array.isArray(message.attachments) ? message.attachments.map((attachment) => {
+                        const attachmentId = attachment.attachment_id || null;
+                        const permanentUrl = attachmentId ? `/afd_ai/chat/attachment?id=${encodeURIComponent(attachmentId)}` : '';
+                        let previewUrl = String(attachment.previewUrl || attachment.url || '');
+                        if (previewUrl.startsWith('blob:')) {
+                            previewUrl = permanentUrl;
+                        }
+                        return {
+                            name: String(attachment.name || 'image'),
+                            size: Number(attachment.size) || 0,
+                            type: String(attachment.type || ''),
+                            attachment_id: attachmentId,
+                            previewUrl: previewUrl || permanentUrl
+                        };
+                    }) : [],
                     parts: Array.isArray(message.parts) ? message.parts.map((part) => ({
                         type: part.type,
                         raw: String(part.raw || ''),
@@ -586,6 +671,12 @@ const {
                         // product follow-up questions after a tab sync.
                         payload: this.serializeCrossTabPayload(part.payload),
                         html: part.type === 'products' ? String(part.html || '') : '',
+                        ...(part.type === 'reasoning' ? {
+                            events: this.serializeCrossTabPayload(part.events) || [],
+                            steps: this.serializeCrossTabPayload(part.steps) || [],
+                            activities: this.serializeCrossTabPayload(part.activities) || [],
+                            elapsedMs: Math.max(0, Number(part.elapsedMs) || 0)
+                        } : {}),
                         ...(part.type === 'image' ? {
                             imageId: String(part.imageId || ''),
                             status: String(part.status || 'complete'),
@@ -633,6 +724,12 @@ const {
 
             applyCrossTabMessageSnapshot(messages, conversationId) {
                 if (!Array.isArray(messages) || messages.length === 0) return false;
+                // A cross-tab snapshot is a completed-content synchronization
+                // mechanism. It is never allowed to replace the assistant
+                // turn that this tab is currently streaming; doing so drops
+                // the live Thinking steps and action timeline until the next
+                // turn.
+                if (this.activeRequestId && (this.isLoading || this.currentAiMessageIndex >= 0)) return true;
                 // A browser snapshot is useful for message content only. It is
                 // never an authority for guest-order access: an old snapshot
                 // can outlive a gateway restart or an expired OTP token.
@@ -658,6 +755,9 @@ const {
                         content: role === 'user'
                             ? String(message.content || '')
                             : sanitizeCustomerResponseText(message.content || ''),
+                        ...(message.provider_meta && typeof message.provider_meta === 'object' ? {
+                            provider_meta: this.serializeCrossTabPayload(message.provider_meta)
+                        } : {}),
                         feedbackEnabled: role === 'assistant'
                             && source !== 'support_agent'
                             && entityId !== null
@@ -675,10 +775,24 @@ const {
                             0,
                             Number(message.stoppedAfterSeconds ?? message.stopped_after_seconds) || 0
                         ),
+                        workedForMs: Math.max(0, Number(message.workedForMs) || 0),
                         attachments: Array.isArray(message.attachments) ? message.attachments : [],
                         parts: Array.isArray(message.parts) ? message.parts.map((part) => (
                             part.type === 'products'
                                 ? { id: Date.now() + Math.random(), type: 'products', payload: part.payload || null, html: hydrateProductGridHtml(part.html || '') }
+                                : part.type === 'reasoning'
+                                    ? {
+                                        id: Date.now() + Math.random(),
+                                        type: 'reasoning',
+                                        events: Array.isArray(part.events) ? part.events : [],
+                                        steps: Array.isArray(part.steps) ? part.steps : [],
+                                        activities: Array.isArray(part.activities) ? part.activities : [],
+                                        ...(Number(part.elapsedMs) > 0 ? { elapsedMs: Number(part.elapsedMs) } : {}),
+                                        isManuallyCollapsed: false,
+                                        // Codex folds completed reasoning sections;
+                                        // the header stays available for expansion.
+                                        isExpanded: false
+                                    }
                                 : part.type === 'image' && /^(?:https?:\/\/|\/media\/)/i.test(String(part.url || ''))
                                     ? {
                                         id: Date.now() + Math.random(),

@@ -6,6 +6,8 @@
 const { config, urls } = context;
 const {
     sanitizeHtml,
+    escapeHtml,
+    sanitizeCustomerResponseText,
     sanitizeStreamingHtml,
     hydrateProductGridHtml,
     getBrowserFormKey,
@@ -17,8 +19,17 @@ const {
     IMAGE_UPLOAD_MAX_BYTES,
     IMAGE_UPLOAD_MAX_COUNT,
     IMAGE_UPLOAD_TYPES,
+    MAX_WEBSOCKET_PAYLOAD_BYTES,
     MAX_MODEL_HISTORY_MESSAGES
 } = context.helpers;
+
+        const utf8ByteLength = value => {
+            const source = String(value || '');
+            if (typeof TextEncoder === 'function') {
+                return new TextEncoder().encode(source).byteLength;
+            }
+            return unescape(encodeURIComponent(source)).length;
+        };
 
         /**
          * A catalogue page is rendered by Magento as a complete grid.  The
@@ -192,9 +203,11 @@ const {
                 // older pending form. Otherwise the later turn is invisible
                 // until a history reload reconstructs it from storage.
                 const part = this.createGuestOrderAccessPart(data);
-                const text = String(data.content || (part.purpose === 'support'
-                    ? 'Verify your email before starting human support.'
-                    : 'To protect your order information, first verify the email used at checkout.'));
+                const text = Object.prototype.hasOwnProperty.call(data, 'content')
+                    ? String(data.content || '')
+                    : (part.purpose === 'support'
+                        ? 'Verify your email before starting human support.'
+                        : 'To protect your order information, first verify the email used at checkout.');
                 let message = this.currentAiMessageIndex >= 0
                     ? this.messages[this.currentAiMessageIndex]
                     : null;
@@ -202,6 +215,7 @@ const {
                 if (!message || message.role !== 'assistant' || !Array.isArray(message.parts)) {
                     message = {
                         role: 'assistant',
+                        request_id: data.request_id || this.activeRequestId || '',
                         feedbackEnabled: false,
                         feedbackBusy: false,
                         parts: []
@@ -435,436 +449,7 @@ const {
                 this.switchConversation(conversationId, true);
             },
 
-            normalizeOrderAddressFormValue(source = {}) {
-                const value = source && typeof source === 'object' ? source : {};
-                const street = Array.isArray(value.street)
-                    ? value.street
-                    : String(value.street || '').split(/\r?\n/);
-                return {
-                    prefix: String(value.prefix || ''),
-                    firstname: String(value.firstname || ''),
-                    middlename: String(value.middlename || ''),
-                    lastname: String(value.lastname || ''),
-                    suffix: String(value.suffix || ''),
-                    company: String(value.company || ''),
-                    street: [0, 1, 2, 3].map(index => String(street[index] || '')),
-                    city: String(value.city || ''),
-                    region: String(value.region || ''),
-                    region_id: Math.max(0, Number(value.region_id || value.regionId) || 0),
-                    postcode: String(value.postcode || ''),
-                    country_id: String(value.country_id || value.countryId || '').trim().toUpperCase(),
-                    telephone: String(value.telephone || ''),
-                    fax: String(value.fax || ''),
-                    vat_id: String(value.vat_id || value.vatId || ''),
-                    email: String(value.email || '')
-                };
-            },
-
-            normalizeOrderAddressFormFields(fields = []) {
-                const supported = new Set([
-                    'prefix', 'firstname', 'middlename', 'lastname', 'suffix', 'company',
-                    'street', 'city', 'region', 'postcode', 'country_id', 'telephone', 'fax', 'vat_id'
-                ]);
-                const normalized = Array.isArray(fields)
-                    ? fields.reduce((result, field) => {
-                        const code = String(field?.code || '').trim();
-                        if (!supported.has(code) || result.some(item => item.code === code)) return result;
-                        result.push({
-                            code,
-                            label: String(field?.label || code).slice(0, 120),
-                            required: field?.required === true,
-                            lineCount: code === 'street'
-                                ? Math.max(1, Math.min(Number(field?.line_count) || 1, 4))
-                                : 1
-                        });
-                        return result;
-                    }, [])
-                    : [];
-
-                return normalized;
-            },
-
-            normalizeOrderAddressCountries(countries = []) {
-                return Array.isArray(countries)
-                    ? countries.reduce((result, country) => {
-                        const value = String(country?.value || '').trim().toUpperCase();
-                        if (!/^[A-Z]{2}$/.test(value) || result.some(item => item.value === value)) return result;
-                        result.push({
-                            value,
-                            label: String(country?.label || value).slice(0, 120),
-                            isRegionRequired: country?.is_region_required === true,
-                            isZipRequired: country?.is_zip_required !== false
-                        });
-                        return result;
-                    }, [])
-                    : [];
-            },
-
-            normalizeOrderAddressRegions(regions = {}) {
-                if (!regions || typeof regions !== 'object' || Array.isArray(regions)) return {};
-                return Object.entries(regions).reduce((result, [countryId, source]) => {
-                    const country = String(countryId || '').trim().toUpperCase();
-                    if (!/^[A-Z]{2}$/.test(country) || !Array.isArray(source)) return result;
-                    const entries = source.reduce((items, region) => {
-                        const id = Math.max(0, Number(region?.id) || 0);
-                        const name = String(region?.name || '').trim().slice(0, 120);
-                        if (id < 1 || !name || items.some(item => item.id === id)) return items;
-                        items.push({
-                            id,
-                            code: String(region?.code || '').trim().slice(0, 32),
-                            name
-                        });
-                        return items;
-                    }, []);
-                    if (entries.length) result[country] = entries;
-                    return result;
-                }, {});
-            },
-
-            orderAddressField(part, code) {
-                return Array.isArray(part?.fields)
-                    ? part.fields.find(field => field?.code === code) || null
-                    : null;
-            },
-
-            orderAddressFieldVisible(part, code) {
-                return Boolean(this.orderAddressField(part, code));
-            },
-
-            orderAddressFieldRequired(part, code) {
-                if (this.orderAddressField(part, code)?.required === true) return true;
-                const country = this.orderAddressCountry(part);
-                if (code === 'postcode') return country?.isZipRequired === true;
-                if (code === 'region') return country?.isRegionRequired === true;
-                return false;
-            },
-
-            orderAddressFieldLabel(part, code, fallback) {
-                const label = String(this.orderAddressField(part, code)?.label || fallback);
-                return this.orderAddressFieldRequired(part, code) ? `${label} *` : label;
-            },
-
-            orderAddressStreetLineVisible(part, line) {
-                const field = this.orderAddressField(part, 'street');
-                return Boolean(field) && Number(field.lineCount || 1) >= line;
-            },
-
-            orderAddressCountry(part) {
-                const countryId = String(part?.address?.country_id || '').trim().toUpperCase();
-                return Array.isArray(part?.countries)
-                    ? part.countries.find(country => country?.value === countryId) || null
-                    : null;
-            },
-
-            orderAddressCountryRegions(part) {
-                const countryId = String(part?.address?.country_id || '').trim().toUpperCase();
-                const regions = part?.regions && typeof part.regions === 'object' ? part.regions : {};
-                return Array.isArray(regions[countryId]) ? regions[countryId] : [];
-            },
-
-            changeOrderAddressCountry(part) {
-                if (!part?.address) return;
-                part.address.country_id = String(part.address.country_id || '').trim().toUpperCase();
-                part.address.region_id = 0;
-                part.address.region = '';
-                part.notice = '';
-                part.noticeVariant = 'neutral';
-            },
-
-            ensureOrderAddressCountrySelection(part) {
-                if (!part || part.status === 'expired' || !part.addresses || typeof part.addresses !== 'object') return;
-                const countries = Array.isArray(part.countries) ? part.countries : [];
-                if (countries.length === 0) return;
-                const allowedCountries = new Set(countries.map(country => country.value));
-
-                ['billing', 'shipping'].forEach((type) => {
-                    const address = part.addresses[type];
-                    if (!address || typeof address !== 'object') return;
-
-                    const currentCountry = String(address.country_id || '').trim().toUpperCase();
-                    if (allowedCountries.has(currentCountry)) {
-                        address.country_id = currentCountry;
-                    } else if (countries.length === 1) {
-                        // A store restricted to one allowed country should act
-                        // like Magento Checkout: old address snapshots without
-                        // country_id resolve to that sole valid option.
-                        address.country_id = countries[0].value;
-                    }
-                });
-
-                const activeAddress = part.addresses[part.addressType];
-                if (activeAddress) {
-                    part.address = this.normalizeOrderAddressFormValue(activeAddress);
-                }
-            },
-
-            expireOrderAddressForm(part) {
-                if (!part) return;
-                if (part.expiryTimer) {
-                    window.clearInterval(part.expiryTimer);
-                    part.expiryTimer = null;
-                }
-                const emptyAddress = this.normalizeOrderAddressFormValue({});
-                (Array.isArray(part.addressTypes) ? part.addressTypes : []).forEach((type) => {
-                    if (type === 'billing' || type === 'shipping') {
-                        part.addresses[type] = this.normalizeOrderAddressFormValue(emptyAddress);
-                    }
-                });
-                part.address = this.normalizeOrderAddressFormValue(emptyAddress);
-                part.actionToken = '';
-                part.status = 'expired';
-                part.remainingSeconds = 0;
-                part.busy = false;
-                part.notice = '';
-                part.noticeVariant = 'neutral';
-            },
-
-            scheduleOrderAddressFormExpiry(part) {
-                if (!part || part.status === 'success' || part.status === 'expired' || part.expiresAt <= 0) return;
-                if (part.expiryTimer) window.clearInterval(part.expiryTimer);
-                const update = () => {
-                    part.remainingSeconds = Math.max(0, Math.ceil((part.expiresAt - Date.now()) / 1000));
-                    if (part.status !== 'success' && part.remainingSeconds <= 0) {
-                        this.expireOrderAddressForm(part);
-                        this.scheduleGuestSessionSnapshot();
-                    }
-                };
-                update();
-                if (part.status !== 'expired') {
-                    part.expiryTimer = window.setInterval(update, 1000);
-                }
-            },
-
-            orderAddressCountdownLabel(part) {
-                const seconds = Math.max(0, Math.floor(Number(part?.remainingSeconds) || 0));
-                const minutes = Math.floor(seconds / 60);
-                return `${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
-            },
-
-            expireOtherOrderAddressForms(activeFormId) {
-                const activeId = String(activeFormId || '');
-                this.messages.forEach((message) => {
-                    (Array.isArray(message?.parts) ? message.parts : []).forEach((candidate) => {
-                        if (candidate?.type === 'order_address_form'
-                            && String(candidate.id || '') !== activeId
-                            && candidate.status !== 'expired'
-                        ) {
-                            this.expireOrderAddressForm(candidate);
-                        }
-                    });
-                });
-            },
-
-            enforceSingleActiveOrderAddressForm() {
-                let activeId = '';
-                let activePart = null;
-                let foundLatestForm = false;
-                for (let messageIndex = this.messages.length - 1; messageIndex >= 0 && !foundLatestForm; messageIndex -= 1) {
-                    const parts = Array.isArray(this.messages[messageIndex]?.parts)
-                        ? this.messages[messageIndex].parts
-                        : [];
-                    for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
-                        const part = parts[partIndex];
-                        if (part?.type !== 'order_address_form') continue;
-                        foundLatestForm = true;
-                        if (part.status !== 'expired' && part.expiresAt > Date.now()) {
-                            activeId = String(part.id || '');
-                            activePart = part;
-                        }
-                        break;
-                    }
-                }
-                this.expireOtherOrderAddressForms(activeId);
-                if (activePart) this.scheduleOrderAddressFormExpiry(activePart);
-            },
-
-            observeOrderAddressFormWidth(element, part) {
-                if (!element || !part) return;
-                const updateWidth = () => {
-                    // Two columns only when the actual chat card has enough
-                    // room. A desktop viewport can still contain a narrow
-                    // floating chat window, so a viewport media query is not
-                    // an accurate signal here.
-                    part.isWide = element.clientWidth >= 576;
-                };
-                updateWidth();
-
-                if (typeof ResizeObserver !== 'function' || element._afdOrderAddressResizeObserver) return;
-                const observer = new ResizeObserver(updateWidth);
-                observer.observe(element);
-                element._afdOrderAddressResizeObserver = observer;
-            },
-
-            changeOrderAddressRegion(part) {
-                if (!part?.address) return;
-                const regionId = Math.max(0, Number(part.address.region_id) || 0);
-                const region = this.orderAddressCountryRegions(part).find(item => item.id === regionId);
-                part.address.region_id = regionId;
-                part.address.region = region ? region.name : '';
-            },
-
-            createOrderAddressFormPart(data = {}) {
-                const resourceType = data.resource_type === 'customer_account' ? 'customer_account' : 'order';
-                const rawAddresses = data.addresses && typeof data.addresses === 'object'
-                    ? data.addresses
-                    : {};
-                const countries = this.normalizeOrderAddressCountries(data.countries);
-                const addresses = {
-                    billing: rawAddresses.billing
-                        ? this.normalizeOrderAddressFormValue(rawAddresses.billing)
-                        : (resourceType === 'customer_account' ? this.normalizeOrderAddressFormValue({}) : null),
-                    shipping: rawAddresses.shipping
-                        ? this.normalizeOrderAddressFormValue(rawAddresses.shipping)
-                        : (resourceType === 'customer_account' ? this.normalizeOrderAddressFormValue({}) : null)
-                };
-                const addressTypes = Array.isArray(data.address_types)
-                    ? data.address_types.filter(type => ['billing', 'shipping'].includes(type) && addresses[type])
-                    : ['billing', 'shipping'].filter(type => addresses[type]);
-                const addressType = addressTypes.includes(data.address_type)
-                    ? data.address_type
-                    : (addressTypes.includes('shipping') ? 'shipping' : 'billing');
-                const fields = this.normalizeOrderAddressFormFields(data.fields);
-
-                const expiresAt = Math.max(0, Number(data.expires_at || data.expiresAt) || 0);
-                const createdAt = Math.max(0, Number(data.created_at || data.createdAt) || 0);
-                const isExpired = expiresAt > 0 && Date.now() >= expiresAt;
-                if (isExpired) {
-                    addressTypes.forEach((type) => {
-                        addresses[type] = this.normalizeOrderAddressFormValue({});
-                    });
-                }
-                const part = {
-                    id: String(data.form_id || ('order-address-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8))),
-                    type: 'order_address_form',
-                    actionToken: String(data.action_token || data.actionToken || '').slice(0, 2048),
-                    resourceType,
-                    accessScope: data.access_scope === 'customer' ? 'customer' : 'guest',
-                    orderNumber: String(data.order_number || data.orderNumber || ''),
-                    addressTypes,
-                    addressType,
-                    addresses,
-                    fields,
-                    countries,
-                    regions: this.normalizeOrderAddressRegions(data.regions),
-                    address: this.normalizeOrderAddressFormValue(addresses[addressType] || {}),
-                    busy: false,
-                    status: isExpired ? 'expired' : 'editing',
-                    createdAt,
-                    expiresAt,
-                    remainingSeconds: isExpired ? 0 : Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)),
-                    expiryTimer: null,
-                    isWide: false,
-                    notice: '',
-                    noticeVariant: 'neutral'
-                };
-
-                if (!isExpired) this.ensureOrderAddressCountrySelection(part);
-                return part;
-            },
-
-            appendOrderAddressForm(data = {}) {
-                const part = this.createOrderAddressFormPart(data);
-                if ((part.resourceType === 'order' && !part.orderNumber) || part.addressTypes.length === 0) return null;
-                let message = this.currentAiMessageIndex >= 0
-                    ? this.messages[this.currentAiMessageIndex]
-                    : null;
-
-                if (!message || message.role !== 'assistant' || !Array.isArray(message.parts)) {
-                    message = { role: 'assistant', feedbackEnabled: false, feedbackBusy: false, parts: [] };
-                    this.messages.push(message);
-                    this.currentAiMessageIndex = this.messages.length - 1;
-                }
-
-                this.expireOtherOrderAddressForms(part.id);
-                message.parts.push(part);
-                this.scheduleOrderAddressFormExpiry(part);
-                this.scheduleGuestSessionSnapshot();
-                this.$nextTick(() => {
-                    // Alpine renders nested x-for options asynchronously. Run
-                    // the selection reconciliation after that render so the
-                    // select cannot be coerced back to its placeholder.
-                    this.ensureOrderAddressCountrySelection(part);
-                    this.scrollToBottom();
-                });
-                return part;
-            },
-
-            findOrderAddressForm(formId) {
-                const id = String(formId || '');
-                for (let messageIndex = this.messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
-                    const parts = this.messages[messageIndex]?.parts;
-                    if (!Array.isArray(parts)) continue;
-                    const part = parts.find(candidate => candidate?.type === 'order_address_form' && String(candidate.id) === id);
-                    if (part) return part;
-                }
-                return null;
-            },
-
-            selectOrderAddressFormType(part, type) {
-                if (!part || part.busy || part.status === 'expired' || !part.addressTypes.includes(type)) return;
-                part.addressType = type;
-                part.address = this.normalizeOrderAddressFormValue(part.addresses[type] || {});
-                part.notice = '';
-                part.noticeVariant = 'neutral';
-            },
-
-            resetOrderAddressFormRegion(part) {
-                if (!part?.address) return;
-                part.address.region_id = 0;
-            },
-
-            submitOrderAddressForm(part) {
-                if (!part || part.busy || part.status === 'success' || part.status === 'expired') return;
-                if (part.expiresAt > 0 && Date.now() >= part.expiresAt) {
-                    this.expireOrderAddressForm(part);
-                    this.scheduleGuestSessionSnapshot();
-                    return;
-                }
-                const address = this.normalizeOrderAddressFormValue(part.address);
-                const required = (Array.isArray(part.fields) ? part.fields : [])
-                    .filter(field => field?.required === true)
-                    .map(field => [field.code, field.label || field.code]);
-                ['postcode', 'region'].forEach((code) => {
-                    if (!this.orderAddressFieldRequired(part, code) || required.some(([field]) => field === code)) return;
-                    required.push([code, this.orderAddressFieldLabel(part, code, code)]);
-                });
-                const missing = required.find(([field]) => (
-                    field === 'street'
-                        ? !address.street.some(line => line.trim())
-                        : !String(address[field] || '').trim()
-                ));
-                if (missing) {
-                    part.notice = `${missing[1]} is required.`;
-                    part.noticeVariant = 'error';
-                    return;
-                }
-                if (!/^[A-Z]{2}$/.test(address.country_id)) {
-                    part.notice = 'Use a two-letter country code, for example DE.';
-                    part.noticeVariant = 'error';
-                    return;
-                }
-                if (!this.socket || !this.wsConnected) {
-                    part.notice = 'The secure chat connection is unavailable. Please try again in a moment.';
-                    part.noticeVariant = 'error';
-                    return;
-                }
-
-                part.address = address;
-                part.notice = '';
-                part.busy = true;
-                this.socket.send(JSON.stringify({
-                    action: part.resourceType === 'customer_account'
-                        ? 'customer_address_update'
-                        : 'order_address_update',
-                    form_id: String(part.id),
-                    action_token: String(part.actionToken || ''),
-                    order_number: String(part.orderNumber),
-                    address_type: String(part.addressType),
-                    address
-                }));
-            },
-
-            findGeneratedImagePart(imageId) {
+             findGeneratedImagePart(imageId) {
                 const id = String(imageId || '');
                 for (const message of this.messages) {
                     if (!Array.isArray(message?.parts)) continue;
@@ -915,6 +500,20 @@ const {
                 };
                 message.parts.push(part);
                 return part;
+            },
+
+            handleGeneratedImageError(part, event) {
+                if (!part) return;
+                part.status = 'error';
+                const fallback = 'The generated image could not be loaded. Please try again.';
+                const translated = typeof this.t === 'function'
+                    ? this.t('generated_image_load_failed')
+                    : '';
+                part.error = translated && translated !== 'generated_image_load_failed' ? translated : fallback;
+                if (event?.target) {
+                    event.target.removeAttribute('src');
+                }
+                this.scheduleGuestSessionSnapshot?.();
             },
 
             async setMessageFeedback(index, value) {
@@ -998,6 +597,374 @@ const {
                 }
             },
 
+            toggleReasoning(part) {
+                if (part) {
+                    const nextExpanded = part.isExpanded === false;
+                    // Keep the disclosure state separate from the stream
+                    // projection. Incoming thinking/action events may update
+                    // the same reasoning object many times; they must not
+                    // reinterpret a previous automatic state as a shopper
+                    // click. This mirrors Codex's local accordion state.
+                    part.wasManuallyToggled = true;
+                    part.isManuallyCollapsed = !nextExpanded;
+                    part.isExpanded = nextExpanded;
+                    this.scheduleGuestSessionSnapshot?.();
+                }
+            },
+
+            // Codex reasoning lifecycle: while the model works the header is
+            // a shimmering "Thinking"; the first answer chunk collapses the
+            // section, later thinking/tool events open it again, and `done`
+            // freezes the elapsed time into "Thought for Ns" (collapsed
+            // unless the shopper toggled it manually).
+            freezeReasoningElapsed(part) {
+                if (!part || part.elapsedMs != null) return;
+                const startedAt = Number(part.startedAt) || 0;
+                if (startedAt > 0) {
+                    part.elapsedMs = Math.max(0, Date.now() - startedAt);
+                }
+            },
+
+            collapseReasoningForAnswer(message = null) {
+                const target = message || (this.currentAiMessageIndex >= 0
+                    ? this.messages[this.currentAiMessageIndex]
+                    : null);
+                if (!target || target.role !== 'assistant' || !Array.isArray(target.parts)) return;
+
+                target.parts.forEach((part) => {
+                    if (part?.type === 'reasoning') {
+                        this.freezeReasoningElapsed(part);
+                        part.isExpanded = false;
+                        part.isManuallyCollapsed = false;
+                    }
+                });
+            },
+
+            currentLiveReasoningPart() {
+                const message = this.currentAiMessageIndex >= 0
+                    ? this.messages[this.currentAiMessageIndex]
+                    : null;
+                if (!message || message.role !== 'assistant' || !Array.isArray(message.parts)) return null;
+                return message.parts.find(part => part?.type === 'reasoning') || null;
+            },
+
+            // A new reasoning/tool event after the answer started re-opens
+            // the section the same way Codex spawns a fresh "Thinking" item.
+            markReasoningResumed() {
+                const part = this.currentLiveReasoningPart();
+                if (part) {
+                    part.autoCollapsed = false;
+                    // Thinking resumed after the previous section closed:
+                    // drop the frozen "Thought for Ns" so the shimmering
+                    // "Thinking" header comes back until it closes again.
+                    part.elapsedMs = null;
+                    if (part.isManuallyCollapsed !== true) {
+                        part.isExpanded = true;
+                    }
+                }
+            },
+
+            syncLiveReasoningPart() {
+                const events = Array.isArray(this.thinkingEvents) ? this.thinkingEvents : [];
+                const steps = Array.isArray(this.thinkingSteps) ? this.thinkingSteps : [];
+                const activities = Array.isArray(this.toolActivities) ? this.toolActivities : [];
+                const hasReasoning = events.length > 0 || steps.length > 0 || activities.length > 0;
+                let message = this.currentAiMessageIndex >= 0
+                    ? this.messages[this.currentAiMessageIndex]
+                    : null;
+
+                if (!hasReasoning) {
+                    if (!message || message.role !== 'assistant' || !Array.isArray(message.parts)) return null;
+                    const reasoningIndex = message.parts.findIndex(part => part?.type === 'reasoning');
+                    if (reasoningIndex !== -1) message.parts.splice(reasoningIndex, 1);
+                    if (message.parts.length === 0) {
+                        this.messages.splice(this.currentAiMessageIndex, 1);
+                        this.currentAiMessageIndex = -1;
+                    }
+                    return null;
+                }
+
+                // Create the assistant bubble as soon as the first reasoning
+                // event arrives. The old implementation rendered a separate
+                // full-width thinking card, then rebuilt the same content in a
+                // message bubble when the first answer chunk arrived.
+                if (!message || message.role !== 'assistant' || !Array.isArray(message.parts)) {
+                    message = {
+                        role: 'assistant',
+                        request_id: this.activeRequestId || '',
+                        feedbackEnabled: false,
+                        feedbackBusy: false,
+                        parts: []
+                    };
+                    this.messages.push(message);
+                    this.currentAiMessageIndex = this.messages.length - 1;
+                }
+
+                let reasoningPart = message.parts.find(part => part?.type === 'reasoning');
+                if (!reasoningPart) {
+                    reasoningPart = {
+                        id: 'reasoning-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+                        type: 'reasoning',
+                        events: [],
+                        steps: [],
+                        activities: [],
+                        startedAt: Date.now(),
+                        // Keep live actions visible. The shopper can collapse
+                        // them manually, and subsequent deltas preserve that.
+                        isExpanded: true,
+                        isManuallyCollapsed: false,
+                        wasManuallyToggled: false,
+                        autoCollapsed: false
+                    };
+                    message.parts.unshift(reasoningPart);
+                }
+
+                // A stream is authoritative while it is active. Do not let
+                // an action update, a legacy snapshot, or a history refresh
+                // turn the live Thinking panel into a completed-looking
+                // header. Only an explicit shopper collapse can keep it shut.
+                // `autoCollapsed` marks the Codex-style handoff moment when
+                // the answer text started; later reasoning events clear it.
+                if (this.isLoading
+                    && reasoningPart.isManuallyCollapsed !== true
+                    && reasoningPart.autoCollapsed !== true) {
+                    reasoningPart.isExpanded = true;
+                }
+
+                reasoningPart.events = [...events];
+                reasoningPart.steps = [...steps];
+                reasoningPart.activities = [...activities];
+                return reasoningPart;
+            },
+
+            isReasoningLive(part, index = null) {
+                if (!this.isLoading || !part) return false;
+                if (part.elapsedMs != null) return false;
+                if (index !== null && index !== this.currentAiMessageIndex) return false;
+                const livePart = this.currentLiveReasoningPart();
+                return livePart === part || livePart === null;
+            },
+
+            // Codex duration formatting: hidden under one second, then
+            // "12s", "3m 24s", "1h 2m 3s".
+            formatElapsedMs(elapsedMs, { underOneSecond = 'hidden' } = {}) {
+                const totalSeconds = Math.max(0, Math.floor(Number(elapsedMs) / 1000));
+                if (totalSeconds < 1) {
+                    return underOneSecond === 'zero' ? '0s' : '';
+                }
+                if (totalSeconds < 60) {
+                    return `${totalSeconds}s`;
+                }
+                const hours = 3600;
+                const days = Math.floor(totalSeconds / (hours * 24));
+                const hourPart = Math.floor(totalSeconds / hours) % 24;
+                const minutePart = Math.floor((totalSeconds % hours) / 60);
+                const secondPart = totalSeconds % 60;
+                if (days > 0 || hourPart > 0) {
+                    const parts = [];
+                    if (days > 0) parts.push(`${days}d`);
+                    if (hourPart > 0) parts.push(`${hourPart}h`);
+                    if (minutePart > 0) parts.push(`${minutePart}m`);
+                    if (secondPart > 0) parts.push(`${secondPart}s`);
+                    return parts.join(' ');
+                }
+                return secondPart === 0 ? `${minutePart}m` : `${minutePart}m ${secondPart}s`;
+            },
+
+            reasoningTitle(part, index = null) {
+                if (!part) return this.t('thought_process');
+                if (part.elapsedMs != null) {
+                    return this.t('thought_for', { 1: this.formatElapsedMs(part.elapsedMs, { underOneSecond: 'zero' }) });
+                }
+                if (this.isReasoningLive(part, index)) {
+                    return this.t('thinking');
+                }
+                const events = Array.isArray(part.events) ? part.events : [];
+                const count = events.length || ((Array.isArray(part.steps) ? part.steps.length : 0) + (Array.isArray(part.activities) ? part.activities.length : 0));
+                if (count <= 1) return this.t('thought_process_1_step');
+                return this.t('thought_process_steps', { 1: count });
+            },
+
+            reasoningSummary(part) {
+                if (!part) return '';
+                const events = Array.isArray(part.events) ? part.events : [];
+                const activities = events.filter(event => event?.type === 'activity');
+                const fallback = Array.isArray(part.activities) ? part.activities : [];
+                const latest = (activities.length ? activities : fallback).slice(-1)[0];
+                return latest ? this.toolActivityLabel(latest) : '';
+            },
+
+            reasoningActivities(part) {
+                if (!part) return [];
+                const events = Array.isArray(part.events) ? part.events : [];
+                const activities = events.filter(event => event?.type === 'activity');
+                return activities.length
+                    ? activities
+                    : (Array.isArray(part.activities) ? part.activities : []);
+            },
+
+            reasoningSteps(part) {
+                if (!part) return [];
+                const events = Array.isArray(part.events) ? part.events : [];
+                const steps = events.filter(event => event?.type === 'step'
+                    && String(event.content || '').trim().length > 0);
+                // Some persisted turns contain the action timeline in
+                // `events` while their Thinking text is still in the legacy
+                // `steps` array. Do not let the presence of one activity hide
+                // the other representation.
+                return steps.length
+                    ? steps
+                    : (Array.isArray(part.steps) ? part.steps : []);
+            },
+
+            // Codex renders one ordered timeline of reasoning text and tool
+            // rows. `events` already preserves arrival order; legacy turns
+            // fall back to their separate step/activity arrays.
+            reasoningTimeline(part) {
+                if (!part) return [];
+                const events = Array.isArray(part.events) ? part.events : [];
+                if (events.length > 0) {
+                    return events.filter(event => event?.type === 'activity'
+                        || (event?.type === 'step' && String(event.content || '').trim().length > 0));
+                }
+                const steps = (Array.isArray(part.steps) ? part.steps : [])
+                    .map(step => ({ ...step, type: 'step' }));
+                const activities = (Array.isArray(part.activities) ? part.activities : [])
+                    .map(activity => ({ ...activity, type: 'activity' }));
+                return [...steps, ...activities];
+            },
+
+            // Codex shows "Running command for 3s" while a tool works; the
+            // completed row remains a stable label without a stale timer.
+            activityElapsedMs(activity) {
+                if (!activity || activity.state === 'running') {
+                    const startedAt = Number(activity?.startedAt) || 0;
+                    if (!startedAt) return null;
+                    return Math.max(0, (activity.state === 'running' ? this.streamNow : Date.now()) - startedAt);
+                }
+                const startedAt = Number(activity.startedAt) || 0;
+                const completedAt = Number(activity.completedAt) || 0;
+                if (!startedAt || !completedAt || completedAt < startedAt) return null;
+                return completedAt - startedAt;
+            },
+
+            // Keep elapsed time on the live action only. Once the action is
+            // complete the row stays stable like Codex instead of leaving a
+            // misleading trailing "1s" beside the completed label.
+            activityDurationLabel(activity) {
+                if (!activity || activity.state !== 'running') return '';
+                const elapsed = this.activityElapsedMs(activity);
+                if (elapsed === null) return '';
+                return this.formatElapsedMs(elapsed);
+            },
+
+            activitySummaryLabel(part) {
+                const activities = this.reasoningActivities(part);
+                const count = activities.length;
+                if (count <= 1) return this.t('actions_checked_1');
+                return this.t('actions_checked', { 1: count });
+            },
+
+            isActivityListOpen(msg, part) {
+                if (!part) return false;
+                return part.activitiesExpanded === true;
+            },
+
+            toggleActivityList(part) {
+                if (!part) return;
+                part.activitiesExpanded = part.activitiesExpanded !== true;
+                this.scheduleGuestSessionSnapshot?.();
+            },
+
+            workedForLabel(message) {
+                const elapsedMs = Number(message?.workedForMs) || 0;
+                if (elapsedMs < 1000) return '';
+                return this.t('worked_for', { 1: this.formatElapsedMs(elapsedMs) });
+            },
+
+            // Codex turn footer: while the turn runs the divider reads
+            // "Working" (no timer under one second), then "Working for Ns"
+            // ticking once per second; `done` freezes it into
+            // "Worked for Ns".
+            turnDividerLabel(msg, index = null) {
+                if (!msg || msg.deleted) return '';
+                const isLiveTurn = this.isLoading
+                    && index !== null
+                    && index === this.currentAiMessageIndex;
+                if (isLiveTurn) {
+                    const startedAt = Number(this.responseStartedAt) || 0;
+                    if (!startedAt) return '';
+                    const elapsedMs = Math.max(0, this.streamNow - startedAt);
+                    if (elapsedMs < 1000) return this.t('working');
+                    return this.t('working_for', { 1: this.formatElapsedMs(elapsedMs) });
+                }
+                return this.workedForLabel(msg);
+            },
+
+            // ZCode separates internal work history from the customer-facing
+            // answer. A running turn starts open; after completion, the same
+            // duration row remains visible but the details are folded away.
+            isTurnHistoryOpen(msg, index = null) {
+                if (!msg) return false;
+                const isLiveTurn = this.isLoading
+                    && index !== null
+                    && index === this.currentAiMessageIndex;
+                if (isLiveTurn) return msg.historyExpanded !== false;
+                return msg.historyExpanded === true;
+            },
+
+            toggleTurnHistory(msg, index = null) {
+                if (!msg) return;
+                const nextExpanded = !this.isTurnHistoryOpen(msg, index);
+                msg.historyExpanded = nextExpanded;
+                (Array.isArray(msg.parts) ? msg.parts : []).forEach((part) => {
+                    if (part?.type !== 'reasoning') return;
+                    part.isExpanded = nextExpanded;
+                    part.isManuallyCollapsed = !nextExpanded;
+                    part.wasManuallyToggled = true;
+                    part.activitiesExpanded = nextExpanded;
+                });
+                this.scheduleGuestSessionSnapshot?.();
+            },
+
+            messageTimeLabel(message) {
+                const raw = message?.created_at || message?.createdAt || '';
+                if (!raw) return '';
+                let timestamp = raw instanceof Date ? raw.getTime() : Date.parse(raw);
+                if (!Number.isFinite(timestamp) && typeof raw === 'number') {
+                    timestamp = raw < 1000000000000 ? raw * 1000 : raw;
+                }
+                if (!Number.isFinite(timestamp)) return '';
+                try {
+                    return new Intl.DateTimeFormat(undefined, {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    }).format(new Date(timestamp));
+                } catch (error) {
+                    return '';
+                }
+            },
+
+            renderMarkdown(content) {
+                if (!content) return '';
+                const cleanContent = typeof sanitizeCustomerResponseText === 'function'
+                    ? sanitizeCustomerResponseText(content)
+                    : content;
+                return typeof sanitizeHtml === 'function'
+                    ? sanitizeHtml(cleanContent)
+                    : (window.marked ? window.marked.parse(cleanContent) : String(cleanContent));
+            },
+
+            renderStreamingMarkdown(content) {
+                if (!content) return '';
+                const cleanContent = typeof sanitizeCustomerResponseText === 'function'
+                    ? sanitizeCustomerResponseText(content)
+                    : content;
+                return typeof sanitizeStreamingHtml === 'function'
+                    ? sanitizeStreamingHtml(cleanContent)
+                    : (typeof sanitizeHtml === 'function' ? sanitizeHtml(cleanContent) : String(cleanContent));
+            },
+
             isProductPageLoading(part) {
                 return Boolean(part?.id && this.productPageLoading[String(part.id)]);
             },
@@ -1006,27 +973,41 @@ const {
                 const payload = part?.payload || {};
                 const pagination = payload.pagination || {};
                 const coverage = payload.coverage || {};
-                const total = Number(coverage.total ?? pagination.total);
+                // `total` is duplicated in the v2 product contract so the
+                // summary remains truthful when a legacy/history adapter
+                // omits coverage or pagination while preserving the payload.
+                const total = Number(coverage.total ?? pagination.total ?? payload.total);
                 const visible = Number(coverage.shown
                     ?? (Array.isArray(payload.items) ? payload.items.length : pagination.returned || 0));
 
                 if (!Number.isFinite(total) || total < 0 || !visible) return '';
-                if (visible >= total) return `Showing all ${total} product${total === 1 ? '' : 's'}`;
-                return `Showing ${visible} of ${total} matching products`;
+                const hasMore = pagination.has_more === true
+                    || pagination.can_load_more === true
+                    || Boolean(payload.continuation);
+                if (visible >= total && !hasMore) {
+                    return typeof this.t === 'function'
+                        ? this.t('catalog_showing_all', { 1: total })
+                        : `Showing all ${total} product${total === 1 ? '' : 's'}`;
+                }
+                return typeof this.t === 'function'
+                    ? this.t('catalog_showing_page', { 1: visible, 2: total })
+                    : `Showing ${visible} of ${total} matching products`;
             },
 
             productLoadMoreLabel(part) {
                 const payload = part?.payload || {};
                 const pagination = payload.pagination || {};
-                const total = Number(pagination.total);
+                const total = Number(pagination.total ?? payload.total);
                 const visible = Array.isArray(payload.items) ? payload.items.length : 0;
                 const pageSize = Math.max(1, Number(pagination.page_size) || 5);
                 const remaining = Number.isFinite(total) ? Math.max(0, total - visible) : pageSize;
                 const nextCount = Math.min(pageSize, remaining || pageSize);
 
                 return this.isProductPageLoading(part)
-                    ? 'Loading products…'
-                    : `Show ${nextCount} more`;
+                    ? (typeof this.t === 'function' ? this.t('catalog_loading') : 'Loading products…')
+                    : (typeof this.t === 'function'
+                        ? this.t('catalog_show_more', { 1: nextCount })
+                        : `Show ${nextCount} more`);
             },
 
             async loadMoreProducts(part) {
@@ -1041,8 +1022,10 @@ const {
                 if (!this.socket || !this.wsConnected) {
                     this.setTransportNotice(
                         'catalog-page-unavailable',
-                        'More products are unavailable',
-                        'The secure chat connection is reconnecting. Please try again in a moment.'
+                        typeof this.t === 'function' ? this.t('catalog_page_unavailable_title') : 'More products are unavailable',
+                        typeof this.t === 'function'
+                            ? this.t('catalog_page_unavailable_copy')
+                            : 'The secure chat connection is reconnecting. Please try again in a moment.'
                     );
                     return;
                 }
@@ -1135,6 +1118,14 @@ const {
                     const input = this.getEditMessageInput();
                     if (input) input.focus();
                 });
+            },
+
+            handleEditComposerKeydown(event, index) {
+                if (this.isLoading || this.isReadingAttachments || !event) return;
+                if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+
+                event.preventDefault();
+                this.submitEditedMessage(index);
             },
 
             async submitEditedMessage(index) {
@@ -1302,10 +1293,11 @@ const {
                 this.statusMessage = '';
                 this.messageFeedback = {};
                 this.copiedMessageIndex = null;
+                const defaultSingleImage = typeof this.t === 'function' ? this.t('sent_an_image') : (typeof window.$t === 'function' ? window.$t('Sent an image') : 'Sent an image');
                 await this.sendMessagePayload(
                     message.content || '',
                     retryAttachments,
-                    message.content || 'Đã gửi hình ảnh',
+                    message.content || defaultSingleImage,
                     false,
                     replaceFromMessageId
                 );
@@ -1315,7 +1307,9 @@ const {
                 if ((!this.userInput.trim() && this.imageAttachments.length === 0) || this.isLoading || this.isReadingAttachments) return;
                 const text = this.userInput.trim();
                 const attachments = this.imageAttachments.map(attachment => ({ ...attachment }));
-                const displayText = text || (attachments.length > 1 ? `Đã gửi ${attachments.length} hình ảnh` : 'Đã gửi hình ảnh');
+                const defaultSingleImage = typeof this.t === 'function' ? this.t('sent_an_image') : (typeof window.$t === 'function' ? window.$t('Sent an image') : 'Sent an image');
+                const defaultMultiImages = typeof this.t === 'function' ? this.t('sent_images_count', { 1: attachments.length }) : (typeof window.$t === 'function' ? window.$t('Sent %1 images').replace('%1', attachments.length) : `Sent ${attachments.length} images`);
+                const displayText = text || (attachments.length > 1 ? defaultMultiImages : defaultSingleImage);
                 this.cancelEditMessage();
                 await this.sendMessagePayload(text, attachments, displayText, true);
             },
@@ -1323,10 +1317,14 @@ const {
             async sendMessagePayload(text, attachments, displayText, restoreComposer, replaceFromMessageId = null) {
                 const outgoingAttachments = Array.isArray(attachments) ? attachments.map(attachment => ({ ...attachment })) : [];
                 if ((!text && outgoingAttachments.length === 0) || this.isLoading) return;
+                if (!this.validateOutgoingAttachmentBudget(outgoingAttachments)) return;
                 if (this.humanSupportActive) this.stopSupportTyping();
 
                 const cleanText = text.trim();
-                const visibleText = displayText || (cleanText || (outgoingAttachments.length > 1 ? `Đã gửi ${outgoingAttachments.length} hình ảnh` : 'Đã gửi hình ảnh'));
+                const defaultSingleImage = typeof this.t === 'function' ? this.t('sent_an_image') : (typeof window.$t === 'function' ? window.$t('Sent an image') : 'Sent an image');
+                const defaultMultiImages = typeof this.t === 'function' ? this.t('sent_images_count', { 1: outgoingAttachments.length }) : (typeof window.$t === 'function' ? window.$t('Sent %1 images').replace('%1', outgoingAttachments.length) : `Sent ${outgoingAttachments.length} images`);
+                const fallbackImagesText = outgoingAttachments.length > 1 ? defaultMultiImages : defaultSingleImage;
+                const visibleText = displayText || (cleanText || fallbackImagesText);
 
                 if (restoreComposer) {
                     this.userInput = '';
@@ -1361,12 +1359,90 @@ const {
                 this.pendingProductParts = [];
                 this.pendingOrderAddressFormParts = [];
                 this.pendingGuestOrderAccessParts = [];
+                this.thinkingEvents = [];
+                this.thinkingSteps = [];
                 this.toolActivities = [];
                 this.armResponseWatchdog();
-                this.$nextTick(() => this.scrollToBottom(true));
-                const outgoingUserParts = this.buildOutgoingUserParts(cleanText, outgoingAttachments);
+                // Start the new customer turn at the top of the reading
+                // region, like Codex. The shell switches to bottom-following
+                // only once this turn becomes taller than the available area.
+                this.isTurnStartPinned = true;
+                this.pinnedTurnRequestId = requestId;
+                this.$nextTick(() => {
+                    this.pinCurrentTurnToTop?.(requestId);
+                    // A status/tool frame can race Alpine's first DOM paint.
+                    // Align once more after layout so the submitted bubble is
+                    // never left in the lower part of the scroll viewport.
+                    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+                        window.requestAnimationFrame(() => this.pinCurrentTurnToTop?.(requestId));
+                    }
+                });
+                let outgoingUserParts;
+                try {
+                    outgoingUserParts = typeof this.prepareOutgoingUserParts === 'function'
+                        ? await this.prepareOutgoingUserParts(cleanText, outgoingAttachments)
+                        : this.buildOutgoingUserParts(cleanText, outgoingAttachments);
+                } catch (uploadError) {
+                    this.messages.pop();
+                    this.hasStartedChat = this.messages.length > 0;
+                    this.isLoading = false;
+                    this.activeRequestId = null;
+                    this.responseStartedAt = 0;
+                    this.uploadError = this.uploadError || 'Attachment upload failed. Please try again.';
+                    return;
+                }
+
+                const sentUserMessage = this.messages[this.messages.length - 1];
+                if (sentUserMessage && Array.isArray(sentUserMessage.attachments)) {
+                    sentUserMessage.attachments.forEach((att, idx) => {
+                        const sourceAtt = outgoingAttachments[idx];
+                        if (sourceAtt?.attachment_id) {
+                            att.attachment_id = sourceAtt.attachment_id;
+                            att.previewUrl = `/afd_ai/chat/attachment?id=${encodeURIComponent(sourceAtt.attachment_id)}`;
+                        }
+                    });
+                }
+                this.scheduleGuestSessionSnapshot();
                 const history = this.buildModelHistory();
                 const guestHistory = this.isLoggedIn ? [] : this.buildGuestHistorySnapshot();
+                const chatPayload = {
+                    action: 'chat',
+                    request_id: requestId,
+                    text: visibleText,
+                    parts: outgoingUserParts,
+                    // Binary content is transported once in `parts`.
+                    // `images` contains bounded display metadata only.
+                    images: outgoingAttachments.map((attachment) => ({
+                        name: attachment.name,
+                        type: attachment.type,
+                        size: attachment.size
+                    })),
+                    history,
+                    guest_history: guestHistory,
+                    conversation_id: this.activeConversationId,
+                    // Editing/regenerating replaces the old branch in
+                    // Magento as well as in the visible transcript.
+                    replace_from_message_id: Number(replaceFromMessageId) || null
+                };
+                const serializedChatPayload = JSON.stringify(chatPayload);
+
+                if (utf8ByteLength(serializedChatPayload) > MAX_WEBSOCKET_PAYLOAD_BYTES) {
+                    this.messages.pop();
+                    this.hasStartedChat = this.messages.length > 0;
+                    this.isLoading = false;
+                    this.activeRequestId = null;
+                    this.responseStartedAt = 0;
+                    this.currentAiMessageIndex = -1;
+                    this.pendingProductParts = [];
+                    this.pendingOrderAddressFormParts = [];
+                    this.pendingGuestOrderAccessParts = [];
+                    this.clearResponseWatchdog();
+                    this.userInput = cleanText;
+                    this.imageAttachments = outgoingAttachments;
+                    this.uploadError = 'This message is too large for the secure chat connection. Remove an image or shorten the message/history and try again.';
+                    this.$nextTick(() => this.resizeComposerInput?.());
+                    return;
+                }
 
                 if (this.activeConversationId) {
                     this.scheduleCrossTabConversationSync(this.activeConversationId, 180);
@@ -1379,31 +1455,7 @@ const {
 
                 if (this.socket && this.wsConnected) {
                     try {
-                        this.socket.send(JSON.stringify({
-                            action: 'chat',
-                            request_id: requestId,
-                            text: visibleText,
-                            parts: outgoingUserParts,
-                            // image is retained for older Node deployments; images is the multi-upload contract.
-                            image: outgoingAttachments[0] ? {
-                                name: outgoingAttachments[0].name,
-                                type: outgoingAttachments[0].type,
-                                size: outgoingAttachments[0].size,
-                                data: outgoingAttachments[0].base64
-                            } : null,
-                            images: outgoingAttachments.map((attachment) => ({
-                                name: attachment.name,
-                                type: attachment.type,
-                                size: attachment.size,
-                                data: attachment.base64
-                            })),
-                            history: history,
-                            guest_history: guestHistory,
-                            conversation_id: this.activeConversationId,
-                            // Editing/regenerating replaces the old branch in
-                            // Magento as well as in the visible transcript.
-                            replace_from_message_id: Number(replaceFromMessageId) || null
-                        }));
+                        this.socket.send(serializedChatPayload);
                         return;
                     } catch (socketError) {
                         this.wsConnected = false;
@@ -1442,9 +1494,67 @@ const {
             },
 
             shouldIgnoreStreamMessage(data) {
-                if (!data || !data.request_id) return false;
-                if (this.cancelledRequestIds[data.request_id]) return true;
-                return !!this.activeRequestId && data.request_id !== this.activeRequestId;
+                if (!data) return false;
+                // `message_saved` is an asynchronous persistence acknowledgement.
+                // It may arrive after `done` (or while the shopper has already
+                // started the next turn), so it must still be allowed to attach
+                // the durable message id to the visible response.
+                if (data.type === 'message_saved') return false;
+
+                // Product pagination is an independent, signed request. Its
+                // response intentionally has no chat request_id, because it
+                // must not reopen or mutate the active assistant turn. Do not
+                // classify these frames as stale lifecycle events; otherwise
+                // the button remains stuck on "Loading products…" forever.
+                if (data.type === 'products_page' || data.type === 'product_page_error') return false;
+
+                const requestId = String(data.request_id || '');
+                if (requestId && this.cancelledRequestIds[requestId]) return true;
+
+                // Older gateway frames (and the progress pulse during a rolling
+                // deploy) may not carry a request id. Once the active turn has
+                // ended, those lifecycle frames are stale too; accepting them
+                // would turn the completed Send button back into Stop.
+                if (!requestId && !this.activeRequestId) {
+                    return this.isResponseLifecycleMessage(data.type);
+                }
+
+                if (this.activeRequestId) {
+                    return requestId && requestId !== this.activeRequestId;
+                }
+
+                // A WebSocket can already have queued status/tool frames when
+                // the final `done` frame closes a turn. Without this guard a
+                // late `status` or `tool_activity` resurrects `isLoading`, which
+                // leaves the composer showing Stop even though the answer is
+                // complete. Non-stream events (cart updates and persistence
+                // acknowledgements) remain processable.
+                return this.isResponseLifecycleMessage(data.type);
+            },
+
+            isResponseLifecycleMessage(type) {
+                return [
+                    'stream_reset',
+                    'discard_thinking_text',
+                    'thinking_delta',
+                    'discard_tentative_step',
+                    'thinking_step',
+                    'chunk',
+                    'tool_activity',
+                    'image_generation_started',
+                    'image_generated',
+                    'image_generation_failed',
+                    'products_html',
+                    'products_page',
+                    'product_page_error',
+                    'guest_order_access_required',
+                    'order_address_form',
+                    'status',
+                    'busy',
+                    'error',
+                    'done',
+                    'cancelled'
+                ].includes(String(type || ''));
             },
 
             clearResponseWatchdog() {
@@ -1513,17 +1623,62 @@ const {
 
             stoppedResponseLabel(message) {
                 const seconds = Math.max(0, Number(message?.stoppedAfterSeconds) || 0);
+                if (typeof this.t === 'function') {
+                    return this.t('you_stopped_after', { 1: seconds });
+                }
                 return `You stopped after ${seconds}s`;
             },
 
             continueStoppedResponse() {
                 if (this.isLoading || this.isReadingAttachments) return;
-                this.sendMessagePayload(
-                    'Continue your previous response from where you stopped. Do not repeat content that is already visible.',
-                    [],
-                    'Continue response',
-                    true
-                );
+
+                let lastAssistantIndex = -1;
+                for (let i = this.messages.length - 1; i >= 0; i--) {
+                    if (this.messages[i]?.role === 'assistant') {
+                        lastAssistantIndex = i;
+                        break;
+                    }
+                }
+                if (lastAssistantIndex < 0) return;
+
+                const targetMessage = this.messages[lastAssistantIndex];
+                targetMessage.interrupted = false;
+                targetMessage.stoppedAfterSeconds = null;
+
+                this.currentAiMessageIndex = lastAssistantIndex;
+                this.isLoading = true;
+                this.statusMessage = '';
+                this.responseStartedAt = Date.now();
+                this.thinkingEvents = [];
+                this.toolActivities = [];
+
+                const requestId = this.createRequestId();
+                this.activeRequestId = requestId;
+                this.armResponseWatchdog();
+
+                const history = this.buildModelHistory();
+                const continuationPrompt = 'Continue your previous response from where you stopped. Continue naturally in the same language without repeating what was already written.';
+
+                if (this.socket && this.wsConnected) {
+                    try {
+                        this.socket.send(JSON.stringify({
+                            action: 'chat',
+                            request_id: requestId,
+                            conversation_id: this.activeConversationId,
+                            is_continuation: true,
+                            text: continuationPrompt,
+                            parts: [{ text: continuationPrompt }],
+                            history: history,
+                            images: []
+                        }));
+                    } catch (e) {
+                        this.isLoading = false;
+                        this.currentAiMessageIndex = -1;
+                        this.clearResponseWatchdog();
+                    }
+                }
+                this.scheduleGuestSessionSnapshot();
+                this.scrollToBottom();
             },
 
             stopCurrentResponse() {
@@ -1561,6 +1716,8 @@ const {
             async mutateBrowserCart(data) {
                 const cartRequestId = String(data?.cart_request_id || '');
                 const requestId = String(data?.request_id || '');
+                const conversationId = Math.max(0, Number(data?.conversation_id) || 0);
+                const analyticsEventId = String(data?.analytics_event_id || '');
                 const cart = data?.cart && typeof data.cart === 'object' ? data.cart : {};
                 let result;
 
@@ -1580,6 +1737,8 @@ const {
                             qty: Number(cart.qty) || 1,
                             useDefaultQty: cart.useDefaultQty === true,
                             cartTarget: String(cart.cartTarget || '') === 'quote' ? 'quote' : 'checkout',
+                            conversationId,
+                            analyticsEventId,
                             selectedOptions: cart.selectedOptions && typeof cart.selectedOptions === 'object'
                                 ? cart.selectedOptions
                                 : {}
@@ -1653,7 +1812,7 @@ const {
                     return;
                 }
 
-                if (['chunk', 'products_html', 'products_page', 'status', 'tool_activity', 'image_generation_started', 'image_generated', 'image_generation_failed', 'guest_order_access_required'].includes(data.type)) {
+                if (['chunk', 'thinking_delta', 'thinking_step', 'products_html', 'products_page', 'status', 'tool_activity', 'image_generation_started', 'image_generated', 'image_generation_failed', 'guest_order_access_required'].includes(data.type)) {
                     this.armResponseWatchdog();
                 }
 
@@ -1676,20 +1835,102 @@ const {
                 } else if (data.type === 'discard_thinking_text') {
                     this.discardThinkingText();
 
+                } else if (data.type === 'thinking_delta') {
+                    const stepId = String(data.step_id || 'active-step');
+                    if (!Array.isArray(this.thinkingEvents)) this.thinkingEvents = [];
+                    let step = this.thinkingEvents.find(e => e.type === 'step' && e.id === stepId);
+                    if (!step) {
+                        step = {
+                            id: stepId,
+                            type: 'step',
+                            content: ''
+                        };
+                        this.thinkingEvents.push(step);
+                    }
+                    step.content += String(data.delta || '');
+                    this.markReasoningResumed();
+                    this.syncLiveReasoningPart?.();
+                    this.isLoading = true;
+                    this.scheduleStreamingScroll();
+
+                } else if (data.type === 'discard_tentative_step') {
+                    const stepId = String(data.step_id || '');
+                    if (stepId && Array.isArray(this.thinkingEvents)) {
+                        this.thinkingEvents = this.thinkingEvents.filter(e => e.id !== stepId);
+                        this.syncLiveReasoningPart?.();
+                    }
+
+                } else if (data.type === 'thinking_step') {
+                    if (data.content && typeof data.content === 'string') {
+                        const stepId = String(data.step_id || 'step-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7));
+                        if (!Array.isArray(this.thinkingEvents)) this.thinkingEvents = [];
+                        let step = this.thinkingEvents.find(e => e.type === 'step' && e.id === stepId);
+                        if (step) {
+                            step.content = data.content;
+                        } else {
+                            this.thinkingEvents.push({
+                                id: stepId,
+                                type: 'step',
+                                content: data.content,
+                                tool: String(data.tool || '')
+                            });
+                        }
+                        this.markReasoningResumed();
+                        this.syncLiveReasoningPart?.();
+                        this.isLoading = true;
+                        this.scrollToBottom();
+                    }
+
                 } else if (data.type === 'chunk') {
                     this.statusMessage = '';
+                    // A text delta is not a terminal signal. Providers can
+                    // emit provisional prose while a tool call is still in
+                    // flight, and Gemini can interleave text/thought parts in
+                    // the same response. Keep the live Thinking timeline
+                    // mounted until `done`, `error`, or `cancelled`.
                     if (this.currentAiMessageIndex === -1) {
+                        const parts = [];
+                        if ((Array.isArray(this.thinkingEvents) && this.thinkingEvents.length > 0)
+                            || (Array.isArray(this.thinkingSteps) && this.thinkingSteps.length > 0)
+                            || (Array.isArray(this.toolActivities) && this.toolActivities.length > 0)) {
+                            parts.push({
+                                id: 'reasoning-' + Date.now(),
+                                type: 'reasoning',
+                                events: Array.isArray(this.thinkingEvents) ? [...this.thinkingEvents] : [],
+                                steps: Array.isArray(this.thinkingSteps) ? [...this.thinkingSteps] : [],
+                                activities: Array.isArray(this.toolActivities) ? [...this.toolActivities] : [],
+                                startedAt: this.responseStartedAt || Date.now(),
+                                isManuallyCollapsed: false,
+                                isExpanded: true
+                            });
+                        }
+                        parts.push(this.createStreamingTextPart(data.content || ''));
                         this.messages.push({
                             role: 'assistant',
                             request_id: data.request_id || this.activeRequestId || '',
                             feedbackEnabled: false,
                             feedbackBusy: false,
-                            parts: [this.createStreamingTextPart(data.content || '')]
+                            parts
                         });
                         this.currentAiMessageIndex = this.messages.length - 1;
                     } else {
                         const msg = this.messages[this.currentAiMessageIndex];
                         if (msg) {
+                            if (((Array.isArray(this.thinkingEvents) && this.thinkingEvents.length > 0)
+                                || (Array.isArray(this.thinkingSteps) && this.thinkingSteps.length > 0)
+                                || (Array.isArray(this.toolActivities) && this.toolActivities.length > 0))
+                                && !msg.parts.some(p => p?.type === 'reasoning')) {
+                                msg.parts.unshift({
+                                    id: 'reasoning-' + Date.now(),
+                                    type: 'reasoning',
+                                    events: Array.isArray(this.thinkingEvents) ? [...this.thinkingEvents] : [],
+                                    steps: Array.isArray(this.thinkingSteps) ? [...this.thinkingSteps] : [],
+                                    activities: Array.isArray(this.toolActivities) ? [...this.toolActivities] : [],
+                                    startedAt: this.responseStartedAt || Date.now(),
+                                    isManuallyCollapsed: false,
+                                    isExpanded: true
+                                });
+                            }
                             let lastPart = msg.parts[msg.parts.length - 1];
                             if (!lastPart || lastPart.type !== 'text') {
                                 msg.parts.push(this.createStreamingTextPart());
@@ -1698,22 +1939,92 @@ const {
                             this.appendStreamingText(lastPart, data.content || '');
                         }
                     }
+                    // Codex-style handoff: the moment answer text starts, the
+                    // live Thinking section folds to a static "Thought for
+                    // Ns" header. Later thinking/tool events re-open it via
+                    // `markReasoningResumed`; a manual toggle always wins.
+                    const liveReasoning = this.currentLiveReasoningPart();
+                    if (liveReasoning
+                        && liveReasoning.isManuallyCollapsed !== true
+                        && liveReasoning.wasManuallyToggled !== true) {
+                        this.freezeReasoningElapsed(liveReasoning);
+                        liveReasoning.autoCollapsed = true;
+                        liveReasoning.isExpanded = false;
+                    }
                     // Streaming snapshots are durability checkpoints, not a
                     // per-frame render concern. The final `done` event still
                     // persists immediately.
                     this.scheduleGuestSessionSnapshot(900);
-                    this.scheduleStreamingScroll();
 
                 } else if (data.type === 'tool_activity') {
                     const activityId = String(data.activity_id || 'tool-' + Date.now() + '-' + Math.random());
+                    const nextState = ['running', 'completed', 'failed'].includes(data.state) ? data.state : 'running';
+                    const now = Date.now();
+                    // Some gateway/provider combinations publish the next
+                    // tool's `running` frame before explicitly closing the
+                    // previous one. The UI is a serial work timeline: once a
+                    // new action starts, freeze every older running row so it
+                    // stops shimmering and its elapsed time no longer ticks.
+                    if (nextState === 'running') {
+                        const completePreviousActivity = (activity) => {
+                            if (activity?.type !== 'activity' || activity.id === activityId) {
+                                return activity;
+                            }
+                            // State can be completed before the assistant turn
+                            // is done, so keep a separate live-action marker.
+                            const noLongerCurrent = {
+                                ...activity,
+                                isCurrentAction: false
+                            };
+                            return activity.state === 'running'
+                                ? {
+                                    ...noLongerCurrent,
+                                    state: 'completed',
+                                    completedAt: Number(activity.completedAt) || now
+                                }
+                                : noLongerCurrent;
+                        };
+                        if (Array.isArray(this.thinkingEvents)) {
+                            this.thinkingEvents = this.thinkingEvents.map(completePreviousActivity);
+                        }
+                        if (Array.isArray(this.toolActivities)) {
+                            this.toolActivities = this.toolActivities.map(completePreviousActivity);
+                        }
+                    }
+                    const existingEvent = Array.isArray(this.thinkingEvents)
+                        ? this.thinkingEvents.find(item => item.type === 'activity' && item.id === activityId)
+                        : null;
                     const nextActivity = {
                         id: activityId,
+                        type: 'activity',
                         tool: String(data.tool || ''),
-                        state: ['running', 'completed', 'failed'].includes(data.state) ? data.state : 'running',
-                        result_count: Number.isFinite(Number(data.result_count)) ? Number(data.result_count) : null
+                        state: nextState,
+                        result_count: Number.isFinite(Number(data.result_count)) ? Number(data.result_count) : null,
+                        // Client-side timestamps drive the Codex-style
+                        // "… for Ns" labels; the protocol carries states only.
+                        startedAt: Number(existingEvent?.startedAt) || now,
+                        completedAt: nextState === 'running'
+                            ? (Number(existingEvent?.completedAt) || null)
+                            : (Number(existingEvent?.completedAt) || now),
+                        // The current action keeps shimmering until a newer
+                        // action starts or the whole assistant turn completes.
+                        isCurrentAction: nextState === 'running'
+                            ? true
+                            : existingEvent?.isCurrentAction !== false
                     };
-                    const activityIndex = this.toolActivities.findIndex(activity => activity.id === activityId);
+                    this.markReasoningResumed();
+                    if (!Array.isArray(this.thinkingEvents)) this.thinkingEvents = [];
+                    const eventIndex = this.thinkingEvents.findIndex(item => item.type === 'activity' && item.id === activityId);
+                    if (eventIndex === -1) {
+                        this.thinkingEvents.push(nextActivity);
+                    } else {
+                        this.thinkingEvents.splice(eventIndex, 1, {
+                            ...this.thinkingEvents[eventIndex],
+                            ...nextActivity
+                        });
+                    }
 
+                    const activityIndex = this.toolActivities.findIndex(activity => activity.id === activityId);
                     if (activityIndex === -1) {
                         this.toolActivities.push(nextActivity);
                     } else {
@@ -1722,6 +2033,8 @@ const {
                             ...nextActivity
                         });
                     }
+
+                    this.syncLiveReasoningPart?.();
 
                     // A tool action belongs to the current assistant turn.
                     // Keeping its cursor intact means a later final chunk and
@@ -1765,22 +2078,6 @@ const {
                     // rolling deploy an older gateway may still emit several;
                     // retain only the final accepted presentation for the turn.
                     this.pendingProductParts = [incoming];
-                    const currentMessage = this.currentAiMessageIndex >= 0
-                        ? this.messages[this.currentAiMessageIndex]
-                        : null;
-                    const hasCustomerFacingText = Array.isArray(currentMessage?.parts)
-                        && currentMessage.parts.some((part) => (
-                            part?.type === 'text'
-                            && String(part.raw || part.html || '').trim().length > 0
-                        ));
-                    // Current gateways emit the accepted grid after final
-                    // prose. Attach it immediately so it does not look missing
-                    // while persistence and title updates finish. An older
-                    // gateway that sends it before prose remains buffered.
-                    if (hasCustomerFacingText) {
-                        this.flushPendingProductParts();
-                        this.$nextTick(() => this.scrollToBottom());
-                    }
 
                 } else if (data.type === 'products_page') {
                     this.appendProductPage(data);
@@ -1789,8 +2086,10 @@ const {
                     this.completeProductPageRequest(data.product_part_id);
                     this.setTransportNotice(
                         'catalog-page-failed',
-                        'More products could not be loaded',
-                        data.content || 'Please try again in a moment.'
+                        typeof this.t === 'function' ? this.t('catalog_page_failed_title') : 'More products could not be loaded',
+                        data.content || (typeof this.t === 'function'
+                            ? this.t('catalog_page_failed_copy')
+                            : 'Could not load more products. Please try again.')
                     );
 
                 } else if (data.type === 'cart_updated') {
@@ -1811,13 +2110,13 @@ const {
                             });
                         }
                     }
-                    const formId = String(data.form_id || data.formId || '');
-                    const alreadyQueued = this.pendingGuestOrderAccessParts.some(
-                        part => formId && String(part?.form_id || part?.formId || '') === formId
-                    );
-                    if (!alreadyQueued) {
-                        this.pendingGuestOrderAccessParts.push(data);
-                    }
+                    // Queue the secure card until the final text and `done`
+                    // event arrive. All custom HTML must follow the complete
+                    // customer-facing message, never interrupt its stream.
+                    this.pendingGuestOrderAccessParts.push({
+                        ...data,
+                        content: ''
+                    });
 
                 } else if (data.type === 'order_address_form') {
                     this.statusMessage = '';
@@ -1979,6 +2278,7 @@ const {
 
                 } else if (data.type === 'error') {
                     this.statusMessage = '';
+                    this.collapseReasoningForAnswer?.();
                     this.finalizeStreamingMarkdown();
                     this.isLoading = false;
                     this.activeRequestId = null;
@@ -2000,13 +2300,45 @@ const {
                     });
                     this.scrollToBottom();
 
+                } else if (data.type === 'busy') {
+                    // Admission control rejects this turn before an adapter can
+                    // emit `done`. Treat it as a terminal event so the composer
+                    // immediately returns from Stop to Send.
+                    this.collapseReasoningForAnswer?.();
+                    this.finalizeStreamingMarkdown();
+                    this.isLoading = false;
+                    this.statusMessage = '';
+                    this.currentAiMessageIndex = -1;
+                    this.activeRequestId = null;
+                    this.responseStartedAt = 0;
+                    this.pendingProductParts = [];
+                    this.pendingOrderAddressFormParts = [];
+                    this.pendingGuestOrderAccessParts = [];
+                    this.clearResponseWatchdog();
+                    this.setTransportNotice?.(
+                        'ai-service-busy',
+                        'AI service is busy',
+                        data.content || 'The AI service is busy. Please try again shortly.'
+                    );
+                    this.scrollToBottom();
+
                 } else if (data.type === 'status') {
                     this.statusMessage = this.normalizeStatusMessage(data.content);
                     this.isLoading = true;
 
                 } else if (data.type === 'done') {
                     const completedRequestId = String(data.request_id || this.activeRequestId || '');
+                    // Codex closes a turn with a "Worked for Ns" marker; the
+                    // elapsed time must be captured before the turn state
+                    // resets below.
+                    const completedMessage = this.currentAiMessageIndex >= 0
+                        ? this.messages[this.currentAiMessageIndex]
+                        : null;
+                    if (completedMessage && completedMessage.role === 'assistant' && this.responseStartedAt) {
+                        completedMessage.workedForMs = Math.max(0, Date.now() - this.responseStartedAt);
+                    }
                     this.finalizeStreamingMarkdown();
+                    this.flushPendingReasoningParts();
                     this.flushPendingProductParts();
                     this.flushPendingOrderAddressFormParts();
                     this.flushPendingGuestOrderAccessParts();
@@ -2023,6 +2355,9 @@ const {
                         if (!completedRequestId
                             || String(message.request_id || '') !== completedRequestId) return;
                         message.feedbackBusy = false;
+                        if (data.provider_meta && typeof data.provider_meta === 'object') {
+                            message.provider_meta = data.provider_meta;
+                        }
                     });
                     if (data.request_id) {
                         delete this.cancelledRequestIds[data.request_id];
@@ -2037,6 +2372,7 @@ const {
                     }
 
                 } else if (data.type === 'cancelled') {
+                    this.collapseReasoningForAnswer?.();
                     this.recordInterruptedResponse(data.stopped_after_seconds);
                     this.isLoading = false;
                     this.statusMessage = '';
@@ -2044,12 +2380,92 @@ const {
                     this.pendingProductParts = [];
                     this.pendingOrderAddressFormParts = [];
                     this.pendingGuestOrderAccessParts = [];
+                    this.thinkingEvents = [];
+                    this.thinkingSteps = [];
+                    this.toolActivities = [];
                     this.responseStartedAt = 0;
                     this.clearResponseWatchdog();
                     if (!data.request_id || data.request_id === this.activeRequestId) {
                         this.activeRequestId = null;
                     }
                 }
+            },
+
+            flushPendingReasoningParts() {
+                const hasEvents = Array.isArray(this.thinkingEvents) && this.thinkingEvents.length > 0;
+                const hasLegacy = (Array.isArray(this.toolActivities) && this.toolActivities.length > 0)
+                    || (Array.isArray(this.thinkingSteps) && this.thinkingSteps.length > 0);
+                if (!hasEvents && !hasLegacy) {
+                    return;
+                }
+
+                let message = this.currentAiMessageIndex >= 0
+                    ? this.messages[this.currentAiMessageIndex]
+                    : null;
+
+                if (!message || message.role !== 'assistant' || !Array.isArray(message.parts)) {
+                    message = {
+                        role: 'assistant',
+                        request_id: this.activeRequestId || '',
+                        feedbackEnabled: false,
+                        feedbackBusy: false,
+                        parts: []
+                    };
+                    this.messages.push(message);
+                    this.currentAiMessageIndex = this.messages.length - 1;
+                }
+
+                const reasoningPart = {
+                    id: Date.now() + Math.random(),
+                    type: 'reasoning',
+                    events: [...(this.thinkingEvents || [])],
+                    steps: [...(this.thinkingSteps || [])],
+                    activities: [...(this.toolActivities || [])],
+                    // Keep the completed reasoning/action timeline visible.
+                    // The shopper can collapse it manually from the header;
+                    // terminal state alone must not erase the evidence of
+                    // which actions were run for this answer.
+                    isExpanded: true,
+                    isManuallyCollapsed: false
+                };
+
+                const existingIndex = message.parts.findIndex(p => p?.type === 'reasoning');
+                if (existingIndex === -1) {
+                    const reasoningStart = this.responseStartedAt || Date.now();
+                    reasoningPart.startedAt = reasoningPart.startedAt || reasoningStart;
+                    this.freezeReasoningElapsed(reasoningPart);
+                    // Codex collapses the reasoning section as soon as the
+                    // turn completes; a manual shopper toggle wins over the
+                    // automatic state.
+                    reasoningPart.isExpanded = reasoningPart.wasManuallyToggled === true
+                        ? reasoningPart.isExpanded
+                        : false;
+                    reasoningPart.autoCollapsed = true;
+                    message.parts.unshift(reasoningPart);
+                } else {
+                    // Preserve the live part identity and disclosure state so
+                    // Alpine does not tear down and rebuild the action DOM at
+                    // `done`, which previously caused a visible container jump.
+                    const existingPart = message.parts[existingIndex];
+                    existingPart.events = reasoningPart.events;
+                    existingPart.steps = reasoningPart.steps;
+                    existingPart.activities = reasoningPart.activities;
+                    this.freezeReasoningElapsed(existingPart);
+                    if (existingPart.wasManuallyToggled === true) {
+                        if (existingPart.isManuallyCollapsed !== true) {
+                            existingPart.isExpanded = true;
+                        }
+                    } else {
+                        // Codex behavior: the completed Thinking section
+                        // folds to its "Thought for Ns" header.
+                        existingPart.autoCollapsed = true;
+                        existingPart.isExpanded = false;
+                    }
+                }
+
+                this.thinkingEvents = [];
+                this.toolActivities = [];
+                this.thinkingSteps = [];
             },
 
             flushPendingProductParts() {
@@ -2119,6 +2535,7 @@ const {
                     : null;
                 if (!message || message.role !== 'assistant' || !Array.isArray(message.parts)) return;
 
+                message.feedbackEnabled = true;
                 message.parts.forEach(part => {
                     if (part?.type === 'text') {
                         this.finalizeStreamingText(part);
@@ -2133,10 +2550,15 @@ const {
                     return;
                 }
 
-                this.disposeStreamingMessage(message);
-                this.messages.splice(index, 1);
-                this.currentAiMessageIndex = -1;
-                this.scheduleGuestSessionSnapshot();
+                // Older gateways used this frame to retract provisional
+                // narration before a tool call. Removing the entire
+                // assistant bubble here also removed real Thinking steps and
+                // actions, leaving only the later tool status visible. The
+                // current protocol has `discard_tentative_step` for the
+                // narrow case, so keep all customer-visible evidence when an
+                // old frame arrives.
+                this.finalizeStreamingMarkdown();
+                this.syncLiveReasoningPart?.();
             },
 
             // ==================== UTILITIES ====================

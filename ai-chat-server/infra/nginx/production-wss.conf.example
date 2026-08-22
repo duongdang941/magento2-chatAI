@@ -12,6 +12,7 @@ server {
         limit_req zone=afd_ai_connection_rate burst=12 nodelay;
         limit_conn afd_ai_connection_limit 12;
 
+        # Preserve the public prefix for WebSocket and signed control requests.
         proxy_pass http://afd_ai_gateway_replicas;
         proxy_http_version 1.1;
         proxy_set_header Host $host;

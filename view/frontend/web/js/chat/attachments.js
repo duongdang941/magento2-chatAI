@@ -3,21 +3,24 @@
     'use strict';
 
     modules.attachmentMethods = function (context) {
-const { config, urls } = context;
-const {
-    sanitizeHtml,
-    hydrateProductGridHtml,
-    getBrowserFormKey,
-    resolveWebSocketUrl,
-    PET_SPRITESHEET_COLUMNS,
-    PET_SPRITESHEET_ROWS,
-    PET_FRAME_LIBRARY,
-    petFramePosition,
-    IMAGE_UPLOAD_MAX_BYTES,
-    IMAGE_UPLOAD_MAX_COUNT,
-    IMAGE_UPLOAD_TYPES,
-    MAX_MODEL_HISTORY_MESSAGES
-} = context.helpers;
+        const { config, urls } = context;
+        const {
+            sanitizeHtml,
+            hydrateProductGridHtml,
+            getBrowserFormKey,
+            resolveWebSocketUrl,
+            PET_SPRITESHEET_COLUMNS,
+            PET_SPRITESHEET_ROWS,
+            PET_FRAME_LIBRARY,
+            petFramePosition,
+            IMAGE_UPLOAD_MAX_BYTES,
+            IMAGE_UPLOAD_MAX_COUNT,
+            IMAGE_UPLOAD_MAX_TOTAL_BYTES,
+            IMAGE_UPLOAD_MAX_ENCODED_BYTES,
+            IMAGE_UPLOAD_MAX_TOTAL_PIXELS,
+            IMAGE_UPLOAD_TYPES,
+            MAX_MODEL_HISTORY_MESSAGES
+        } = context.helpers;
 
         return {
             /**
@@ -320,6 +323,7 @@ const {
                 }
 
                 const validFiles = [];
+                let selectedBytes = this.imageAttachments.reduce((sum, attachment) => sum + (Number(attachment.size) || 0), 0);
                 for (const file of sourceFiles.slice(0, availableSlots)) {
                     if (!IMAGE_UPLOAD_TYPES.includes(file.type)) {
                         this.uploadError = 'Only JPG, PNG, or WebP images are supported.';
@@ -329,6 +333,11 @@ const {
                         this.uploadError = 'Each image must be 4MB or smaller.';
                         continue;
                     }
+                    if (selectedBytes + file.size > IMAGE_UPLOAD_MAX_TOTAL_BYTES) {
+                        this.uploadError = 'The combined image upload is too large. Choose fewer or smaller images.';
+                        continue;
+                    }
+                    selectedBytes += file.size;
                     validFiles.push(file);
                 }
 
@@ -338,8 +347,11 @@ const {
                 if (!validFiles.length) return;
 
                 this.isReadingAttachments = true;
-                const attachments = (await Promise.all(validFiles.map(file => this.readImageAttachmentFile(file))))
-                    .filter(Boolean);
+                const attachments = [];
+                for (const file of validFiles) {
+                    const attachment = await this.readImageAttachmentFile(file);
+                    if (attachment) attachments.push(attachment);
+                }
                 this.isReadingAttachments = false;
                 if (!attachments.length) {
                     this.uploadError = 'Could not read the selected image(s).';
@@ -352,21 +364,76 @@ const {
 
             readImageAttachmentFile(file) {
                 return new Promise(resolve => {
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                        const previewUrl = String(reader.result || '');
-                        const base64 = previewUrl.includes(',') ? previewUrl.split(',')[1] : '';
-                        resolve(base64 ? {
+                    const objectUrl = typeof URL !== 'undefined'
+                        && typeof URL.createObjectURL === 'function'
+                        ? URL.createObjectURL(file)
+                        : '';
+                    if (!objectUrl) {
+                        const reader = new FileReader();
+                        reader.onload = async () => {
+                            const dataUrl = String(reader.result || '');
+                            const dimensions = await this.readImageDimensions(dataUrl);
+                            if (!dimensions || dimensions.width * dimensions.height > IMAGE_UPLOAD_MAX_TOTAL_PIXELS) {
+                                this.uploadError = 'Image dimensions are too large.';
+                                resolve(null);
+                                return;
+                            }
+                            resolve({
+                                name: this.cleanFileName(file.name),
+                                type: file.type,
+                                size: file.size,
+                                previewUrl: dataUrl,
+                                file,
+                                width: dimensions.width,
+                                height: dimensions.height
+                            });
+                        };
+                        reader.onerror = () => resolve(null);
+                        reader.readAsDataURL(file);
+                        return;
+                    }
+
+                    this.readImageDimensions(objectUrl).then(dimensions => {
+                        if (!dimensions || dimensions.width * dimensions.height > IMAGE_UPLOAD_MAX_TOTAL_PIXELS) {
+                            this.uploadError = 'Image dimensions are too large.';
+                            this.revokeAttachmentPreview({ previewUrl: objectUrl });
+                            resolve(null);
+                            return;
+                        }
+                        resolve({
                             name: this.cleanFileName(file.name),
                             type: file.type,
                             size: file.size,
-                            previewUrl,
-                            base64
-                        } : null);
-                    };
-                    reader.onerror = () => resolve(null);
-                    reader.readAsDataURL(file);
+                            previewUrl: objectUrl,
+                            file,
+                            width: dimensions.width,
+                            height: dimensions.height
+                        });
+                    }).catch(() => resolve(null));
                 });
+            },
+
+            readImageDimensions(dataUrl) {
+                return new Promise(resolve => {
+                    const image = new Image();
+                    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+                    image.onerror = () => resolve(null);
+                    image.src = dataUrl;
+                });
+            },
+
+            validateOutgoingAttachmentBudget(attachments = []) {
+                const totalBytes = attachments.reduce((sum, item) => sum + (Number(item.size) || 0), 0);
+                const totalPixels = attachments.reduce(
+                    (sum, item) => sum + ((Number(item.width) || 0) * (Number(item.height) || 0)),
+                    0
+                );
+                if (totalBytes > IMAGE_UPLOAD_MAX_TOTAL_BYTES
+                    || totalPixels > IMAGE_UPLOAD_MAX_TOTAL_PIXELS) {
+                    this.uploadError = 'The combined image upload is too large. Remove an image or choose smaller files.';
+                    return false;
+                }
+                return true;
             },
 
             cleanFileName(name) {
@@ -378,11 +445,24 @@ const {
 
             removeImageAttachment(index = null) {
                 if (Number.isInteger(index)) {
+                    const removed = this.imageAttachments[index];
+                    this.revokeAttachmentPreview(removed);
                     this.imageAttachments = this.imageAttachments.filter((attachment, attachmentIndex) => attachmentIndex !== index);
                 } else {
+                    this.imageAttachments.forEach(attachment => this.revokeAttachmentPreview(attachment));
                     this.imageAttachments = [];
                 }
                 this.uploadError = '';
+            },
+
+            revokeAttachmentPreview(attachment) {
+                const previewUrl = String(attachment?.previewUrl || '');
+                if (!previewUrl.startsWith('blob:') || typeof URL === 'undefined' || typeof URL.revokeObjectURL !== 'function') {
+                    return;
+                }
+                try {
+                    URL.revokeObjectURL(previewUrl);
+                } catch (error) { }
             },
 
             formatFileSize(bytes) {
@@ -392,17 +472,204 @@ const {
                 return (bytes / 1024 / 1024).toFixed(1) + ' MB';
             },
 
+            async uploadAttachment(attachment) {
+                if (attachment.attachment_id) {
+                    return {
+                        type: 'attachment_ref',
+                        attachment_id: attachment.attachment_id,
+                        kind: 'image',
+                        purpose: 'vision'
+                    };
+                }
+
+                if (!attachment.file) {
+                    return null;
+                }
+
+                try {
+                    const getRestUrl = (endpoint) => {
+                        const base = (window.BASE_URL || '/').replace(/\/+$/, '');
+                        const cleanEndpoint = endpoint.replace(/^\/+/, '');
+                        if (cleanEndpoint.startsWith('rest/')) {
+                            return `${base}/${cleanEndpoint}`;
+                        }
+                        return `${base}/rest/V1/${cleanEndpoint}`;
+                    };
+
+                    // Step 1: Initiate upload session and acquire ticket
+                    const initResponse = await fetch(getRestUrl('rest/V1/afd-ai/attachments/init'), {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body: JSON.stringify({
+                            purpose: 'vision',
+                            declaredBytes: attachment.size,
+                            declaredMimeType: attachment.type
+                        })
+                    });
+
+                    if (!initResponse.ok) {
+                        const errData = await initResponse.text();
+                        console.warn('[AFD-AI-CHAT] Attachment init failed:', initResponse.status, errData);
+                        return null;
+                    }
+
+                    const initData = await initResponse.json();
+                    const ticket = initData.ticket;
+                    const uploadUrl = initData.upload_url;
+                    const attachmentId = initData.attachment_id;
+
+                    // Step 2: Stream binary file to upload endpoint
+                    const uploadResponse = await fetch(uploadUrl, {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {
+                            'Authorization': `Bearer ${ticket}`,
+                            'Content-Type': attachment.type
+                        },
+                        body: attachment.file
+                    });
+
+                    if (!uploadResponse.ok) {
+                        const errData = await uploadResponse.text();
+                        console.warn('[AFD-AI-CHAT] Attachment binary upload failed:', uploadResponse.status, errData);
+                        return null;
+                    }
+
+                    // Step 3: Complete upload
+                    const completeResponse = await fetch(getRestUrl('rest/V1/afd-ai/attachments/complete'), {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body: JSON.stringify({
+                            attachmentId,
+                            ticket
+                        })
+                    });
+
+                    if (!completeResponse.ok) {
+                        const errData = await completeResponse.text();
+                        console.warn('[AFD-AI-CHAT] Attachment complete failed:', completeResponse.status, errData);
+                        return null;
+                    }
+
+                    attachment.attachment_id = attachmentId;
+                    return {
+                        type: 'attachment_ref',
+                        attachment_id: attachmentId,
+                        kind: 'image',
+                        purpose: 'vision'
+                    };
+                } catch (error) {
+                    console.warn('[AFD-AI-CHAT] Attachment upload error:', error);
+                    return null;
+                }
+            },
+
+            base64ToFile(base64, mimeType = 'image/jpeg', filename = 'product-image.jpg') {
+                try {
+                    const cleanBase64 = String(base64 || '').includes(',') ? String(base64).split(',')[1] : String(base64 || '');
+                    if (!cleanBase64) return null;
+                    const binaryString = atob(cleanBase64);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    const blob = new Blob([bytes], { type: mimeType });
+                    return new File([blob], filename, { type: mimeType });
+                } catch (e) {
+                    return null;
+                }
+            },
+
+            async prepareOutgoingUserParts(text, attachments = []) {
+                const parts = [];
+                const cleanText = (text || '').trim();
+                const defaultPrompt = typeof this.t === 'function'
+                    ? this.t('analyze_image_prompt')
+                    : 'Analyze this image and recommend relevant products from the store if applicable.';
+                parts.push({ text: cleanText || defaultPrompt });
+
+                for (const attachment of attachments) {
+                    if (!attachment) continue;
+
+                    if (attachment.attachment_id) {
+                        parts.push({
+                            type: 'attachment_ref',
+                            attachment_id: attachment.attachment_id,
+                            kind: 'image',
+                            purpose: 'vision'
+                        });
+                        continue;
+                    }
+
+                    if (!attachment.file && (attachment.base64 || attachment.data)) {
+                        attachment.file = this.base64ToFile(
+                            attachment.base64 || attachment.data,
+                            attachment.type || 'image/jpeg',
+                            attachment.name || 'product-image.jpg'
+                        );
+                    }
+
+                    if (attachment.file) {
+                        const uploadedRef = await this.uploadAttachment(attachment);
+                        if (uploadedRef) {
+                            parts.push(uploadedRef);
+                            continue;
+                        }
+                    }
+
+                    if (attachment.base64 || attachment.data) {
+                        parts.push({
+                            type: 'image',
+                            inline_data: {
+                                mime_type: attachment.type || 'image/jpeg',
+                                data: attachment.base64 || attachment.data
+                            }
+                        });
+                        continue;
+                    }
+
+                    const errMsg = typeof this.t === 'function'
+                        ? this.t('upload_attachment_failed')
+                        : 'Upload attachment failed. Please try sending the image again.';
+                    this.uploadError = errMsg;
+                    throw new Error('Attachment upload failed');
+                }
+                return parts;
+            },
+
             buildOutgoingUserParts(text, attachments = []) {
                 const parts = [];
                 const cleanText = (text || '').trim();
-                parts.push({ text: cleanText || 'Mô tả nội dung hình ảnh này và nếu phù hợp hãy tìm sản phẩm tương ứng trong cửa hàng.' });
+                const defaultPrompt = typeof this.t === 'function'
+                    ? this.t('analyze_image_prompt')
+                    : 'Analyze this image and recommend relevant products from the store if applicable.';
+                parts.push({ text: cleanText || defaultPrompt });
                 attachments.forEach((attachment) => {
-                    parts.push({
-                        inline_data: {
-                            mime_type: attachment.type,
-                            data: attachment.base64
-                        }
-                    });
+                    if (!attachment) return;
+                    if (attachment.attachment_id) {
+                        parts.push({
+                            type: 'attachment_ref',
+                            attachment_id: attachment.attachment_id,
+                            kind: 'image',
+                            purpose: 'vision'
+                        });
+                    } else if (attachment.base64 || attachment.data) {
+                        parts.push({
+                            type: 'image',
+                            inline_data: {
+                                mime_type: attachment.type || 'image/jpeg',
+                                data: attachment.base64 || attachment.data
+                            }
+                        });
+                    }
                 });
                 return parts;
             },
@@ -420,39 +687,63 @@ const {
                                     .filter(Boolean)
                                     .join('\n\n')
                                 : '';
-                            const catalogContext = m.parts
+                            const catalogProducts = m.parts
                                 ? m.parts
                                     .filter(p => p.type === 'products' && p.payload && Array.isArray(p.payload.items))
                                     .flatMap(p => p.payload.items.map((item, index) => {
-                                        if (!item || !item.sku || !item.name) return '';
-                                        const position = index + 1;
-                                        const productRef = item.product_ref || (item.id ? `product:${item.id}` : '');
-                                        const type = item.product_type || 'simple';
+                                        if (!item || !item.sku || !item.name) return null;
                                         const options = Array.isArray(item.variant_options)
                                             ? item.variant_options
                                                 .map((option) => {
                                                     const code = String(option?.code || '').trim();
                                                     const label = String(option?.label || option?.code || '').trim();
                                                     const values = Array.isArray(option?.values)
-                                                        ? option.values.map(value => String(value || '').trim()).filter(Boolean).join(', ')
-                                                        : '';
-                                                    const identity = code ? `${label} (code: ${code})` : label;
-                                                    return identity && values ? `${identity}: ${values}` : values;
+                                                        ? option.values.map(value => String(value || '').trim()).filter(Boolean)
+                                                        : [];
+                                                    return code && values.length ? { code, label, values } : null;
                                                 })
                                                 .filter(Boolean)
-                                                .join(' | ')
-                                            : '';
-                                        return `#${position}: name="${item.name}"; sku="${item.sku}"; product_ref="${productRef}"; price="${item.price || ''}"; type=${type}; requires_variant_selection=${item.requires_variant_selection === true}; options="${options}"`;
+                                            : [];
+                                        return {
+                                            position: index + 1,
+                                            product_ref: item.product_ref || (item.id ? `product:${item.id}` : ''),
+                                            sku: String(item.sku),
+                                            // Keep the catalogue name only as a
+                                            // stable identifier for an explicit
+                                            // follow-up; price/stock/count stay
+                                            // out of the private ledger because
+                                            // they are time-sensitive evidence.
+                                            name: String(item.name),
+                                            product_type: String(item.product_type || 'simple'),
+                                            requires_variant_selection: item.requires_variant_selection === true,
+                                            variant_options: options
+                                        };
                                     }))
                                     .filter(Boolean)
-                                    .join('\n')
+                                : [];
+                            const catalogMemoryEnabled = config.features?.candidate_memory_enabled !== false;
+                            const catalogContext = catalogMemoryEnabled && catalogProducts.length
+                                ? `[CATALOG_CONTEXT:v2]\n${JSON.stringify({
+                                    instruction: 'PRIVATE REFERENCE LEDGER, NOT CURRENT CATALOGUE EVIDENCE. Use only to resolve an unambiguous follow-up that explicitly gives product_ref/SKU or singularly refers to exactly one immediately preceding card. For every new search, recommendation, list, count, filter, comparison, price, option, or availability claim, call the appropriate Magento tool in the current turn. Never copy this ledger into customer prose or use it to create a text-only product list.',
+                                    products: catalogProducts
+                                })}`
                                 : '';
+                            // Product prose is intentionally omitted when a
+                            // structured grid exists. Otherwise a provider can
+                            // mistake the old Markdown list for fresh evidence
+                            // and answer a new catalogue request without
+                            // searchProducts, leaving the shopper without the
+                            // visual product cards. The compact ledger below
+                            // preserves only safe, explicit card references.
+                            const historyText = catalogProducts.length
+                                ? '[A previous response displayed a verified product grid. Its items are available only through the private reference ledger below.]'
+                                : assistantText.trim();
                             const fullText = [
-                                assistantText.trim(),
+                                historyText,
                                 m.interrupted === true
                                     ? '[The shopper stopped this response. Continue it only when the next shopper message explicitly asks to continue; otherwise answer the new request normally.]'
                                     : '',
-                                catalogContext ? `[CATALOG_CONTEXT: các sản phẩm đã hiển thị; dùng SKU này khi khách hỏi tiếp. Phải gọi getProductAvailability trước khi nói tồn kho.]\n${catalogContext}` : ''
+                                catalogContext
                             ].filter(Boolean).join('\n\n');
                             return fullText
                                 ? { role: 'model', parts: [{ text: fullText }] }
@@ -479,7 +770,7 @@ const {
 
                         const parts = (Array.isArray(message.parts) ? message.parts : [])
                             .map((part) => {
-                                if (part?.type === 'image' && /^https?:\/\//i.test(String(part.url || ''))) {
+                                if (part?.type === 'image' && /^(?:https?:\/\/|\/media\/afd-ai\/generated\/)/i.test(String(part.url || ''))) {
                                     return {
                                         type: 'image',
                                         url: String(part.url),
@@ -591,91 +882,67 @@ const {
                 const count = Number(activity?.result_count);
                 const hasCount = Number.isFinite(count) && count >= 0;
 
+                // Labels come from the storefront translation table so the
+                // action timeline follows the shop locale, matching how the
+                // rest of the widget renders customer-facing copy.
                 if (tool === 'searchProducts') {
-                    if (state === 'running') return 'Searching the product catalog';
-                    if (state === 'failed') return 'Product search could not be completed';
-                    return hasCount
-                        ? `Found ${count} matching product${count === 1 ? '' : 's'}`
-                        : 'No matching products found';
+                    if (state === 'running') return this.t('tool_checking_products');
+                    if (state === 'failed') return this.t('tool_products_unavailable');
+                    return hasCount && count > 0
+                        ? this.t('tool_products_checked_count', { 1: count })
+                        : this.t('tool_products_checked');
                 }
                 if (tool === 'searchWeb') {
-                    if (state === 'running') return 'Searching the web';
-                    return state === 'failed' ? 'Web Search is unavailable' : 'Web search completed';
+                    if (state === 'running') return this.t('tool_checking_external');
+                    if (state === 'failed') return this.t('tool_external_unavailable');
+                    return this.t('tool_external_checked');
                 }
                 if (tool === 'searchStoreKnowledge') {
-                    if (state === 'running') return 'Checking store information';
-                    if (state === 'failed') return 'Store information could not be checked';
-                    return hasCount ? `Found ${count} store source${count === 1 ? '' : 's'}` : 'No matching store information found';
+                    return state === 'running' ? this.t('tool_checking_store') : this.t('tool_store_checked');
                 }
                 if (tool === 'listCategories') {
-                    if (state === 'running') return 'Checking product categories';
-                    if (state === 'failed') return 'Category lookup could not be completed';
-                    return hasCount
-                        ? `Loaded ${count} product categor${count === 1 ? 'y' : 'ies'}`
-                        : 'No product categories found';
+                    return state === 'running' ? this.t('tool_checking_categories') : this.t('tool_categories_checked');
                 }
                 if (tool === 'getProductAvailability') {
-                    if (state === 'running') return 'Checking live availability';
-                    return state === 'failed' ? 'Availability check could not be completed' : 'Checked live availability';
+                    return state === 'running' ? this.t('tool_checking_availability') : this.t('tool_availability_checked');
                 }
                 if (tool === 'compareProducts') {
-                    if (state === 'running') return 'Comparing products';
-                    return state === 'failed' ? 'Product comparison could not be completed' : 'Products compared';
+                    return state === 'running' ? this.t('tool_comparing_products') : this.t('tool_product_comparison_checked');
                 }
-                if (tool === 'addToCart') {
-                    if (state === 'running') return 'Updating your cart';
-                    return state === 'failed' ? 'Cart update could not be completed' : 'Cart updated';
-                }
-                if (tool === 'removeFromCart') {
-                    if (state === 'running') return 'Removing the product from your cart';
-                    return state === 'failed' ? 'The product could not be removed' : 'Product removed from cart';
+                if (tool === 'addToCart' || tool === 'removeFromCart') {
+                    return state === 'running' ? this.t('tool_updating_cart') : this.t('tool_cart_updated');
                 }
                 if (tool === 'getRecentOrders' || tool === 'getGuestOrders') {
-                    if (state === 'running') return 'Checking your recent orders';
-                    if (state === 'failed') return 'Order lookup could not be completed';
-                    return hasCount ? `Found ${count} recent order${count === 1 ? '' : 's'}` : 'No recent orders found';
+                    return state === 'running' ? this.t('tool_checking_orders') : this.t('tool_orders_checked');
                 }
                 if (tool === 'getOrderDetails' || tool === 'getGuestOrderDetails') {
-                    if (state === 'running') return 'Checking your order details';
-                    return state === 'failed' ? 'Order lookup could not be completed' : 'Checked your order details';
+                    return state === 'running' ? this.t('tool_checking_order_details') : this.t('tool_order_details_checked');
                 }
                 if (tool === 'getOrderFulfillment') {
-                    if (state === 'running') return 'Checking shipment and payment documents';
-                    return state === 'failed' ? 'Fulfillment details could not be checked' : 'Checked fulfillment details';
+                    return state === 'running' ? this.t('tool_checking_delivery') : this.t('tool_delivery_checked');
                 }
                 if (tool === 'cancelOrder') {
-                    if (state === 'running') return 'Checking order cancellation';
-                    return state === 'failed' ? 'Order cancellation could not be completed' : 'Cancellation request completed';
+                    return state === 'running' ? this.t('tool_canceling_order') : this.t('tool_order_cancel_checked');
                 }
                 if (tool === 'requestReturn') {
-                    if (state === 'running') return 'Creating your return request';
-                    return state === 'failed' ? 'Return request could not be created' : 'Return request created';
+                    return state === 'running' ? this.t('tool_requesting_return') : this.t('tool_return_requested');
                 }
                 if (tool === 'handoffToHuman') {
-                    if (state === 'running') return 'Connecting you with the support team';
-                    return state === 'failed' ? 'Support handoff could not be created' : 'Support request created';
+                    return state === 'running' ? this.t('tool_contacting_support') : this.t('tool_support_checked');
                 }
                 if (tool === 'subscribeBackInStock') {
-                    if (state === 'running') return 'Creating a stock notification';
-                    return state === 'failed' ? 'Stock notification could not be created' : 'Stock notification created';
+                    return state === 'running' ? this.t('tool_subscribing_stock') : this.t('tool_stock_subscribed');
                 }
                 if (tool === 'updateOrderAddress' || tool === 'updateGuestOrderAddress') {
-                    if (state === 'running') return 'Updating your order address';
-                    return state === 'failed' ? 'Order address could not be updated' : 'Order address updated';
+                    return state === 'running' ? this.t('tool_checking_address') : this.t('tool_address_checked');
                 }
-                if (tool === 'getCustomerAddresses') {
-                    if (state === 'running') return 'Loading your account addresses';
-                    return state === 'failed' ? 'Account addresses could not be loaded' : 'Account addresses loaded';
-                }
-                if (tool === 'updateCustomerAddress') {
-                    if (state === 'running') return 'Updating your account address';
-                    return state === 'failed' ? 'Account address could not be updated' : 'Account address updated';
+                if (tool === 'getCustomerAddresses' || tool === 'updateCustomerAddress') {
+                    return state === 'running' ? this.t('tool_checking_account_addresses') : this.t('tool_account_addresses_checked');
                 }
                 if (tool === 'generateImage') {
-                    if (state === 'running') return 'Creating image';
-                    return state === 'failed' ? 'Image could not be generated' : 'Image created';
+                    return state === 'running' ? this.t('tool_preparing_image') : this.t('tool_image_prepared');
                 }
-                return state === 'running' ? 'Working on your request' : 'Step completed';
+                return state === 'running' ? this.t('tool_checking_request') : this.t('tool_request_checked');
             },
 
             toolActivityIcon(activity) {
@@ -701,8 +968,10 @@ const {
 
             imageGenerationLabel(part) {
                 const startedAt = Number(part?.startedAt || this.responseStartedAt || Date.now());
-                const elapsed = Math.max(0, Math.floor((Number(this.imageGenerationNow) - startedAt) / 1000));
-                return elapsed > 0 ? `Working for ${elapsed}s` : 'Generating image';
+                const elapsedSeconds = Math.max(0, Math.floor((Number(this.imageGenerationNow) - startedAt) / 1000));
+                return elapsedSeconds > 0
+                    ? this.t('working_for', { 1: `${elapsedSeconds}s` })
+                    : this.t('tool_preparing_image');
             },
 
         };

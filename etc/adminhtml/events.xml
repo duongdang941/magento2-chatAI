@@ -4,28 +4,8 @@
     <event name="admin_system_config_changed_section_afd_ai">
         <observer name="afd_ai_sync_node_config" instance="Afd\AI\Observer\SyncNodeConfig"/>
     </event>
-    <event name="admin_system_config_changed_section_afd_ai_providers">
-        <observer name="afd_ai_sync_node_config_providers" instance="Afd\AI\Observer\SyncNodeConfig"/>
-    </event>
-    <event name="admin_system_config_changed_section_afd_ai_agent">
-        <observer name="afd_ai_sync_node_config_agent" instance="Afd\AI\Observer\SyncNodeConfig"/>
-    </event>
-    <event name="admin_system_config_changed_section_afd_ai_images">
-        <observer name="afd_ai_sync_node_config_images" instance="Afd\AI\Observer\SyncNodeConfig"/>
-    </event>
-    <event name="admin_system_config_changed_section_afd_ai_limits">
-        <observer name="afd_ai_sync_node_config_limits" instance="Afd\AI\Observer\SyncNodeConfig"/>
-    </event>
-    <event name="admin_system_config_changed_section_afd_ai_knowledge">
-        <observer name="afd_ai_sync_node_config_knowledge" instance="Afd\AI\Observer\SyncNodeConfig"/>
-    </event>
-    <event name="admin_system_config_changed_section_afd_ai_support">
-        <observer name="afd_ai_sync_node_config_support" instance="Afd\AI\Observer\SyncNodeConfig"/>
-    </event>
-    <event name="admin_system_config_changed_section_afd_ai_privacy">
-        <observer name="afd_ai_sync_node_config_privacy" instance="Afd\AI\Observer\SyncNodeConfig"/>
-    </event>
-    <event name="admin_system_config_changed_section_afd_ai_integration">
-        <observer name="afd_ai_sync_node_config_integration" instance="Afd\AI\Observer\SyncNodeConfig"/>
+    <!-- Magento website/store base URLs are part of the Node snapshot too. -->
+    <event name="admin_system_config_changed_section_web">
+        <observer name="afd_ai_sync_node_config_magento_url" instance="Afd\AI\Observer\SyncNodeConfig"/>
     </event>
 </config>

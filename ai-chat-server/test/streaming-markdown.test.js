@@ -10,9 +10,46 @@ const helperSource = fs.readFileSync(
     path.resolve(testDirectory, '../../view/frontend/web/js/chat/helpers.js'),
     'utf8'
 );
-const sandbox = { window: { AfdAiChat: {} } };
+const sandbox = {
+    URL,
+    window: {
+        AfdAiChat: {},
+        location: {
+            protocol: 'http:',
+            hostname: 'afd.test',
+            host: 'afd.test'
+        }
+    }
+};
 vm.runInNewContext(helperSource, sandbox);
-const { normalizeMarkdownForCopy, stabilizeStreamingMarkdown } = sandbox.window.AfdAiChat.helpers;
+const {
+    normalizeMarkdownForCopy,
+    resolveWebSocketUrl,
+    stabilizeStreamingMarkdown
+} = sandbox.window.AfdAiChat.helpers;
+
+test('routes an insecure local gateway through the secure storefront proxy', () => {
+    sandbox.window.location = {
+        protocol: 'https:',
+        hostname: 'shop-tunnel.example',
+        host: 'shop-tunnel.example'
+    };
+
+    assert.equal(
+        resolveWebSocketUrl('ws://shop-tunnel.example:3001'),
+        'wss://shop-tunnel.example/ai-gateway/'
+    );
+});
+
+test('preserves a direct local WebSocket gateway on an HTTP storefront', () => {
+    sandbox.window.location = {
+        protocol: 'http:',
+        hostname: 'afd.test',
+        host: 'afd.test'
+    };
+
+    assert.equal(resolveWebSocketUrl('ws://afd.test:3001'), 'ws://afd.test:3001/');
+});
 
 test('withholds an unfinished Markdown link from the live stream', () => {
     const source = 'Mở sản phẩm: [Bóng bay (Luftballons)](http://afd.test/bong-bay';
@@ -48,6 +85,36 @@ test('withholds a bare URL until the streamed token has a stable boundary', () =
         stabilizeStreamingMarkdown('Xem thêm tại https://afd.test/bong-bay'),
         'Xem thêm tại '
     );
+});
+
+test('streams words progressively without withholding partial trailing words', () => {
+    assert.equal(
+        stabilizeStreamingMarkdown('Một câu đang stream dở chữ'),
+        'Một câu đang stream dở chữ'
+    );
+    assert.equal(
+        stabilizeStreamingMarkdown('Một câu đã đủ chữ '),
+        'Một câu đã đủ chữ '
+    );
+    assert.equal(
+        stabilizeStreamingMarkdown('Một câu đã kết thúc.'),
+        'Một câu đã kết thúc.'
+    );
+});
+
+test('does not hide scripts that stream without inter-word whitespace', () => {
+    assert.equal(stabilizeStreamingMarkdown('犬の世話'), '犬の世話');
+});
+
+test('withholds incomplete emphasis and code delimiters from the live stream', () => {
+    assert.equal(stabilizeStreamingMarkdown('Đây là **một tiêu đề'), 'Đây là ');
+    assert.equal(stabilizeStreamingMarkdown('Đây là **một tiêu đề**'), 'Đây là **một tiêu đề**');
+    assert.equal(stabilizeStreamingMarkdown('Mã: `SKU-01'), 'Mã: ');
+    assert.equal(stabilizeStreamingMarkdown('Mã: `SKU-01`'), 'Mã: `SKU-01`');
+    assert.equal(stabilizeStreamingMarkdown('```js\nconst sku = "SKU-01";'), '');
+    assert.equal(stabilizeStreamingMarkdown('```js\nconst sku = "SKU-01";\n```'), '```js\nconst sku = "SKU-01";\n```');
+    assert.equal(stabilizeStreamingMarkdown('* Một lựa chọn'), '* Một lựa chọn');
+    assert.equal(stabilizeStreamingMarkdown('snake_case'), 'snake_case');
 });
 
 test('normalizes copied Markdown to the visible response text', () => {

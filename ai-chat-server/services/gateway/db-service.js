@@ -2,25 +2,25 @@ import axios from 'axios';
 import { summarizeError } from './error-summary.js';
 import { createInternalMagentoRequestConfig } from './magento-auth.js';
 import { catalogRestUrl } from '../catalog/catalog-scope.js';
+import { resolveMagentoBaseUrl } from './magento-url.js';
 
-const MAGENTO_URL = process.env.MAGENTO_API_URL || 'http://afd.test';
-
-function postInternal(path, payload, catalogScope = null) {
+function postInternal(path, payload, catalogScope = null, magentoBaseUrl = '') {
     const url = internalUrl(path, catalogScope);
     const body = JSON.stringify(payload);
-    return axios.post(url, body, createInternalMagentoRequestConfig('POST', url, body));
+    return axios.post(url, body, createInternalMagentoRequestConfig('POST', url, body, { magentoBaseUrl }));
 }
 
-function getInternal(path, catalogScope = null) {
+function getInternal(path, catalogScope = null, magentoBaseUrl = '') {
     const url = internalUrl(path, catalogScope);
-    return axios.get(url, createInternalMagentoRequestConfig('GET', url, '', { contentType: false }));
+    return axios.get(url, createInternalMagentoRequestConfig('GET', url, '', { contentType: false, magentoBaseUrl }));
 }
 
 function internalUrl(path, catalogScope = null) {
+    const magentoUrl = resolveMagentoBaseUrl(catalogScope);
     const normalized = String(path || '');
     const restMatch = normalized.match(/^\/rest\/(?:[^/]+\/)?V1\/(.+)$/);
-    if (!restMatch) return `${MAGENTO_URL}${normalized}`;
-    return catalogRestUrl(MAGENTO_URL, restMatch[1], catalogScope);
+    if (!restMatch) return `${magentoUrl}${normalized}`;
+    return catalogRestUrl(magentoUrl, restMatch[1], catalogScope);
 }
 
 function normalizeMessagePage(payload) {
@@ -217,9 +217,12 @@ export async function deleteConversation(conversationId, customerId, catalogScop
 /**
  * Touch conversation (update updated_at timestamp)
  */
-export async function touchConversation(conversationId, catalogScope = null) {
+export async function touchConversation(conversationId, customerId, catalogScope = null) {
     try {
-        await postInternal('/rest/V1/afd-ai/conversations/touch', { conversationId }, catalogScope);
+        await postInternal('/rest/V1/afd-ai/conversations/touch', {
+            conversationId: Number(conversationId),
+            customerId: Number(customerId)
+        }, catalogScope);
         return true;
     } catch (error) {
         console.error('touchConversation error:', summarizeError(error));
@@ -262,7 +265,8 @@ export async function updateConversationTitle(conversationId, customerId, title,
 
 // ==================== PERSISTED GUEST CONVERSATIONS ====================
 // The caller receives `guestId` exclusively from a signed WebSocket ticket.
-// It is a one-way Magento-session digest, never a raw session ID or a browser value.
+// It is the SHA-256 digest of a Magento-issued HttpOnly guest chat token,
+// never a raw browser value or a PHP-session identifier.
 export async function createGuestConversation(guestId, title = 'New Chat', catalogScope = null) {
     const response = await postInternal('/rest/V1/afd-ai/guest-conversations/create', {
         guestId,

@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Afd\AI\Observer;
 
 use Afd\AI\Model\Config\Config as AiConfig;
+use Afd\AI\Model\Gateway\InternalRequestSigner;
+use Afd\AI\Model\Gateway\GatewayTlsConfigurator;
 use Magento\Framework\App\CacheInterface;
 use Magento\Framework\Event\Observer;
 use Magento\Framework\Event\ObserverInterface;
@@ -25,7 +27,9 @@ class InvalidateGatewayCatalogCache implements ObserverInterface
         private readonly CacheInterface $cache,
         private readonly CurlFactory $curlFactory,
         private readonly Json $json,
-        private readonly LoggerInterface $logger
+        private readonly LoggerInterface $logger,
+        private readonly InternalRequestSigner $requestSigner,
+        private readonly GatewayTlsConfigurator $gatewayTlsConfigurator
     ) {
     }
 
@@ -49,10 +53,14 @@ class InvalidateGatewayCatalogCache implements ObserverInterface
         $timestamp = (string)time();
         try {
             $curl = $this->curlFactory->create();
+            $this->gatewayTlsConfigurator->configure($curl);
             $curl->setTimeout(3);
             $curl->addHeader('Content-Type', 'application/json');
             $curl->addHeader('X-Afd-AI-Timestamp', $timestamp);
-            $curl->addHeader('X-Afd-AI-Signature', hash_hmac('sha256', $timestamp . '.' . $body, $secret));
+            $curl->addHeader(
+                'X-Afd-AI-Signature',
+                $this->requestSigner->signature($secret, $timestamp, 'POST', '/internal/catalog-invalidate', $body)
+            );
             $curl->post(rtrim($url, '/') . '/internal/catalog-invalidate', $body);
         } catch (\Throwable $exception) {
             $this->logger->warning('Afd AI could not invalidate the gateway catalogue cache.', [

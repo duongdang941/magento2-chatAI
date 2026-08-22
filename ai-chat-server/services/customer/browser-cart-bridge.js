@@ -15,12 +15,13 @@ export class BrowserCartBridge {
         this.pendingRequests = new WeakMap();
     }
 
-    request(ws, { requestId, cart, signal } = {}) {
+    request(ws, { requestId, cart, conversationId = 0, signal } = {}) {
         if (!ws || !this.isSocketOpen(ws)) {
             return Promise.resolve(this.failure('The storefront connection is unavailable. Please try again.'));
         }
 
         const cartRequestId = crypto.randomUUID();
+        const analyticsEventId = crypto.randomUUID();
         const payload = this.normalizeCart(cart);
         if (!payload.sku) {
             return Promise.resolve(this.failure('A product could not be selected.'));
@@ -52,6 +53,8 @@ export class BrowserCartBridge {
                     type: payload.action === 'remove' ? 'cart_remove_request' : 'cart_add_request',
                     request_id: String(requestId || ''),
                     cart_request_id: cartRequestId,
+                    conversation_id: Math.max(0, Math.trunc(Number(conversationId) || 0)),
+                    analytics_event_id: analyticsEventId,
                     cart: payload
                 }));
             } catch (error) {

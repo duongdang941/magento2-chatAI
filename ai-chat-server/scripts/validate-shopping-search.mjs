@@ -4,16 +4,25 @@ import 'dotenv/config';
 import assert from 'node:assert/strict';
 import axios from 'axios';
 
-import { createMagentoRequestConfig } from '../services/gateway/magento-auth.js';
+import { createInternalMagentoRequestConfig } from '../services/gateway/magento-auth.js';
 import { buildLocalGatewayEnvironment } from '../services/configuration/local-magento-bootstrap.js';
 
-Object.assign(process.env, buildLocalGatewayEnvironment());
-const { getAiConfig } = await import('../services/configuration/config-service.js');
+// A local smoke failure must never make Node print Axios' request object,
+// which includes authorization headers. Keep diagnostics actionable but safe.
+process.on('uncaughtException', (error) => {
+    console.error(`Shopping contract failed: ${safeErrorMessage(error)}`);
+    process.exitCode = 1;
+});
+process.on('unhandledRejection', (error) => {
+    console.error(`Shopping contract failed: ${safeErrorMessage(error)}`);
+    process.exitCode = 1;
+});
 
-const baseUrl = (process.env.MAGENTO_API_URL || 'http://afd.test').replace(/\/+$/, '');
+Object.assign(process.env, buildLocalGatewayEnvironment());
+
+const baseUrl = requiredUrl('MAGENTO_API_URL');
 const searchEndpoint = `${baseUrl}/rest/V1/afd-ai/products/search`;
 const categoriesEndpoint = `${baseUrl}/rest/V1/afd-ai/categories`;
-const magentoOauth = (await getAiConfig()).magento_oauth;
 const categories = await loadCategories();
 const textileCategory = categoryNamed('Textilien');
 const cupCategory = categoryNamed('Tassen');
@@ -141,6 +150,21 @@ const cases = [
     }
 ];
 
+function requiredUrl(name) {
+    const value = String(process.env[name] || '').trim().replace(/\/+$/, '');
+    if (!/^https?:\/\//i.test(value)) {
+        throw new Error(`${name} must be an HTTP(S) URL supplied by the target environment.`);
+    }
+    return value;
+}
+
+function safeErrorMessage(error) {
+    const status = Number(error?.response?.status || 0);
+    if (status > 0) return `Magento returned HTTP ${status}.`;
+    const message = String(error?.message || 'Unexpected error.');
+    return message.replace(/(?:Authorization|oauth_[a-z_]+|api[_-]?key)\s*[:=].*/gi, '[redacted]');
+}
+
 let passed = 0;
 for (const testCase of cases) {
     try {
@@ -178,11 +202,9 @@ async function searchProducts(overrides = {}) {
         excludedTerms: '',
         ...overrides
     };
-    const requestConfig = createMagentoRequestConfig('GET', searchEndpoint, {
-        magentoOauth,
-        signParams: params
-    });
-    const response = await axios.get(searchEndpoint, { ...requestConfig, params });
+    const requestUrl = withQuery(searchEndpoint, params);
+    const requestConfig = createInternalMagentoRequestConfig('GET', requestUrl, '', { timeout: 20000 });
+    const response = await axios.get(requestUrl, requestConfig);
     const payload = response.data || {};
     const meta = normalizeItems(payload.meta);
 
@@ -195,7 +217,7 @@ async function searchProducts(overrides = {}) {
 }
 
 async function loadCategories() {
-    const requestConfig = createMagentoRequestConfig('GET', categoriesEndpoint, { magentoOauth });
+    const requestConfig = createInternalMagentoRequestConfig('GET', categoriesEndpoint, '', { timeout: 20000 });
     const response = await axios.get(categoriesEndpoint, requestConfig);
     const items = normalizeItems(response.data?.data);
     assert.ok(items.length > 0, 'category endpoint returned no categories');
@@ -205,6 +227,14 @@ async function loadCategories() {
         assert.ok(isSafeHttpUrl(category.url), `category ${category.name} has an unsafe URL`);
     });
     return items;
+}
+
+function withQuery(url, params = {}) {
+    const requestUrl = new URL(url);
+    for (const [key, value] of Object.entries(params)) {
+        if (value !== null && value !== undefined) requestUrl.searchParams.set(key, String(value));
+    }
+    return requestUrl.toString();
 }
 
 function categoryNamed(name) {

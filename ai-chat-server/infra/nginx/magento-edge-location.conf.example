@@ -5,6 +5,7 @@ location /ai-gateway/ {
     limit_req zone=afd_ai_connection_rate burst=12 nodelay;
     limit_conn afd_ai_connection_limit 12;
 
+    # Preserve the URI so Node receives the public /ai-gateway/ prefix.
     proxy_pass http://afd_ai_gateway_replicas;
     proxy_http_version 1.1;
     proxy_set_header Host $host;

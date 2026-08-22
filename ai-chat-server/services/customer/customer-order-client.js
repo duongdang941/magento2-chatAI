@@ -1,7 +1,6 @@
 import axios from 'axios';
 import { createInternalMagentoRequestConfig } from '../gateway/magento-auth.js';
-
-const MAGENTO_URL = process.env.MAGENTO_API_URL || 'http://afd.test';
+import { resolveMagentoBaseUrl } from '../gateway/magento-url.js';
 const ORDER_ENDPOINT = '/afd_ai/chat/orders';
 
 /**
@@ -9,7 +8,7 @@ const ORDER_ENDPOINT = '/afd_ai/chat/orders';
  * customerId comes exclusively from the verified WebSocket ticket, never from
  * model arguments or browser input.
  */
-export async function executeCustomerOrderAction(customerId, action, payload = {}) {
+export async function executeCustomerOrderAction(customerId, action, payload = {}, catalogScope = null) {
     const verifiedCustomerId = Number(customerId);
     if (!Number.isInteger(verifiedCustomerId) || verifiedCustomerId < 1) {
         return {
@@ -19,7 +18,7 @@ export async function executeCustomerOrderAction(customerId, action, payload = {
         };
     }
 
-    const url = `${MAGENTO_URL}${ORDER_ENDPOINT}`;
+    const url = `${resolveMagentoBaseUrl(catalogScope)}${ORDER_ENDPOINT}`;
     const body = JSON.stringify({
         ...payload,
         customerId: verifiedCustomerId,

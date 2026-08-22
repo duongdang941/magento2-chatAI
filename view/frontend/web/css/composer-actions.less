@@ -1,0 +1,36 @@
+// Composer action order is intentionally isolated so it can be deployed after
+// the main chat stylesheet without relying on a stale preprocessed partial.
+#afd-ai-chat-scope {
+    .afd-ai-chat__composer-editor--voice-enabled {
+        grid-template-columns: 2rem minmax(0, 1fr) 2rem 2rem;
+
+        .afd-ai-chat__input { grid-column: 2; }
+        .afd-ai-chat__send-btn { grid-column: 4; }
+    }
+
+    .afd-ai-chat__voice-btn { grid-column: 3; }
+
+    .afd-ai-chat__composer-editor--live-voice-enabled {
+        grid-template-columns: 2rem minmax(0, 1fr) 2rem 2rem;
+
+        .afd-ai-chat__input { grid-column: 2; }
+        .afd-ai-chat__send-btn { grid-column: 4; }
+    }
+
+    .afd-ai-chat__live-voice-btn { grid-column: 3; }
+
+    .afd-ai-chat__composer-editor--voice-enabled.afd-ai-chat__composer-editor--live-voice-enabled {
+        grid-template-columns: 2rem minmax(0, 1fr) 2rem 2rem 2rem;
+
+        .afd-ai-chat__send-btn { grid-column: 5; }
+        .afd-ai-chat__live-voice-btn { grid-column: 4; }
+    }
+
+    .afd-ai-chat__composer-shell--expanded {
+        .afd-ai-chat__input-icon-btn:not(.afd-ai-chat__voice-btn):not(.afd-ai-chat__live-voice-btn) { order: 1; }
+        .afd-ai-chat__composer-spacer { order: 2; }
+        .afd-ai-chat__voice-btn { order: 3; }
+        .afd-ai-chat__live-voice-btn { order: 4; }
+        .afd-ai-chat__send-btn { order: 5; }
+    }
+}

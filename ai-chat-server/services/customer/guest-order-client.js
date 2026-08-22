@@ -1,11 +1,10 @@
 import axios from 'axios';
 import { createInternalMagentoRequestConfig } from '../gateway/magento-auth.js';
-
-const MAGENTO_URL = process.env.MAGENTO_API_URL || 'http://afd.test';
+import { resolveMagentoBaseUrl } from '../gateway/magento-url.js';
 const GUEST_ORDER_ENDPOINT = '/afd_ai/chat/guestOrders';
 
-export async function guestOrderAction(action, sessionId, payload = {}) {
-    const url = `${MAGENTO_URL}${GUEST_ORDER_ENDPOINT}`;
+export async function guestOrderAction(action, sessionId, payload = {}, catalogScope = null) {
+    const url = `${resolveMagentoBaseUrl(catalogScope)}${GUEST_ORDER_ENDPOINT}`;
     const body = JSON.stringify({
         ...payload,
         action,

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Afd\AI\Controller\Chat;
 
 use Afd\AI\Model\Privacy\ChatDataService;
+use Afd\AI\Model\Security\GuestChatIdentity;
 use Magento\Customer\Model\Session as CustomerSession;
 use Magento\Framework\App\Action\HttpPostActionInterface;
 use Magento\Framework\App\CsrfAwareActionInterface;
@@ -20,6 +21,7 @@ class Privacy implements HttpPostActionInterface, CsrfAwareActionInterface
         private readonly HttpRequest $request,
         private readonly ResultFactory $resultFactory,
         private readonly CustomerSession $customerSession,
+        private readonly GuestChatIdentity $guestChatIdentity,
         private readonly FormKey $formKey,
         private readonly ChatDataService $chatDataService
     ) {
@@ -38,7 +40,7 @@ class Privacy implements HttpPostActionInterface, CsrfAwareActionInterface
         $result = $this->resultFactory->create(ResultFactory::TYPE_JSON);
         $payload = json_decode($this->request->getContent(), true) ?: [];
         $customerId = (int)$this->customerSession->getCustomerId();
-        $guestId = $customerId > 0 ? null : hash('sha256', (string)$this->customerSession->getSessionId());
+        $guestId = $customerId > 0 ? null : $this->guestChatIdentity->resolve();
         $action = (string)($payload['action'] ?? 'export');
 
         if ($action === 'delete') {

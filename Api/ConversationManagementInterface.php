@@ -107,9 +107,10 @@ interface ConversationManagementInterface
      * Touch (update timestamp) a conversation
      *
      * @param int $conversationId
+     * @param int $customerId Verified customer identity from the gateway ticket.
      * @return bool
      */
-    public function touchConversation(int $conversationId): bool;
+    public function touchConversation(int $conversationId, int $customerId): bool;
 
     /**
      * Update conversation title
@@ -123,7 +124,8 @@ interface ConversationManagementInterface
 
     /**
      * Guest conversation methods are callable only by the internally authenticated
-     * Node gateway. `$guestId` is a SHA-256 session digest, never a browser-supplied ID.
+     * Node gateway. `$guestId` is a SHA-256 digest of a Magento-issued guest
+     * chat token, never a raw browser value or PHP session identifier.
      * @return int
      */
     public function createGuestConversation(string $guestId, string $title): int;

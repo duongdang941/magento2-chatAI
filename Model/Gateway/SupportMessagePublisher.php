@@ -14,7 +14,9 @@ class SupportMessagePublisher
         private readonly CurlFactory $curlFactory,
         private readonly AiConfig $aiConfig,
         private readonly Json $json,
-        private readonly LoggerInterface $logger
+        private readonly LoggerInterface $logger,
+        private readonly InternalRequestSigner $requestSigner,
+        private readonly GatewayTlsConfigurator $gatewayTlsConfigurator
     ) {
     }
 
@@ -74,11 +76,15 @@ class SupportMessagePublisher
 
         try {
             $curl = $this->curlFactory->create();
+            $this->gatewayTlsConfigurator->configure($curl);
             $curl->setTimeout(5);
             $curl->addHeader('Accept', 'application/json');
             $curl->addHeader('Content-Type', 'application/json');
             $curl->addHeader('X-Afd-AI-Timestamp', $timestamp);
-            $curl->addHeader('X-Afd-AI-Signature', hash_hmac('sha256', $timestamp . '.' . $body, $secret));
+            $curl->addHeader(
+                'X-Afd-AI-Signature',
+                $this->requestSigner->signature($secret, $timestamp, 'POST', $path, $body)
+            );
             $curl->post(rtrim($url, '/') . $path, $body);
             if ($curl->getStatus() < 200 || $curl->getStatus() >= 300) {
                 throw new \RuntimeException(sprintf('Gateway returned HTTP %d.', $curl->getStatus()));

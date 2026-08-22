@@ -13,19 +13,26 @@ class WebSocketTicketIssuer
 {
     private const AUDIENCE = 'afd-ai-websocket';
     private const TTL_SECONDS = 60;
-
     public function __construct(
         private readonly AiConfig $config,
         private readonly SessionConfig $sessionConfig,
         private readonly CustomerSession $customerSession,
         private readonly ShopperScopeResolver $shopperScopeResolver,
-        private readonly PageContextResolver $pageContextResolver
+        private readonly PageContextResolver $pageContextResolver,
+        private readonly GuestChatIdentity $guestChatIdentity
     ) {
     }
 
     public function issue(?int $customerId, string $sessionId): string
     {
         $secret = $this->webSocketSecret();
+        $tenantId = $this->config->getTenantId();
+        if ($tenantId === '') {
+            throw new \RuntimeException('The Magento installation tenant identity could not be resolved from its base URL.');
+        }
+        $guestHistoryId = !$customerId || $customerId < 1
+            ? $this->guestChatIdentity->resolve()
+            : null;
         $customerGroupId = $customerId && $customerId > 0
             ? (int)$this->customerSession->getCustomerGroupId()
             : 0;
@@ -34,16 +41,22 @@ class WebSocketTicketIssuer
         return $this->sign([
             'aud' => self::AUDIENCE,
             'sub' => $customerId && $customerId > 0 ? (string)$customerId : null,
-            // Keep the stable, non-sensitive session fingerprint for gateway
-            // rate limiting and guest-history scope.
+            // The session fingerprint remains for rate limiting and checkout
+            // operations only. It must never own persistent guest chat data.
             'sid' => hash('sha256', $sessionId),
+            // SHA-256 digest of a random, HttpOnly chat cookie. Magento has
+            // stored the digest before issuing this signed ticket; Node never
+            // sees the raw browser token and never accepts it from a message.
+            'gid' => $guestHistoryId,
             // The checkout session ID is encrypted for the trusted gateway.
-            // A loopback WebSocket uses a different host than Magento, so the
-            // browser cannot forward its afd.test cookie to Node. The gateway
-            // can decrypt this short-lived claim only after verifying the JWT,
-            // then present it solely to the HMAC-protected internal cart route.
+            // The gateway receives it only after ticket verification and can
+            // present it solely to the HMAC-protected internal cart route.
             'sct' => $this->encryptCheckoutSessionId($sessionId, $secret),
             'scn' => (string)$this->sessionConfig->getName(),
+            // The installation identity is signed into the ticket so a
+            // shared Node gateway can never select another Magento site's
+            // provider credentials or storefront URL.
+            'tenant_id' => $tenantId,
             // Store and group are resolved by Magento and signed into the
             // one-minute ticket. The browser never supplies pricing scope.
             'catalog_scope' => $shopperScope->toArray(),

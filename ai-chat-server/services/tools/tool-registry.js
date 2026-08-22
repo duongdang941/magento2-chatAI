@@ -40,6 +40,7 @@ export const TOOL_DEFINITIONS = Object.freeze([
         page: { type: 'integer' },
         minPrice: { type: 'number' },
         maxPrice: { type: 'number' },
+        priceCurrency: { type: 'string', description: 'ISO 4217 currency explicitly written by the shopper, for example USD.' },
         directAddOnly: { type: 'boolean' },
         exactIdentity: { type: 'boolean' },
         excludedTerms: { type: 'array', items: { type: 'string' } },
@@ -49,7 +50,7 @@ export const TOOL_DEFINITIONS = Object.freeze([
     tool('compareProducts', 'Compare two returned Magento products by exact SKU.', objectSchema({
         sku1: { type: 'string' },
         sku2: { type: 'string' }
-    }, ['sku1', 'sku2']), { providers: ['openai'] }),
+    }, ['sku1', 'sku2'])),
     tool('getProductAvailability', 'Check live Magento salable quantity for an exact returned SKU.', objectSchema({
         sku: { type: 'string' },
         selectedOptions: { type: 'object', additionalProperties: { type: 'string' } }
@@ -78,10 +79,10 @@ export const TOOL_DEFINITIONS = Object.freeze([
     tool('getRecentOrders', 'List the authenticated shopper own recent orders.', objectSchema({
         limit: { type: 'integer' }
     }), { requiresCustomer: true }),
-    tool('getGuestOrders', 'List orders for the email verified in this chat session.', objectSchema({
+    tool('getGuestOrders', 'MANDATORY FIRST ACTION for an unauthenticated shopper asking about their own orders. List orders for the email verified in this chat session; when not verified, the gateway opens the secure email card.', objectSchema({
         limit: { type: 'integer' }
     }), { requiresVerification: true }),
-    tool('getGuestOrderDetails', 'Read one guest order belonging to the verified email.', objectSchema({
+    tool('getGuestOrderDetails', 'MANDATORY for an unauthenticated shopper asking about one of their own orders. Read that guest order belonging to the verified email; when not verified, the gateway opens the secure email card.', objectSchema({
         orderNumber: { type: 'string' }
     }, ['orderNumber']), { requiresVerification: true }),
     tool('updateGuestOrderAddress', 'Update an eligible unshipped guest order after fresh verification.', objectSchema({
@@ -99,36 +100,37 @@ export const TOOL_DEFINITIONS = Object.freeze([
     }, ['orderNumber', 'addressType', 'address']), { risk: 'mutation', requiresCustomer: true }),
     tool('subscribeBackInStock', 'Subscribe the authenticated shopper to Magento product alerts.', objectSchema({
         sku: { type: 'string' }
-    }, ['sku']), { risk: 'mutation', requiresCustomer: true, providers: ['openai'] }),
+    }, ['sku']), { risk: 'mutation', requiresCustomer: true }),
     tool('searchStoreKnowledge', 'Search authoritative Magento CMS policy and help content.', objectSchema({
         query: { type: 'string' },
         limit: { type: 'integer' }
-    }, ['query']), { providers: ['openai'] }),
+    }, ['query'])),
     tool('getOrderFulfillment', 'Read fulfillment, invoices, refunds, tracking and cancellation eligibility.', objectSchema({
         orderNumber: { type: 'string' }
-    }, ['orderNumber']), { requiresCustomer: true, providers: ['openai'] }),
+    }, ['orderNumber']), { requiresCustomer: true }),
     tool('cancelOrder', 'Cancel an eligible own order only after explicit latest-message confirmation.', objectSchema({
         orderNumber: { type: 'string' },
         confirmed: { type: 'boolean' }
-    }, ['orderNumber', 'confirmed']), { risk: 'destructive', requiresCustomer: true, providers: ['openai'] }),
+    }, ['orderNumber', 'confirmed']), { risk: 'destructive', requiresCustomer: true }),
     tool('requestReturn', 'Create a human-reviewed return request for an authenticated shopper order.', objectSchema({
         orderNumber: { type: 'string' },
         reason: { type: 'string' },
         skus: { type: 'array', items: { type: 'string' } }
-    }, ['orderNumber', 'reason']), { risk: 'mutation', requiresCustomer: true, providers: ['openai'] }),
-    tool('handoffToHuman', 'Create or load human support when AI cannot safely complete the request.', objectSchema({
+    }, ['orderNumber', 'reason']), { risk: 'mutation', requiresCustomer: true }),
+    tool('handoffToHuman', 'Open the verified human-support portal. This loads the shopper\'s existing private tickets and lets the shopper choose one or start a new private support conversation; it does not start an instant live-agent call.', objectSchema({
         category: { type: 'string', enum: ['general', 'sales', 'order', 'shipping', 'billing', 'return', 'refund', 'technical'] },
         priority: { type: 'string', enum: ['low', 'normal', 'high', 'urgent'] },
         subject: { type: 'string' },
         summary: { type: 'string' },
         context: { type: 'object' }
-    }, ['category', 'subject', 'summary']), { risk: 'human_handoff', providers: ['openai'] }),
+    }, ['category', 'subject', 'summary']), { risk: 'human_handoff' }),
     tool('searchWeb', 'Search current external information without sending private customer or store data.', objectSchema({
         query: { type: 'string' }
-    }, ['query']), { risk: 'external_read', providers: ['openai'] }),
-    tool('generateImage', 'Create a new image only after an explicit visual-generation request.', objectSchema({
-        prompt: { type: 'string' }
-    }, ['prompt']), { risk: 'paid_generation', providers: ['openai'] })
+    }, ['query']), { risk: 'external_read' }),
+    tool('generateImage', 'Create a new visual picture, image, or artwork only when the user explicitly asks to draw or generate an image. Never use for text writing, essays, stories, poems, or text descriptions. If the selected provider has no native Image API, call this tool again with svg_content: a complete self-contained SVG document generated by the chat model. The SVG must not contain scripts, event handlers, foreignObject, external URLs, data URLs, or embedded resources.', objectSchema({
+        prompt: { type: 'string' },
+        svg_content: { type: 'string', description: 'Optional complete self-contained SVG document used when the chat model must create the artwork as a safe SVG file instead of calling a native image API.' }
+    }, ['prompt']), { risk: 'paid_generation' })
 ]);
 
 function geminiSchema(value) {
@@ -142,11 +144,23 @@ function geminiSchema(value) {
 }
 
 export function toolDefinitionsForProvider(provider) {
-    return TOOL_DEFINITIONS.filter((definition) => definition.policy.providers.includes(provider));
+    const normalizedProvider = String(provider || '').toLowerCase();
+    const policyProvider = ['cockpit', 'openrouter', '9router'].includes(normalizedProvider)
+        ? 'openai'
+        : normalizedProvider;
+    return TOOL_DEFINITIONS.filter((definition) => definition.policy.providers.includes(policyProvider));
 }
 
-export function openAiToolDefinitions() {
-    return toolDefinitionsForProvider('openai').map(({ name, description, parameters }) => ({
+export function anthropicToolDefinitions() {
+    return TOOL_DEFINITIONS.map(({ name, description, parameters }) => ({
+        name,
+        description,
+        input_schema: parameters
+    }));
+}
+
+export function openAiToolDefinitions(provider = 'openai') {
+    return toolDefinitionsForProvider(provider).map(({ name, description, parameters }) => ({
         type: 'function',
         function: { name, description, parameters }
     }));

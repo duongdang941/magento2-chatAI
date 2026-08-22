@@ -47,7 +47,69 @@ test('catalog context preserves configurable attribute machine codes', () => {
     });
 
     const context = history[0].parts[0].text;
-    assert.match(context, /Farbe \(code: farbe\): schwarz, weiß/);
-    assert.match(context, /Größe \(code: grosse\): S, M, L/);
-    assert.match(context, /Geschlecht \(code: gender\): Damen, Herren/);
+    assert.match(context, /\[CATALOG_CONTEXT:v2\]/);
+    assert.match(context, /"code":"farbe","label":"Farbe","values":\["schwarz","weiß"\]/);
+    assert.match(context, /"code":"grosse","label":"Größe","values":\["S","M","L"\]/);
+    assert.match(context, /"code":"gender","label":"Geschlecht","values":\["Damen","Herren"\]/);
+});
+
+test('candidate memory can be killed per store without removing the visible product card', () => {
+    const methods = sandbox.window.AfdAiChat.attachmentMethods({
+        config: { features: { candidate_memory_enabled: false } },
+        urls: {},
+        helpers: { MAX_MODEL_HISTORY_MESSAGES: 16 }
+    });
+    const history = methods.buildModelHistory.call({
+        messages: [
+            {
+                role: 'assistant',
+                parts: [{ type: 'text', raw: 'Here is the product.' }, {
+                    type: 'products',
+                    payload: { items: [{ id: 890, sku: 'N012.A0', name: 'T-Shirt' }] }
+                }]
+            },
+            { role: 'user', content: 'Is it available?' }
+        ],
+        htmlToText: () => ''
+    });
+
+    assert.match(history[0].parts[0].text, /previous response displayed a verified product grid/i);
+    assert.doesNotMatch(history[0].parts[0].text, /CATALOG_CONTEXT/);
+});
+
+test('does not feed an older text-only product list back as fresh catalogue evidence', () => {
+    const methods = sandbox.window.AfdAiChat.attachmentMethods({
+        config: {},
+        urls: {},
+        helpers: { MAX_MODEL_HISTORY_MESSAGES: 16 }
+    });
+    const history = methods.buildModelHistory.call({
+        messages: [
+            {
+                role: 'assistant',
+                parts: [{
+                    type: 'text',
+                    raw: 'There are 167 matching products. 1. Old product — 95 EUR.'
+                }, {
+                    type: 'products',
+                    payload: {
+                        items: [{
+                            id: 99,
+                            sku: 'OLD-99',
+                            name: 'Old product',
+                            price: '95 EUR'
+                        }]
+                    }
+                }]
+            },
+            { role: 'user', content: 'Show me products I can add directly.' }
+        ],
+        htmlToText: () => ''
+    });
+
+    const priorAssistantMessage = history[0].parts[0].text;
+    assert.match(priorAssistantMessage, /previous response displayed a verified product grid/i);
+    assert.match(priorAssistantMessage, /PRIVATE REFERENCE LEDGER/i);
+    assert.doesNotMatch(priorAssistantMessage, /167 matching products/i);
+    assert.doesNotMatch(priorAssistantMessage, /95 EUR/i);
 });

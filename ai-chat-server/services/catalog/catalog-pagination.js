@@ -36,6 +36,9 @@ export function buildCatalogProductsPayload(content = {}, args = {}) {
             categoryId: scope.category_id || 0,
             page: pagination.next_page,
             pageSize: pagination.page_size,
+            minPrice: positivePrice(args.minPrice),
+            maxPrice: positivePrice(args.maxPrice),
+            priceCurrency: normalizePriceCurrency(args.priceCurrency),
             directAddOnly: scope.direct_add_only
         })
         : null;
@@ -67,6 +70,9 @@ export function buildCatalogProductsPayload(content = {}, args = {}) {
             },
             scope,
             direct_add_only: scope.direct_add_only,
+            ...(positivePrice(args.minPrice) ? { min_price: positivePrice(args.minPrice) } : {}),
+            ...(positivePrice(args.maxPrice) ? { max_price: positivePrice(args.maxPrice) } : {}),
+            ...(normalizePriceCurrency(args.priceCurrency) ? { price_currency: normalizePriceCurrency(args.priceCurrency) } : {}),
             continuation
         }
     };
@@ -111,6 +117,9 @@ export function rehydrateCatalogContinuation(payload = {}) {
             categoryId: scope.category_id || 0,
             page: page + 1,
             pageSize,
+            minPrice: positivePrice(payload.min_price ?? payload.minPrice),
+            maxPrice: positivePrice(payload.max_price ?? payload.maxPrice),
+            priceCurrency: normalizePriceCurrency(payload.price_currency ?? payload.priceCurrency),
             directAddOnly: scope.direct_add_only
         })
         : null;
@@ -148,6 +157,9 @@ export function createCatalogPageToken(context = {}) {
     const pageSize = clampInteger(context.pageSize, 1, MAX_CATALOG_PAGE_SIZE, DEFAULT_CATALOG_PAGE_SIZE);
     const categoryId = clampInteger(context.categoryId, 0, Number.MAX_SAFE_INTEGER, 0);
     const directAddOnly = context.directAddOnly === true;
+    const minPrice = positivePrice(context.minPrice);
+    const maxPrice = positivePrice(context.maxPrice);
+    const priceCurrency = normalizePriceCurrency(context.priceCurrency);
     const payload = {
         v: 1,
         exp: Math.floor(Date.now() / 1000) + PAGINATION_TOKEN_TTL_SECONDS,
@@ -155,6 +167,9 @@ export function createCatalogPageToken(context = {}) {
         category_id: categoryId,
         page,
         page_size: pageSize,
+        ...(minPrice ? { min_price: minPrice } : {}),
+        ...(maxPrice ? { max_price: maxPrice } : {}),
+        ...(priceCurrency ? { price_currency: priceCurrency } : {}),
         ...(directAddOnly ? { direct_add_only: true } : {})
     };
     const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
@@ -191,6 +206,9 @@ export function verifyCatalogPageToken(token) {
             categoryId: clampInteger(parsed.category_id, 0, Number.MAX_SAFE_INTEGER, 0),
             page,
             pageSize,
+            ...(positivePrice(parsed.min_price) ? { minPrice: positivePrice(parsed.min_price) } : {}),
+            ...(positivePrice(parsed.max_price) ? { maxPrice: positivePrice(parsed.max_price) } : {}),
+            ...(normalizePriceCurrency(parsed.price_currency) ? { priceCurrency: normalizePriceCurrency(parsed.price_currency) } : {}),
             ...(parsed.direct_add_only === true ? { directAddOnly: true } : {})
         };
     } catch {
@@ -242,4 +260,14 @@ function clampInteger(value, min, max, fallback) {
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) return fallback;
     return Math.max(min, Math.min(Math.trunc(parsed), max));
+}
+
+function positivePrice(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function normalizePriceCurrency(value) {
+    const currency = String(value || '').trim().toUpperCase();
+    return /^[A-Z]{3}$/.test(currency) ? currency : '';
 }

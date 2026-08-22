@@ -79,9 +79,9 @@ function normalizeMagentoOauthConfig(config = {}) {
     };
 }
 
-function buildOAuth1AuthorizationHeader(method, url, extraParams = {}, oauthConfig = {}) {
+function buildOAuth1AuthorizationHeader(method, url, extraParams = {}, oauthConfig = {}, signingBaseUrl = '') {
     const credentials = normalizeMagentoOauthConfig(oauthConfig);
-    const signingUrl = buildMagentoSigningUrl(url);
+    const signingUrl = buildMagentoSigningUrl(url, '', signingBaseUrl);
     const oauthParams = {
         oauth_consumer_key: credentials.consumerKey,
         oauth_nonce: crypto.randomBytes(16).toString('hex'),
@@ -139,7 +139,7 @@ export function hasMagentoOAuthCredentials(oauthConfig = {}) {
 
 export function createMagentoRequestConfig(method, url, options = {}) {
     const oauthConfig = normalizeMagentoOauthConfig(options.magentoOauth);
-    const hostHeader = normalizeMagentoHostHeader(MAGENTO_HOST);
+    const hostHeader = normalizeMagentoHostHeader(options.magentoBaseUrl || MAGENTO_HOST);
     const headers = {
         Accept: options.accept || 'application/json'
     };
@@ -157,7 +157,8 @@ export function createMagentoRequestConfig(method, url, options = {}) {
             method,
             url,
             options.signParams || {},
-            oauthConfig
+            oauthConfig,
+            options.magentoBaseUrl || ''
         );
     } else if (oauthConfig.accessToken) {
         headers.Authorization = `Bearer ${oauthConfig.accessToken}`;
@@ -188,8 +189,12 @@ export function createInternalMagentoRequestConfig(method, url, body = '', optio
         throw new Error('AI_NODE_SYNC_SECRET is required for internal Magento requests.');
     }
 
-    const hostHeader = normalizeMagentoHostHeader(MAGENTO_HOST);
     const requestUrl = new URL(url);
+    // Use the synchronized Magento URL's host. MAGENTO_HOST is retained only
+    // for loopback development routing; it must not override a live domain.
+    const hostHeader = normalizeMagentoHostHeader(
+        options.magentoBaseUrl || (isLoopbackHost(requestUrl.hostname) ? MAGENTO_HOST : requestUrl.host)
+    );
     const requestTarget = `${requestUrl.pathname}${requestUrl.search}`;
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const nonce = crypto.randomBytes(16).toString('hex');
@@ -221,4 +226,9 @@ export function createInternalMagentoRequestConfig(method, url, body = '', optio
         headers,
         timeout: options.timeout || 10000
     };
+}
+
+function isLoopbackHost(hostname) {
+    const host = String(hostname || '').toLowerCase();
+    return host === 'localhost' || host === '127.0.0.1' || host === '::1';
 }

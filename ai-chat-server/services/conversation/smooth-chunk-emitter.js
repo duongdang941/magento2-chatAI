@@ -1,7 +1,7 @@
-const DEFAULT_INTERVAL_MS = 24;
-const DEFAULT_TARGET_FRAMES = 5;
-const DEFAULT_MIN_CHARS = 2;
-const DEFAULT_MAX_CHARS = 24;
+const DEFAULT_INTERVAL_MS = 16;
+const DEFAULT_TARGET_FRAMES = 2;
+const DEFAULT_MIN_CHARS = 4;
+const DEFAULT_MAX_CHARS = 64;
 
 function takeCodePoints(value, limit) {
     let end = 0;
@@ -21,8 +21,9 @@ function takeCodePoints(value, limit) {
  *
  * Providers commonly deliver 20-60 characters in a burst every 100-200ms.
  * Forwarding those bursts directly makes the browser reflow whole lines at
- * once. This emitter maintains low latency while adapting its chunk size to
- * the backlog, so a fast provider cannot leave the UI seconds behind.
+ * once. This emitter keeps only a small transport buffer; the browser-side
+ * renderer coalesces all deltas received during a frame. The limits are high
+ * enough that the gateway does not become a second typewriter animation.
  */
 export function createSmoothChunkEmitter({
     emit,

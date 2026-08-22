@@ -18,15 +18,18 @@ class MessagePageLoader
     private ConversationRepositoryInterface $conversationRepository;
     private ResourceConnection $resourceConnection;
     private ChatMessagePayload $chatMessagePayload;
+    private ConversationStoreScope $conversationStoreScope;
 
     public function __construct(
         ConversationRepositoryInterface $conversationRepository,
         ResourceConnection $resourceConnection,
-        ChatMessagePayload $chatMessagePayload
+        ChatMessagePayload $chatMessagePayload,
+        ConversationStoreScope $conversationStoreScope
     ) {
         $this->conversationRepository = $conversationRepository;
         $this->resourceConnection = $resourceConnection;
         $this->chatMessagePayload = $chatMessagePayload;
+        $this->conversationStoreScope = $conversationStoreScope;
     }
 
     /**
@@ -48,7 +51,8 @@ class MessagePageLoader
             return null;
         }
 
-        if ((int)$conversation->getCustomerId() !== $customerId) {
+        if ((int)$conversation->getCustomerId() !== $customerId
+            || !$this->conversationStoreScope->matches($conversation)) {
             return null;
         }
 
@@ -144,7 +148,8 @@ class MessagePageLoader
             return null;
         }
 
-        if (!hash_equals((string)$conversation->getData('guest_id'), $guestId)) {
+        if (!hash_equals((string)$conversation->getData('guest_id'), $guestId)
+            || !$this->conversationStoreScope->matches($conversation)) {
             return null;
         }
 
@@ -248,15 +253,26 @@ class MessagePageLoader
             return [];
         }
 
-        $items = is_array($attachment['items'] ?? null) ? $attachment['items'] : [$attachment];
+        $items = is_array($attachment['items'] ?? null)
+            ? $attachment['items']
+            : (is_array($attachment['attachments'] ?? null) ? $attachment['attachments'] : [$attachment]);
         $normalizedAttachments = [];
         foreach (array_slice($items, 0, 4) as $item) {
             if (!is_array($item)) {
                 continue;
             }
 
-            $url = trim((string)($item['url'] ?? ''));
-            $mimeType = strtolower(trim((string)($item['mime_type'] ?? '')));
+            $url = trim((string)($item['url'] ?? $item['previewUrl'] ?? ''));
+            $attachmentId = trim((string)($item['attachment_id'] ?? $item['id'] ?? ''));
+            if ($url === '' && $attachmentId !== '' && preg_match('/^att_[a-f0-9]{32}$/', $attachmentId)) {
+                $url = '/afd_ai/chat/attachment?id=' . urlencode($attachmentId);
+            }
+            if ($url === '' && !empty($item['data'])) {
+                $mime = strtolower(trim((string)($item['mime_type'] ?? 'image/jpeg')));
+                $url = 'data:' . $mime . ';base64,' . $item['data'];
+            }
+
+            $mimeType = strtolower(trim((string)($item['mime_type'] ?? $item['type'] ?? 'image/jpeg')));
             if ($url === '' || !in_array($mimeType, ['image/jpeg', 'image/png', 'image/webp'], true)) {
                 continue;
             }
@@ -265,7 +281,9 @@ class MessagePageLoader
                 'name' => trim((string)($item['name'] ?? 'image')) ?: 'image',
                 'mime_type' => $mimeType,
                 'size' => max(0, (int)($item['size'] ?? 0)),
-                'url' => $url
+                'url' => $url,
+                'previewUrl' => $url,
+                'attachment_id' => $attachmentId ?: null
             ];
         }
 

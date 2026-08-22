@@ -1,5 +1,8 @@
 <?xml version="1.0"?>
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <preference for="Afd\AI\Api\Data\ProviderInterface" type="Afd\AI\Model\Provider" />
+    <preference for="Afd\AI\Api\ProviderRepositoryInterface" type="Afd\AI\Model\ProviderRepository" />
+
     <preference for="Afd\AI\Api\CatalogVisibilityPolicyInterface" type="Afd\AI\Model\Catalog\CatalogVisibilityPolicy"/>
     <preference for="Afd\AI\Api\AgentToolInterface" type="Afd\AI\Model\AgentTool" />
     <preference for="Afd\AI\Api\ConfigInterface" type="Afd\AI\Model\Api\Config" />
@@ -12,6 +15,16 @@
     <preference for="Afd\AI\Api\ConversationRepositoryInterface" type="Afd\AI\Model\ConversationRepository" />
     <preference for="Afd\AI\Api\ConversationManagementInterface" type="Afd\AI\Model\ConversationManagement" />
     <preference for="Afd\AI\Api\QuoteCartAdapterInterface" type="Afd\AI\Model\Cart\OptionalQuoteCartAdapter" />
+    <preference for="Afd\AI\Api\AttachmentUploadManagementInterface" type="Afd\AI\Model\AttachmentUploadManagement" />
+    <preference for="Afd\AI\Api\Data\AttachmentUploadTicketInterface" type="Afd\AI\Model\Data\AttachmentUploadTicket" />
+
+    <type name="Afd\AI\Model\Maintenance\AttachmentDiskGuard">
+        <arguments>
+            <!-- Explicit Proxy injection keeps compiled DI metadata aligned with
+                 the distributed Magento lock backend. -->
+            <argument name="lockManager" xsi:type="object">Magento\Framework\Lock\Proxy</argument>
+        </arguments>
+    </type>
 
     <type name="Afd\AI\Model\Tool\FulltextProductCollectionFactory">
         <arguments>
@@ -36,6 +49,7 @@
         <arguments>
             <argument name="commands" xsi:type="array">
                 <item name="afd_ai_migrate_legacy_jsonl_history" xsi:type="object">Afd\AI\Console\Command\MigrateLegacyJsonlHistoryCommand</item>
+                <item name="afd_ai_gateway_credentials" xsi:type="object">Afd\AI\Console\Command\GatewayCredentialsCommand</item>
             </argument>
         </arguments>
     </type>

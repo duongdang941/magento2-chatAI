@@ -5,10 +5,34 @@ const PREFIX = 'afd:ai:gateway';
 const MAX_AUTH_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 const RATE_LIMIT_SCRIPT = `
-local current = redis.call('INCR', KEYS[1])
-if current == 1 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end
+local current = tonumber(redis.call('GET', KEYS[1]) or '0')
+local amount = tonumber(ARGV[2])
+local limit = tonumber(ARGV[3])
+if current + amount > limit then
+    return {0, current, redis.call('PTTL', KEYS[1])}
+end
+local next = redis.call('INCRBY', KEYS[1], amount)
+if current == 0 then redis.call('PEXPIRE', KEYS[1], ARGV[1]) end
 local ttl = redis.call('PTTL', KEYS[1])
-return {current, ttl}
+return {1, next, ttl}
+`;
+
+const RATE_LIMIT_BATCH_SCRIPT = `
+local amount = tonumber(ARGV[1])
+local window = ARGV[2]
+for index, key in ipairs(KEYS) do
+    local current = tonumber(redis.call('GET', key) or '0')
+    local limit = tonumber(ARGV[index + 2])
+    if current + amount > limit then
+        return {0, index, current, redis.call('PTTL', key)}
+    end
+end
+for _, key in ipairs(KEYS) do
+    local current = tonumber(redis.call('GET', key) or '0')
+    redis.call('INCRBY', key, amount)
+    if current == 0 then redis.call('PEXPIRE', key, window) end
+end
+return {1, 0, 0, 0}
 `;
 
 const QUEUE_REGISTER_SCRIPT = `
@@ -80,8 +104,9 @@ function runtimeError(code, message, details = {}) {
 export class GatewayRuntime {
     constructor(options = {}) {
         this.redisUrl = options.redisUrl ?? process.env.REDIS_URL ?? '';
-        this.allowInMemory = options.allowInMemory
-            ?? (process.env.ALLOW_IN_MEMORY_STATE === 'true' || process.env.NODE_ENV === 'test');
+        const production = (options.nodeEnv ?? process.env.NODE_ENV) === 'production';
+        this.allowInMemory = !production && (options.allowInMemory
+            ?? (process.env.ALLOW_IN_MEMORY_STATE === 'true' || process.env.NODE_ENV === 'test'));
         this.instanceId = options.instanceId || process.env.GATEWAY_INSTANCE_ID || crypto.randomUUID();
         this.redis = options.redis || null;
         this.mode = this.redis || this.redisUrl ? 'redis' : 'memory';
@@ -89,6 +114,7 @@ export class GatewayRuntime {
         this.memoryRateLimits = new Map();
         this.memoryQueue = new Map();
         this.memorySemaphore = new Map();
+        this.memoryScopedSemaphore = new Map();
         this.memoryCache = new Map();
         this.memorySingleFlight = new Map();
         this.memoryLocks = new Map();
@@ -147,15 +173,23 @@ export class GatewayRuntime {
         };
     }
 
-    async consumeRateLimit(identity, { limit, windowMs }) {
+    async consumeRateLimit(identity, { limit, windowMs, amount = 1 }) {
         const key = `${PREFIX}:rate:${hashKey(identity)}`;
         const safeLimit = numberFromEnv(limit, 15, 1, 10000);
         const safeWindow = numberFromEnv(windowMs, 60000, 1000, 3600000);
+        const safeAmount = numberFromEnv(amount, 1, 1, 10000);
 
         if (this.mode === 'redis') {
-            const [count, ttl] = await this.redis.eval(RATE_LIMIT_SCRIPT, 1, key, safeWindow);
+            const [allowed, count, ttl] = await this.redis.eval(
+                RATE_LIMIT_SCRIPT,
+                1,
+                key,
+                safeWindow,
+                safeAmount,
+                safeLimit
+            );
             return {
-                allowed: Number(count) <= safeLimit,
+                allowed: Number(allowed) === 1,
                 count: Number(count),
                 retryAfterMs: Math.max(0, Number(ttl))
             };
@@ -167,12 +201,92 @@ export class GatewayRuntime {
             record.count = 0;
             record.expiresAt = now + safeWindow;
         }
-        record.count += 1;
+        if (record.count + safeAmount > safeLimit) {
+            return {
+                allowed: false,
+                count: record.count,
+                retryAfterMs: Math.max(0, record.expiresAt - now)
+            };
+        }
+        record.count += safeAmount;
         this.memoryRateLimits.set(key, record);
         return {
-            allowed: record.count <= safeLimit,
+            allowed: true,
             count: record.count,
             retryAfterMs: Math.max(0, record.expiresAt - now)
+        };
+    }
+
+    /** Atomically check and consume one weighted amount across several scopes. */
+    async consumeRateLimitBatch(entries = []) {
+        const normalized = new Map();
+        for (const entry of Array.isArray(entries) ? entries : []) {
+            const identity = String(entry?.identity || 'unknown');
+            const safeLimit = numberFromEnv(entry?.limit, 15, 1, 10000);
+            const safeWindow = numberFromEnv(entry?.windowMs, 60000, 1000, 3600000);
+            const safeAmount = numberFromEnv(entry?.amount, 1, 1, 10000);
+            const key = `${PREFIX}:rate:${hashKey(identity)}`;
+            const existing = normalized.get(key);
+            normalized.set(key, {
+                identity,
+                limit: existing ? Math.min(existing.limit, safeLimit) : safeLimit,
+                windowMs: existing ? Math.min(existing.windowMs, safeWindow) : safeWindow,
+                amount: existing ? Math.max(existing.amount, safeAmount) : safeAmount
+            });
+        }
+
+        const policies = [...normalized.values()];
+        if (policies.length === 0) return { allowed: true, count: 0, retryAfterMs: 0 };
+        const amount = policies[0].amount;
+        const windowMs = Math.min(...policies.map(policy => policy.windowMs));
+
+        if (this.mode === 'redis') {
+            const keys = policies.map(policy => `${PREFIX}:rate:${hashKey(policy.identity)}`);
+            const limits = policies.map(policy => policy.limit);
+            const [allowed, failedIndex, count, ttl] = await this.redis.eval(
+                RATE_LIMIT_BATCH_SCRIPT,
+                keys.length,
+                ...keys,
+                amount,
+                windowMs,
+                ...limits
+            );
+            return {
+                allowed: Number(allowed) === 1,
+                count: Number(count),
+                failedIdentity: Number(failedIndex) > 0 ? policies[Number(failedIndex) - 1]?.identity || '' : '',
+                retryAfterMs: Math.max(0, Number(ttl))
+            };
+        }
+
+        const now = Date.now();
+        const records = policies.map(policy => {
+            const key = `${PREFIX}:rate:${hashKey(policy.identity)}`;
+            const record = this.memoryRateLimits.get(key) || { count: 0, expiresAt: now + policy.windowMs };
+            if (record.expiresAt <= now) {
+                record.count = 0;
+                record.expiresAt = now + policy.windowMs;
+            }
+            return { key, policy, record };
+        });
+        const rejected = records.find(({ policy, record }) => record.count + amount > policy.limit);
+        if (rejected) {
+            return {
+                allowed: false,
+                count: rejected.record.count,
+                failedIdentity: rejected.policy.identity,
+                retryAfterMs: Math.max(0, rejected.record.expiresAt - now)
+            };
+        }
+
+        records.forEach(({ key, record }) => {
+            record.count += amount;
+            this.memoryRateLimits.set(key, record);
+        });
+        return {
+            allowed: true,
+            count: amount,
+            retryAfterMs: 0
         };
     }
 
@@ -225,28 +339,53 @@ export class GatewayRuntime {
             if (Number(acquired) !== 1) return null;
             return {
                 token,
-                release: () => this.redis.zrem(key, token).catch(() => 0)
+                release: () => this.redis.zrem(key, token).catch(() => 0),
+                renew: () => this.renewScopedCapacity(key, token, leaseMs)
             };
         }
 
-        const current = this.memorySemaphore.get(key) || new Map();
+        const current = this.memoryScopedSemaphore.get(key) || new Map();
         for (const [entryToken, expiresAt] of current.entries()) {
             if (expiresAt <= now) current.delete(entryToken);
         }
         if (current.size >= concurrency) return null;
         current.set(token, now + leaseMs);
-        this.memorySemaphore.set(key, current);
+        this.memoryScopedSemaphore.set(key, current);
         return {
             token,
             release: async () => {
-                const entries = this.memorySemaphore.get(key);
+                const entries = this.memoryScopedSemaphore.get(key);
                 entries?.delete(token);
-                if (entries?.size === 0) this.memorySemaphore.delete(key);
-            }
+                if (entries?.size === 0) this.memoryScopedSemaphore.delete(key);
+            },
+            renew: () => this.renewScopedCapacity(key, token, leaseMs)
         };
     }
 
+    async renewScopedCapacity(key, token, leaseMs) {
+        const safeLease = numberFromEnv(leaseMs, 180000, 1000, 600000);
+        if (this.mode === 'redis') {
+            const result = await this.redis.eval(
+                SEMAPHORE_RENEW_SCRIPT,
+                1,
+                key,
+                Date.now() + safeLease,
+                token,
+                safeLease
+            );
+            return Number(result) === 1;
+        }
+        const entries = this.memoryScopedSemaphore.get(key);
+        if (!entries?.has(token)) return false;
+        entries.set(token, Date.now() + safeLease);
+        return true;
+    }
+
     async acquireCapacity(requestId, options = {}) {
+        const namespace = String(options.namespace || 'model')
+            .toLowerCase()
+            .replace(/[^a-z0-9:_-]/g, '_')
+            .slice(0, 48) || 'model';
         const concurrency = numberFromEnv(options.concurrency, 32, 1, 10000);
         const maxQueue = numberFromEnv(options.maxQueue, 200, 0, 100000);
         const queueWaitMs = numberFromEnv(options.queueWaitMs, 30000, 1000, 300000);
@@ -256,8 +395,8 @@ export class GatewayRuntime {
         const startedAt = Date.now();
 
         if (this.mode === 'redis') {
-            const queueKey = `${PREFIX}:queue:model`;
-            const semaphoreKey = `${PREFIX}:semaphore:model`;
+            const queueKey = `${PREFIX}:queue:${namespace}`;
+            const semaphoreKey = `${PREFIX}:semaphore:${namespace}`;
             const accepted = await this.redis.eval(
                 QUEUE_REGISTER_SCRIPT,
                 1,
@@ -297,8 +436,8 @@ export class GatewayRuntime {
                                 token,
                                 queueWaitMs: Date.now() - startedAt,
                                 leaseMs,
-                                release: () => this.releaseCapacity(token),
-                                renew: () => this.renewCapacity(token, leaseMs)
+                                release: () => this.releaseCapacity(token, namespace),
+                                renew: () => this.renewCapacity(token, leaseMs, namespace)
                             };
                         }
                     }
@@ -317,93 +456,122 @@ export class GatewayRuntime {
             leaseMs,
             pollMs,
             signal: options.signal,
-            startedAt
+            startedAt,
+            namespace
         });
     }
 
     async acquireMemoryCapacity(token, options) {
-        const { concurrency, maxQueue, queueWaitMs, leaseMs, pollMs, signal, startedAt } = options;
+        const { concurrency, maxQueue, queueWaitMs, leaseMs, pollMs, signal, startedAt, namespace } = options;
+        const queueKey = `${namespace}:queue`;
+        const semaphoreKey = `${namespace}:semaphore`;
+        const queue = this.memoryQueue.get(queueKey) || new Map();
+        const semaphore = this.memorySemaphore.get(semaphoreKey) || new Map();
+        this.memoryQueue.set(queueKey, queue);
+        this.memorySemaphore.set(semaphoreKey, semaphore);
         const cleanup = () => {
             const now = Date.now();
-            for (const [key, expiry] of this.memorySemaphore.entries()) {
-                if (expiry <= now) this.memorySemaphore.delete(key);
+            for (const [key, expiry] of semaphore.entries()) {
+                if (expiry <= now) semaphore.delete(key);
             }
-            for (const [key, queuedAt] of this.memoryQueue.entries()) {
-                if (now - queuedAt > queueWaitMs) this.memoryQueue.delete(key);
+            for (const [key, queuedAt] of queue.entries()) {
+                if (now - queuedAt > queueWaitMs) queue.delete(key);
             }
         };
 
         cleanup();
-        if (this.memoryQueue.size >= maxQueue) {
+        if (queue.size >= maxQueue) {
             throw runtimeError('QUEUE_FULL', 'The AI gateway queue is full.', { retryAfterMs: pollMs });
         }
-        this.memoryQueue.set(token, startedAt);
+        queue.set(token, startedAt);
         try {
             while (Date.now() - startedAt < queueWaitMs) {
                 if (signal?.aborted) throw runtimeError('ABORTED', 'Admission cancelled.');
                 cleanup();
-                const first = this.memoryQueue.keys().next().value;
-                if (first === token && this.memorySemaphore.size < concurrency) {
-                    this.memoryQueue.delete(token);
-                    this.memorySemaphore.set(token, Date.now() + leaseMs);
+                const first = queue.keys().next().value;
+                if (first === token && semaphore.size < concurrency) {
+                    queue.delete(token);
+                    semaphore.set(token, Date.now() + leaseMs);
                     return {
                         token,
                         queueWaitMs: Date.now() - startedAt,
                         leaseMs,
-                        release: () => this.releaseCapacity(token),
-                        renew: () => this.renewCapacity(token, leaseMs)
+                        release: () => this.releaseCapacity(token, namespace),
+                        renew: () => this.renewCapacity(token, leaseMs, namespace)
                     };
                 }
                 await sleep(pollMs, signal);
             }
             throw runtimeError('QUEUE_TIMEOUT', 'The AI gateway remained busy for too long.', { retryAfterMs: pollMs });
         } finally {
-            this.memoryQueue.delete(token);
+            queue.delete(token);
         }
     }
 
-    async renewCapacity(token, leaseMs) {
+    async renewCapacity(token, leaseMs, namespace = 'model') {
         const safeLease = numberFromEnv(leaseMs, 90000, 10000, 600000);
         if (this.mode === 'redis') {
             const result = await this.redis.eval(
                 SEMAPHORE_RENEW_SCRIPT,
                 1,
-                `${PREFIX}:semaphore:model`,
+                `${PREFIX}:semaphore:${namespace}`,
                 Date.now() + safeLease,
                 token,
                 safeLease
             );
             return Number(result) === 1;
         }
-        if (!this.memorySemaphore.has(token)) return false;
-        this.memorySemaphore.set(token, Date.now() + safeLease);
+        const semaphore = this.memorySemaphore.get(`${namespace}:semaphore`);
+        if (!semaphore?.has(token)) return false;
+        semaphore.set(token, Date.now() + safeLease);
         return true;
     }
 
-    async releaseCapacity(token) {
+    async releaseCapacity(token, namespace = 'model') {
         if (this.mode === 'redis') {
-            await this.redis.zrem(`${PREFIX}:semaphore:model`, token);
+            await this.redis.zrem(`${PREFIX}:semaphore:${namespace}`, token);
             return;
         }
-        this.memorySemaphore.delete(token);
+        this.memorySemaphore.get(`${namespace}:semaphore`)?.delete(token);
     }
 
     async getCapacityMetrics() {
+        const namespaces = ['model', 'text', 'vision'];
         if (this.mode === 'redis') {
             const now = Date.now();
-            await this.redis.zremrangebyscore(`${PREFIX}:semaphore:model`, '-inf', now);
-            await this.redis.zremrangebyscore(`${PREFIX}:queue:model`, '-inf', now - 300000);
-            const [active, queued] = await Promise.all([
-                this.redis.zcard(`${PREFIX}:semaphore:model`),
-                this.redis.zcard(`${PREFIX}:queue:model`)
-            ]);
-            return { active: Number(active), queued: Number(queued) };
+            const values = await Promise.all(namespaces.map(async (namespace) => {
+                const semaphoreKey = `${PREFIX}:semaphore:${namespace}`;
+                const queueKey = `${PREFIX}:queue:${namespace}`;
+                await this.redis.zremrangebyscore(semaphoreKey, '-inf', now);
+                await this.redis.zremrangebyscore(queueKey, '-inf', now - 300000);
+                const [active, queued] = await Promise.all([
+                    this.redis.zcard(semaphoreKey),
+                    this.redis.zcard(queueKey)
+                ]);
+                return { active: Number(active), queued: Number(queued) };
+            }));
+            return values.reduce((total, value) => ({
+                active: total.active + value.active,
+                queued: total.queued + value.queued
+            }), { active: 0, queued: 0 });
         }
         const now = Date.now();
-        for (const [key, expiry] of this.memorySemaphore.entries()) {
-            if (expiry <= now) this.memorySemaphore.delete(key);
+        for (const semaphore of this.memorySemaphore.values()) {
+            if (!(semaphore instanceof Map)) continue;
+            for (const [token, expiry] of semaphore.entries()) {
+                if (expiry <= now) semaphore.delete(token);
+            }
         }
-        return { active: this.memorySemaphore.size, queued: this.memoryQueue.size };
+        return {
+            active: [...this.memorySemaphore.values()].reduce(
+                (total, entries) => total + (entries instanceof Map ? entries.size : 0),
+                0
+            ),
+            queued: [...this.memoryQueue.values()].reduce(
+                (total, entries) => total + (entries instanceof Map ? entries.size : 0),
+                0
+            )
+        };
     }
 
     async getAuthCache(key) {

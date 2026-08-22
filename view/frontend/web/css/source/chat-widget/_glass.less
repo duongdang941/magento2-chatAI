@@ -64,8 +64,18 @@
             border-radius: 0.8rem;
             background: ~"rgba(var(--afd-chat-glass-rgb), var(--afd-chat-glass-content-alpha))";
             box-shadow: 0 8px 26px rgba(0, 0, 0, 0.08);
-            -webkit-backdrop-filter: blur(12px);
-            backdrop-filter: blur(12px);
+            // The window already owns the glass backdrop. A second animated
+            // backdrop on every auto-growing response creates a separate
+            // compositor surface; Chromium can then paint new glyphs before
+            // that surface has been re-rasterized to its new height.
+            -webkit-backdrop-filter: none;
+            backdrop-filter: none;
+        }
+
+        // Keep a cheap, stable paint layer for the frequently growing bubble.
+        // The translucent colour still receives the window-level glass effect.
+        .afd-ai-chat__msg-bubble-ai--streaming {
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
         }
 
         .afd-ai-chat__composer-shell {

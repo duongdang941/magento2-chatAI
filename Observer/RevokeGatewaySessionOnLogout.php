@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Afd\AI\Observer;
 
 use Afd\AI\Model\Config\Config as AiConfig;
+use Afd\AI\Model\Gateway\InternalRequestSigner;
+use Afd\AI\Model\Gateway\GatewayTlsConfigurator;
 use Magento\Customer\Model\Session as CustomerSession;
 use Magento\Framework\Event\Observer;
 use Magento\Framework\Event\ObserverInterface;
@@ -19,7 +21,9 @@ class RevokeGatewaySessionOnLogout implements ObserverInterface
         private readonly CustomerSession $customerSession,
         private readonly CurlFactory $curlFactory,
         private readonly Json $json,
-        private readonly LoggerInterface $logger
+        private readonly LoggerInterface $logger,
+        private readonly InternalRequestSigner $requestSigner,
+        private readonly GatewayTlsConfigurator $gatewayTlsConfigurator
     ) {
     }
 
@@ -46,11 +50,15 @@ class RevokeGatewaySessionOnLogout implements ObserverInterface
 
         try {
             $curl = $this->curlFactory->create();
+            $this->gatewayTlsConfigurator->configure($curl);
             $curl->setTimeout(3);
             $curl->addHeader('Accept', 'application/json');
             $curl->addHeader('Content-Type', 'application/json');
             $curl->addHeader('X-Afd-AI-Timestamp', $timestamp);
-            $curl->addHeader('X-Afd-AI-Signature', hash_hmac('sha256', $timestamp . '.' . $body, $secret));
+            $curl->addHeader(
+                'X-Afd-AI-Signature',
+                $this->requestSigner->signature($secret, $timestamp, 'POST', '/internal/session-revoke', $body)
+            );
             $curl->post(rtrim($serverUrl, '/') . '/internal/session-revoke', $body);
         } catch (\Throwable $exception) {
             // Logout must never be blocked by a gateway outage. A socket also

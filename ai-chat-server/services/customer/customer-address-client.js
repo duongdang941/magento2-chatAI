@@ -1,11 +1,10 @@
 import axios from 'axios';
 import { createInternalMagentoRequestConfig } from '../gateway/magento-auth.js';
-
-const MAGENTO_URL = process.env.MAGENTO_API_URL || 'http://afd.test';
+import { resolveMagentoBaseUrl } from '../gateway/magento-url.js';
 const CUSTOMER_ADDRESS_ENDPOINT = '/afd_ai/chat/customerAddresses';
 
 /** Customer ID comes only from the verified WebSocket ticket. */
-export async function executeCustomerAddressAction(customerId, action, payload = {}) {
+export async function executeCustomerAddressAction(customerId, action, payload = {}, catalogScope = null) {
     const verifiedCustomerId = Number(customerId);
     if (!Number.isInteger(verifiedCustomerId) || verifiedCustomerId < 1) {
         return {
@@ -15,7 +14,7 @@ export async function executeCustomerAddressAction(customerId, action, payload =
         };
     }
 
-    const url = `${MAGENTO_URL}${CUSTOMER_ADDRESS_ENDPOINT}`;
+    const url = `${resolveMagentoBaseUrl(catalogScope)}${CUSTOMER_ADDRESS_ENDPOINT}`;
     const body = JSON.stringify({
         ...payload,
         customerId: verifiedCustomerId,

@@ -14,6 +14,52 @@ test('rate limits a shared identity', async () => {
     assert.ok(blocked.retryAfterMs > 0);
 });
 
+test('consumes weighted quota atomically and does not charge a rejected amount', async () => {
+    const runtime = new GatewayRuntime({ allowInMemory: true, instanceId: 'test-weighted-rate' });
+    await runtime.connect();
+
+    assert.equal((await runtime.consumeRateLimit('vision', {
+        limit: 5,
+        amount: 4,
+        windowMs: 1000
+    })).allowed, true);
+    const rejected = await runtime.consumeRateLimit('vision', {
+        limit: 5,
+        amount: 2,
+        windowMs: 1000
+    });
+    assert.equal(rejected.allowed, false);
+    assert.equal(rejected.count, 4);
+
+    const remaining = await runtime.consumeRateLimit('vision', {
+        limit: 5,
+        amount: 1,
+        windowMs: 1000
+    });
+    assert.equal(remaining.allowed, true);
+    assert.equal(remaining.count, 5);
+});
+
+test('checks all weighted scopes before charging any of them', async () => {
+    const runtime = new GatewayRuntime({ allowInMemory: true, instanceId: 'test-batch-rate' });
+    await runtime.connect();
+
+    const first = await runtime.consumeRateLimitBatch([
+        { identity: 'identity', limit: 5, amount: 4, windowMs: 1000 },
+        { identity: 'network', limit: 1, amount: 4, windowMs: 1000 }
+    ]);
+    assert.equal(first.allowed, false);
+    assert.equal(first.failedIdentity, 'network');
+
+    const identityAfterReject = await runtime.consumeRateLimit('identity', {
+        limit: 5,
+        amount: 5,
+        windowMs: 1000
+    });
+    assert.equal(identityAfterReject.allowed, true);
+    assert.equal(identityAfterReject.count, 5);
+});
+
 test('allows only one state-changing action lock for the same identity', async () => {
     const runtime = new GatewayRuntime({ allowInMemory: true, instanceId: 'test-lock' });
     await runtime.connect();
@@ -41,7 +87,9 @@ test('bounds and releases scoped image-generation capacity', async () => {
 
     assert.ok(first);
     assert.equal(blocked, null);
+    assert.equal(await first.renew(), true);
     await first.release();
+    assert.equal(await first.renew(), false);
     assert.ok(await runtime.acquireScopedCapacity('image-generation', 'customer:7', {
         concurrency: 1,
         leaseMs: 10000
@@ -77,8 +125,30 @@ test('queues a request until the global concurrency lease is released', async ()
     assert.deepEqual(await runtime.getCapacityMetrics(), { active: 0, queued: 0 });
 });
 
+test('keeps text and vision capacity pools independent', async () => {
+    const runtime = new GatewayRuntime({ allowInMemory: true, instanceId: 'test-capacity-pools' });
+    await runtime.connect();
+    const vision = await runtime.acquireCapacity('vision-first', {
+        namespace: 'vision', concurrency: 1, maxQueue: 1, queueWaitMs: 1000, leaseMs: 1000
+    });
+    const text = await runtime.acquireCapacity('text-first', {
+        namespace: 'text', concurrency: 1, maxQueue: 1, queueWaitMs: 1000, leaseMs: 1000
+    });
+    assert.deepEqual(await runtime.getCapacityMetrics(), { active: 2, queued: 0 });
+    await Promise.all([vision.release(), text.release()]);
+});
+
 test('refuses in-memory state unless it is explicitly allowed', async () => {
     const runtime = new GatewayRuntime({ allowInMemory: false, instanceId: 'test-required-redis' });
+    await assert.rejects(runtime.connect(), { code: 'REDIS_REQUIRED' });
+});
+
+test('refuses in-memory state in production even when the development override is set', async () => {
+    const runtime = new GatewayRuntime({
+        allowInMemory: true,
+        nodeEnv: 'production',
+        instanceId: 'test-production-required-redis'
+    });
     await assert.rejects(runtime.connect(), { code: 'REDIS_REQUIRED' });
 });
 

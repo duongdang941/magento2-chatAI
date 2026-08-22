@@ -1,5 +1,6 @@
 const STORE_CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const MAX_CUSTOMER_GROUP_ID = 2147483647;
+const TENANT_ID_PATTERN = /^[a-f0-9]{64}$/i;
 
 /**
  * Normalize only the scope carried by a Magento-signed WebSocket ticket.
@@ -20,10 +21,17 @@ export function normalizeCatalogScope(value) {
         && rawGroupId <= MAX_CUSTOMER_GROUP_ID
         ? rawGroupId
         : 0;
+    const rawTenantId = String(value.tenant_id ?? value.tenantId ?? '').trim().toLowerCase();
+    if (rawTenantId !== '' && !TENANT_ID_PATTERN.test(rawTenantId)) return null;
+    const tenantId = TENANT_ID_PATTERN.test(rawTenantId) ? rawTenantId : '';
 
-    if (!storeCode && customerGroupId === 0) return null;
+    if (!storeCode && customerGroupId === 0 && !tenantId) return null;
 
-    return { storeCode, customerGroupId };
+    return {
+        storeCode,
+        customerGroupId,
+        ...(tenantId ? { tenantId } : {})
+    };
 }
 
 /**
@@ -57,6 +65,7 @@ export function catalogScopeCacheIdentity(scope) {
 
     return {
         store_code: normalized?.storeCode || '',
-        customer_group_id: normalized?.customerGroupId || 0
+        customer_group_id: normalized?.customerGroupId || 0,
+        ...(normalized?.tenantId ? { tenant_id: normalized.tenantId } : {})
     };
 }

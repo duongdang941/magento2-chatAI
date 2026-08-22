@@ -7,29 +7,33 @@ import {
     catalogScopeCacheIdentity,
     catalogScopeRequestParams
 } from './catalog-scope.js';
-
-const MAGENTO_URL = process.env.MAGENTO_API_URL || 'http://afd.test';
+import { resolveMagentoBaseUrl } from '../gateway/magento-url.js';
 
 /**
  * Retrieves a signed continuation page without invoking the LLM again. The
  * input comes exclusively from a verified continuation token in server.js.
  */
 export async function loadCatalogPage(context, aiConfig, runtime = null) {
+    const magentoUrl = resolveMagentoBaseUrl(context.catalogScope, aiConfig?.magento_base_url);
     const params = normalizeSearchArguments({
         query: context.query,
         categoryId: context.categoryId,
         page: context.page,
         limit: context.pageSize,
+        minPrice: context.minPrice,
+        maxPrice: context.maxPrice,
+        priceCurrency: context.priceCurrency,
         directAddOnly: context.directAddOnly === true
     }, MAX_CATALOG_PAGE_SIZE, context.pageSize);
     Object.assign(params, catalogScopeRequestParams(context.catalogScope, context.customerId));
-    const url = catalogRestUrl(MAGENTO_URL, 'afd-ai/products/search', context.catalogScope);
+    const url = catalogRestUrl(magentoUrl, 'afd-ai/products/search', context.catalogScope);
     const loader = async () => {
         const requestUrl = appendQuery(url, params);
         const oauth = createMagentoRequestConfig('GET', requestUrl, {
             timeout: 20000,
             signParams: {},
-            magentoOauth: aiConfig?.magento_oauth || {}
+            magentoOauth: aiConfig?.magento_oauth || {},
+            magentoBaseUrl: magentoUrl
         });
         const internal = createInternalMagentoRequestConfig('GET', requestUrl, '', { timeout: 20000 });
         const response = await axios.get(requestUrl, {
@@ -115,6 +119,7 @@ function normalizeMagentoMetadata(value) {
     // first and scope second; reconstruct named fields at the Node boundary.
     const pagination = parts.find((part) => Object.prototype.hasOwnProperty.call(part, 'page_size')) || {};
     const scope = parts.find((part) => Object.prototype.hasOwnProperty.call(part, 'category_id')) || {};
+    const currency = parts.find((part) => Object.prototype.hasOwnProperty.call(part, 'filter_currency')) || {};
 
-    return { pagination, scope };
+    return { pagination, scope, currency };
 }

@@ -185,6 +185,45 @@
     padding: 0;
 }
 
+.afd-ai-chat__composer-editor--voice-enabled {
+    // Keep dictation next to Send. The text field remains between the upload
+    // action and the trailing voice/send controls, matching familiar chat
+    // composer ergonomics.
+    grid-template-columns: 2rem minmax(0, 1fr) 2rem 2rem;
+
+    .afd-ai-chat__input {
+        grid-column: 2;
+    }
+
+    .afd-ai-chat__send-btn {
+        grid-column: 4;
+    }
+}
+
+// Live Voice can be enabled independently from dictation. Reserve the same
+// trailing slot in that case; when both features are enabled, keep their
+// controls together immediately before Send instead of overlapping the add
+// button or the text field.
+.afd-ai-chat__composer-editor--live-voice-enabled {
+    grid-template-columns: 2rem minmax(0, 1fr) 2rem 2rem;
+
+    .afd-ai-chat__input {
+        grid-column: 2;
+    }
+
+    .afd-ai-chat__send-btn {
+        grid-column: 4;
+    }
+}
+
+.afd-ai-chat__composer-editor--voice-enabled.afd-ai-chat__composer-editor--live-voice-enabled {
+    grid-template-columns: 2rem minmax(0, 1fr) 2rem 2rem 2rem;
+
+    .afd-ai-chat__send-btn {
+        grid-column: 5;
+    }
+}
+
 .afd-ai-chat__composer-editor:focus-within {
     background: transparent;
 }
@@ -219,6 +258,38 @@
     grid-row: 1;
     border-radius: 999px;
     color: #a7a7ae;
+}
+
+.afd-ai-chat__voice-btn {
+    grid-column: 3;
+    grid-row: 1;
+
+    &--recording {
+        background: ~"color-mix(in srgb, var(--afd-chat-accent-live) 20%, transparent)";
+        color: var(--afd-chat-accent-live);
+        animation: afd-ai-chat-voice-button-pulse 1.25s ease-in-out infinite;
+    }
+
+    &--busy {
+        color: var(--afd-chat-accent-live);
+
+        .material-symbols-outlined {
+            animation: afd-ai-chat-voice-spin 0.85s linear infinite;
+        }
+    }
+
+    &--error {
+        color: @afd-chat-danger;
+    }
+}
+
+.afd-ai-chat__live-voice-btn {
+    grid-column: 3;
+    grid-row: 1;
+}
+
+.afd-ai-chat__composer-editor--voice-enabled .afd-ai-chat__live-voice-btn {
+    grid-column: 4;
 }
 
 .afd-ai-chat__input-icon-btn:hover,
@@ -337,12 +408,141 @@
     opacity: 1;
 }
 
+// In the expanded composer the actions become a flex row. Keep upload on the
+// left and place all voice actions adjacent to Send on the right.
+.afd-ai-chat__composer-shell--expanded {
+    .afd-ai-chat__input-icon-btn:not(.afd-ai-chat__voice-btn):not(.afd-ai-chat__live-voice-btn) {
+        order: 1;
+    }
+
+    .afd-ai-chat__composer-spacer {
+        order: 2;
+    }
+
+    .afd-ai-chat__voice-btn {
+        order: 3;
+    }
+
+    .afd-ai-chat__live-voice-btn {
+        order: 4;
+    }
+
+    .afd-ai-chat__send-btn {
+        order: 5;
+    }
+}
+
 .afd-ai-chat__input-icon-btn .material-symbols-outlined,
 .afd-ai-chat__send-btn .material-symbols-outlined {
     display: block;
     padding: 0;
     font-size: 1.1rem;
     line-height: 1;
+}
+
+.afd-ai-chat__voice-status {
+    display: inline-flex;
+    width: ~"min(100%, 760px)";
+    min-height: 1.55rem;
+    align-items: center;
+    gap: 0.42rem;
+    margin: 0 0 0.38rem;
+    color: var(--afd-chat-text-muted-live);
+    font-size: ~"calc(0.74rem * var(--afd-chat-font-scale))";
+    line-height: 1.25;
+
+    &--recording {
+        color: var(--afd-chat-accent-live);
+    }
+
+    &--transcribing .afd-ai-chat__voice-orb {
+        animation: afd-ai-chat-voice-orb-breathe 1.25s ease-in-out infinite;
+    }
+
+    &--error {
+        color: @afd-chat-danger;
+    }
+}
+
+.afd-ai-chat__live-voice-status {
+    .afd-ai-chat__voice-orb {
+        color: var(--afd-chat-accent-live);
+    }
+
+    &--connected {
+        border-radius: 0.5rem;
+        background: ~"color-mix(in srgb, var(--afd-chat-accent-live) 10%, transparent)";
+    }
+
+    &--connecting .afd-ai-chat__voice-orb,
+    &--connected .afd-ai-chat__voice-orb {
+        animation: afd-ai-chat-voice-orb-breathe 1.1s ease-in-out infinite;
+    }
+}
+
+.afd-ai-chat__voice-orb {
+    position: relative;
+    display: inline-flex;
+    width: 1.3rem;
+    height: 1.3rem;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    overflow: hidden;
+    border-radius: 50%;
+    background: ~"color-mix(in srgb, var(--afd-chat-accent-live) 18%, transparent)";
+
+    i {
+        display: block;
+        width: 2px;
+        margin: 0 1px;
+        border-radius: 999px;
+        background: currentColor;
+        animation: afd-ai-chat-voice-wave 0.72s ease-in-out infinite alternate;
+
+        &:nth-child(1) { height: 0.36rem; animation-delay: -0.35s; }
+        &:nth-child(2) { height: 0.7rem; animation-delay: -0.12s; }
+        &:nth-child(3) { height: 0.45rem; animation-delay: -0.48s; }
+    }
+}
+
+.afd-ai-chat__voice-cancel {
+    .afd-chat-button-reset();
+    margin-left: auto;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 650;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+@keyframes afd-ai-chat-voice-button-pulse {
+    50% { box-shadow: 0 0 0 0.3rem ~"color-mix(in srgb, var(--afd-chat-accent-live) 15%, transparent)"; }
+}
+
+@keyframes afd-ai-chat-voice-wave {
+    from { transform: scaleY(0.48); opacity: 0.52; }
+    to { transform: scaleY(1); opacity: 1; }
+}
+
+@keyframes afd-ai-chat-voice-orb-breathe {
+    50% { transform: scale(1.12); }
+}
+
+@keyframes afd-ai-chat-voice-spin {
+    to { transform: rotate(1turn); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .afd-ai-chat__voice-btn--recording,
+    .afd-ai-chat__voice-btn--busy .material-symbols-outlined,
+    .afd-ai-chat__voice-status--transcribing .afd-ai-chat__voice-orb,
+    .afd-ai-chat__live-voice-status--connecting .afd-ai-chat__voice-orb,
+    .afd-ai-chat__live-voice-status--connected .afd-ai-chat__voice-orb,
+    .afd-ai-chat__voice-orb i {
+        animation: none;
+    }
 }
 
 .afd-ai-chat {

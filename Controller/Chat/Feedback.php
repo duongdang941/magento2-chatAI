@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Afd\AI\Controller\Chat;
 
 use Afd\AI\Model\Quality\FeedbackService;
+use Afd\AI\Model\Security\GuestChatIdentity;
 use Magento\Customer\Model\Session as CustomerSession;
 use Magento\Framework\App\Action\HttpPostActionInterface;
 use Magento\Framework\App\CsrfAwareActionInterface;
@@ -20,6 +21,7 @@ class Feedback implements HttpPostActionInterface, CsrfAwareActionInterface
         private readonly HttpRequest $request,
         private readonly ResultFactory $resultFactory,
         private readonly CustomerSession $customerSession,
+        private readonly GuestChatIdentity $guestChatIdentity,
         private readonly FeedbackService $feedbackService,
         private readonly LoggerInterface $logger
     ) {
@@ -46,7 +48,7 @@ class Feedback implements HttpPostActionInterface, CsrfAwareActionInterface
         try {
             $payload = json_decode($this->request->getContent(), true, 16, JSON_THROW_ON_ERROR);
             $customerId = (int)$this->customerSession->getCustomerId();
-            $guestId = $customerId > 0 ? null : hash('sha256', (string)$this->customerSession->getSessionId());
+            $guestId = $customerId > 0 ? null : $this->guestChatIdentity->resolve();
 
             $conversationId = (int)($payload['conversation_id'] ?? 0);
             $messageId = (int)($payload['message_id'] ?? 0);
