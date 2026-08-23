@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Afd\AI\Model\Tool;
 
 use Afd\AI\Model\Data\ToolResponseFactory;
+use Afd\AI\Model\Product\DirectAddEligibility;
 use Afd\AI\Model\Product\SaleQuantityPolicy;
 use Afd\AI\Api\QuoteCartAdapterInterface;
 use Magento\Catalog\Api\ProductRepositoryInterface;
@@ -18,6 +19,7 @@ class CartTool
     private CheckoutCart $checkoutCart;
     private QuoteCartAdapterInterface $quoteCartAdapter;
     private ProductRepositoryInterface $productRepository;
+    private DirectAddEligibility $directAddEligibility;
     private SaleQuantityPolicy $saleQuantityPolicy;
     private ToolResponseFactory $toolResponseFactory;
     private LoggerInterface $logger;
@@ -26,6 +28,7 @@ class CartTool
         CheckoutCart $checkoutCart,
         QuoteCartAdapterInterface $quoteCartAdapter,
         ProductRepositoryInterface $productRepository,
+        DirectAddEligibility $directAddEligibility,
         SaleQuantityPolicy $saleQuantityPolicy,
         ToolResponseFactory $toolResponseFactory,
         LoggerInterface $logger
@@ -33,6 +36,7 @@ class CartTool
         $this->checkoutCart = $checkoutCart;
         $this->quoteCartAdapter = $quoteCartAdapter;
         $this->productRepository = $productRepository;
+        $this->directAddEligibility = $directAddEligibility;
         $this->saleQuantityPolicy = $saleQuantityPolicy;
         $this->toolResponseFactory = $toolResponseFactory;
         $this->logger = $logger;
@@ -74,11 +78,6 @@ class CartTool
     ): array {
         $product = null;
         $isQuoteCart = $cartTarget === 'quote';
-        $cart = $isQuoteCart ? $this->quoteCartAdapter->getCart() : $this->checkoutCart;
-
-        if ($cart === null) {
-            return $this->quoteCartUnavailable();
-        }
 
         try {
             $product = $this->productRepository->get(trim($sku));
@@ -91,6 +90,18 @@ class CartTool
                     'sku' => (string)$product->getSku(),
                     'selected_options' => $selectedOptions,
                 ];
+            }
+
+            // Configurable products and every product with a customer-facing
+            // option must be configured in the product-page UI. Never turn
+            // chat into a second option form or accept model-supplied options.
+            if (!$this->directAddEligibility->canAddToCartDirectly($product)) {
+                return $this->productPageRequiredResult($product);
+            }
+
+            $cart = $isQuoteCart ? $this->quoteCartAdapter->getCart() : $this->checkoutCart;
+            if ($cart === null) {
+                return $this->quoteCartUnavailable();
             }
 
             $selection = $this->validateConfigurableSelection($product, $selectedOptions);
@@ -204,14 +215,7 @@ class CartTool
                 'sku' => $product ? (string)$product->getSku() : trim($sku),
                 'message' => $exception->getMessage(),
             ]);
-            return [
-                'status' => 'requires_customer_action',
-                'reason' => 'product_page_required',
-                'message' => __('This item needs an additional configuration on its product page before it can be added to the cart.')->render(),
-                'product' => $product ? (string)$product->getName() : '',
-                'sku' => $product ? (string)$product->getSku() : trim($sku),
-                'url' => $product ? (string)$product->getProductUrl() : '',
-            ];
+            return $this->productPageRequiredResult($product, trim($sku));
         } catch (\Throwable $exception) {
             $this->logger->warning('Afd AI could not add an item to the cart.', [
                 'sku' => trim($sku),
@@ -238,6 +242,19 @@ class CartTool
             || str_contains($message, 'requested amount is not available')
             || (str_contains($message, 'gewünschte menge') && str_contains($message, 'nicht verfügbar'))
             || (str_contains($message, 'angeforderte menge') && str_contains($message, 'nicht verfügbar'));
+    }
+
+    /** @return array<string, mixed> */
+    private function productPageRequiredResult($product, string $fallbackSku = ''): array
+    {
+        return [
+            'status' => 'requires_customer_action',
+            'reason' => 'product_page_required',
+            'message' => __('This item needs an additional configuration on its product page before it can be added to the cart.')->render(),
+            'product' => $product ? (string)$product->getName() : '',
+            'sku' => $product ? (string)$product->getSku() : $fallbackSku,
+            'url' => $product ? (string)$product->getProductUrl() : '',
+        ];
     }
 
     private function quoteContainsProduct(object $cart, int $productId): bool

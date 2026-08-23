@@ -9,15 +9,10 @@ use Afd\AI\Model\Config\Config as AiConfigProvider;
 
 class Config implements ConfigInterface
 {
-    private $aiConfigFactory;
-    private $aiConfigProvider;
-
     public function __construct(
-        AiConfigInterfaceFactory $aiConfigFactory,
-        AiConfigProvider $aiConfigProvider
+        private readonly AiConfigInterfaceFactory $aiConfigFactory,
+        private readonly AiConfigProvider $aiConfigProvider
     ) {
-        $this->aiConfigFactory = $aiConfigFactory;
-        $this->aiConfigProvider = $aiConfigProvider;
     }
 
     /**

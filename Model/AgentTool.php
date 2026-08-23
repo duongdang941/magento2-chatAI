@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Afd\AI\Model;
 
 use Afd\AI\Api\AgentToolInterface;
+use Afd\AI\Api\Data\ToolResponseInterface;
 use Afd\AI\Model\Tool\CartTool;
 use Afd\AI\Model\Tool\CatalogSearchTool;
 use Afd\AI\Model\Tool\CommerceTool;
@@ -56,7 +57,7 @@ class AgentTool implements AgentToolInterface
         string $excludedTerms = '',
         int $customerGroupId = 0,
         int $customerId = 0
-    ) {
+    ): ToolResponseInterface {
         $this->nodeRequestAuthorizer->assertAuthorized();
         return $this->catalogSearchTool->searchProducts(
             $query,
@@ -79,8 +80,7 @@ class AgentTool implements AgentToolInterface
         string $selectedOptions = '',
         int $customerGroupId = 0,
         int $customerId = 0
-    )
-    {
+    ): ToolResponseInterface {
         $this->nodeRequestAuthorizer->assertAuthorized();
         return $this->productAvailabilityTool->getProductAvailability(
             $sku,
@@ -90,38 +90,38 @@ class AgentTool implements AgentToolInterface
         );
     }
 
-    public function listCategories(int $customerGroupId = 0, int $customerId = 0)
+    public function listCategories(int $customerGroupId = 0, int $customerId = 0): ToolResponseInterface
     {
         $this->nodeRequestAuthorizer->assertAuthorized();
         return $this->catalogSearchTool->listCategories($customerGroupId, $customerId);
     }
 
-    public function addToCart(string $sku, int $qty = 1)
+    public function addToCart(string $sku, int $qty = 1): ToolResponseInterface
     {
         return $this->cartTool->addToCart($sku, $qty);
     }
 
-    public function updateCartItem(string $sku, int $qty)
+    public function updateCartItem(string $sku, int $qty): ToolResponseInterface
     {
         return $this->cartTool->updateCartItem($sku, $qty);
     }
 
-    public function removeFromCart(string $sku, string $cartTarget = 'checkout')
+    public function removeFromCart(string $sku, string $cartTarget = 'checkout'): ToolResponseInterface
     {
         return $this->cartTool->removeFromCart($sku, $cartTarget);
     }
 
-    public function getCustomerInfo()
+    public function getCustomerInfo(): ToolResponseInterface
     {
         return $this->customerProfileTool->getCustomerInfo();
     }
 
-    public function getRecentOrders(int $limit = 5)
+    public function getRecentOrders(int $limit = 5): ToolResponseInterface
     {
         return $this->customerProfileTool->getRecentOrders($limit);
     }
 
-    public function getCustomerAddresses()
+    public function getCustomerAddresses(): ToolResponseInterface
     {
         return $this->customerProfileTool->getCustomerAddresses();
     }
@@ -131,13 +131,12 @@ class AgentTool implements AgentToolInterface
         string $sku2,
         int $customerGroupId = 0,
         int $customerId = 0
-    )
-    {
+    ): ToolResponseInterface {
         $this->nodeRequestAuthorizer->assertAuthorized();
         return $this->commerceTool->compareProducts($sku1, $sku2, $customerGroupId, $customerId);
     }
 
-    public function getActiveCoupons(int $customerGroupId = 0, int $customerId = 0)
+    public function getActiveCoupons(int $customerGroupId = 0, int $customerId = 0): ToolResponseInterface
     {
         $this->nodeRequestAuthorizer->assertAuthorized();
         return $this->commerceTool->getActiveCoupons($customerGroupId, $customerId);

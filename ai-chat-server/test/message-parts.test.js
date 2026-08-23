@@ -1,14 +1,73 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import {
     buildUserMessageDescriptor,
+    recordOutboundAssistantPart,
+    toAnthropicContent,
     toGeminiParts,
     toOpenAiContent,
     validateImageParts
 } from '../services/conversation/message-parts.js';
 
 const RED_PIXEL_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR42mP8z8BQDwAFgwJ/lC0AAAAASUVORK5CYII=';
+
+test('records public provider reasoning and verified action activity', () => {
+    const parts = [];
+
+    recordOutboundAssistantPart(parts, {
+        type: 'thinking_delta',
+        step_id: 'draft',
+        delta: 'Examining ',
+        visibility: 'public'
+    });
+    recordOutboundAssistantPart(parts, {
+        type: 'thinking_delta',
+        step_id: 'draft',
+        delta: 'the catalogue.',
+        visibility: 'public'
+    });
+    recordOutboundAssistantPart(parts, {
+        type: 'tool_activity',
+        activity_id: 'catalog-1',
+        tool: 'searchProducts',
+        state: 'completed',
+        result_count: 2
+    });
+
+    assert.deepEqual(parts, [{
+        type: 'reasoning',
+        events: [{
+            id: 'provider-reasoning-draft',
+            type: 'step',
+            source: 'provider_reasoning',
+            content: 'Examining the catalogue.',
+            state: 'completed'
+        }, {
+            id: 'catalog-1',
+            type: 'activity',
+            tool: 'searchProducts',
+            state: 'completed',
+            result_count: 2
+        }],
+        steps: [{
+            id: 'provider-reasoning-draft',
+            type: 'step',
+            source: 'provider_reasoning',
+            content: 'Examining the catalogue.',
+            state: 'completed'
+        }],
+        activities: [{
+            id: 'catalog-1',
+            type: 'activity',
+            tool: 'searchProducts',
+            state: 'completed',
+            result_count: 2
+        }]
+    }]);
+});
 
 test('buildUserMessageDescriptor keeps uploaded image parts for the model', () => {
     const message = buildUserMessageDescriptor({
@@ -44,6 +103,21 @@ test('provider content converters preserve text and inline image data', () => {
     assert.equal(openAiContent[0].type, 'text');
     assert.equal(openAiContent[1].type, 'image_url');
     assert.match(openAiContent[1].image_url.url, /^data:image\/png;base64,/);
+
+    const anthropicContent = toAnthropicContent(message.parts, message.text);
+    assert.equal(Array.isArray(anthropicContent), true);
+    assert.deepEqual(anthropicContent[0], {
+        type: 'text',
+        text: 'Hình ảnh này nói về cái gì?'
+    });
+    assert.deepEqual(anthropicContent[1], {
+        type: 'image',
+        source: {
+            type: 'base64',
+            media_type: 'image/png',
+            data: RED_PIXEL_PNG
+        }
+    });
 
     const geminiParts = toGeminiParts(message.parts, message.text);
     assert.equal(geminiParts[0].text, 'Hình ảnh này nói về cái gì?');
@@ -145,4 +219,38 @@ test('provider content converters resolve attachment_ref with local binary resol
     assert.equal(Array.isArray(openAiContent), true);
     assert.equal(openAiContent[0].type, 'text');
     assert.equal(openAiContent[0].text, 'Tìm áo tương tự');
+});
+
+test('Anthropic converter resolves an uploaded attachment reference as an image block', () => {
+    const attachmentId = 'att_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const chatDir = path.resolve(process.cwd(), '../../../../../var/afd_ai/chat');
+    const testDirectory = fs.mkdtempSync(path.join(chatDir, 'message-parts-test-'));
+    const finalDirectory = path.join(testDirectory, 'final');
+    fs.mkdirSync(finalDirectory, { recursive: true });
+    fs.writeFileSync(path.join(finalDirectory, `${attachmentId}.png`), Buffer.from(RED_PIXEL_PNG, 'base64'));
+
+    try {
+        const content = toAnthropicContent([
+            { text: 'Sản phẩm trong hình này là gì?' },
+            {
+                type: 'attachment_ref',
+                attachment_id: attachmentId,
+                mime_type: 'image/png'
+            }
+        ]);
+
+        assert.deepEqual(content, [
+            { type: 'text', text: 'Sản phẩm trong hình này là gì?' },
+            {
+                type: 'image',
+                source: {
+                    type: 'base64',
+                    media_type: 'image/png',
+                    data: RED_PIXEL_PNG
+                }
+            }
+        ]);
+    } finally {
+        fs.rmSync(testDirectory, { recursive: true, force: true });
+    }
 });

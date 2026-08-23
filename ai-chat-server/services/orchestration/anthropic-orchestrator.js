@@ -1,5 +1,6 @@
 import { summarizeError } from '../gateway/error-summary.js';
 import { createSmoothChunkEmitter } from '../conversation/smooth-chunk-emitter.js';
+import { toAnthropicContent } from '../conversation/message-parts.js';
 import { emitProductPresentation } from '../catalog/product-presentation.js';
 import { MAX_CATALOG_TOOL_ROUNDS } from '../catalog/catalog-agent-guidance.js';
 import { createCustomerTurnBuffer } from '../conversation/customer-turn-buffer.js';
@@ -52,14 +53,16 @@ function formatAnthropicHistory(history) {
             textContent = msg.content;
         } else if (typeof msg.text === 'string') {
             textContent = msg.text;
-        } else if (Array.isArray(msg.parts)) {
-            textContent = msg.parts.map(p => p.text || '').join('');
         }
 
-        if (textContent.trim()) {
+        const content = toAnthropicContent(
+            Array.isArray(msg.parts) ? msg.parts : [],
+            textContent
+        );
+        if (Array.isArray(content) ? content.length > 0 : content) {
             messages.push({
                 role,
-                content: textContent.trim()
+                content
             });
         }
     }
@@ -107,7 +110,10 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         ...formatAnthropicHistory(history),
         {
             role: 'user',
-            content: userText
+            content: toAnthropicContent(
+                Array.isArray(currentUserMessage.parts) ? currentUserMessage.parts : [],
+                userText
+            )
         }
     ];
 
@@ -138,7 +144,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         for (let iteration = 0; iteration < maxToolRounds; iteration += 1) {
             if (isCancelled()) return { cancelled: true };
 
-            const currentStepId = 'step-' + (iteration + 1) + '-' + Math.random().toString(36).slice(2, 7);
             const smoothEmitter = createSmoothChunkEmitter({
                 emit: content => ws.send(JSON.stringify({ type: 'chunk', content })),
                 isCancelled
@@ -146,12 +151,12 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             const thinkingEmitter = createSmoothChunkEmitter({
                 emit: delta => ws.send(JSON.stringify({
                     type: 'thinking_delta',
-                    step_id: currentStepId,
-                    delta
+                    step_id: `reasoning-${iteration}`,
+                    delta,
+                    visibility: 'public'
                 })),
                 isCancelled,
                 intervalMs: 18,
-                targetFrames: 6,
                 minChars: 1,
                 maxChars: 24
             });
@@ -261,13 +266,13 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                                     if (currentBlock) currentBlock.text += delta.text;
                                     // Anthropic can narrate immediately before
                                     // selecting a tool. Hold that prose until
-                                    // the turn boundary is known; if a tool is
-                                    // selected it belongs in Thinking, not in
-                                    // the final customer answer.
+                                    // the turn boundary is known: it is either
+                                    // final customer text or discarded as
+                                    // private tool-selection narration.
                                     customerTurnBuffer.push(delta.text);
                                 } else if (delta.type === 'thinking_delta') {
                                     if (currentBlock) currentBlock.thinking += delta.thinking;
-                                    thinkingEmitter.push(delta.thinking);
+                                    if (delta.thinking) thinkingEmitter.push(delta.thinking);
                                 } else if (delta.type === 'input_json_delta' && currentToolUse) {
                                     currentToolUse.input_json += delta.partial_json;
                                 }
@@ -293,9 +298,8 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 if (signal) signal.removeEventListener('abort', forwardAbort);
             }
 
-            await thinkingEmitter.drain();
-
             const toolCalls = currentBlocks.filter(b => b.type === 'tool_use');
+            await thinkingEmitter.drain();
             if (toolCalls.length === 0) {
                 const finalText = customerTurnBuffer.commit();
                 if (finalText) {
@@ -310,15 +314,10 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 break;
             }
 
-            const toolNarration = customerTurnBuffer.commit().trim();
-            if (toolNarration) {
-                ws.send(JSON.stringify({
-                    type: 'thinking_step',
-                    step_id: currentStepId,
-                    content: toolNarration,
-                    tool: String(toolCalls[0]?.name || '')
-                }));
-            }
+            // Text emitted before a tool call is provider narration, not a
+            // customer answer or a verified action. Keep it out of the
+            // timeline; `tool_activity` is the sole customer-visible record.
+            customerTurnBuffer.discard();
 
             // Append assistant response with tool_use blocks to message history
             messages.push({

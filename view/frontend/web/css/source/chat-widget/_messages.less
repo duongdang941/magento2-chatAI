@@ -1010,12 +1010,15 @@
 
 .afd-ai-chat__msg-actions--assistant {
     // ZCode's completed-turn controls sit at the beginning of the footer;
-    // the timestamp follows the icon group instead of pushing it right.
+    // the timestamp follows the icon group instead of pushing it right. On
+    // pointer devices, keep the controls quiet until this assistant turn is
+    // hovered or focused, matching Codex's message-action affordance.
     justify-content: flex-start;
     margin-left: 0;
     margin-right: 0;
-    opacity: 1;
-    transform: none;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(0.08rem);
 }
 
 .afd-ai-chat__msg-actions--user {

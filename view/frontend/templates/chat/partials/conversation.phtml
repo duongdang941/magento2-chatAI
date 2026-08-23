@@ -112,7 +112,10 @@
                         <template x-for="(msg, index) in messages" :key="messageRenderKey(msg, index)">
                             <div x-show="shouldShowMessage(msg, index)">
                                 <!-- AI Message -->
-                                <div x-show="msg.role === 'assistant'" class="afd-ai-chat__msg-ai">
+                                <div x-show="msg.role === 'assistant'"
+                                     class="afd-ai-chat__msg-ai"
+                                     data-role="chat-assistant-message"
+                                     :data-request-id="msg.request_id || ''">
                                     <div class="afd-ai-chat__msg-content">
                                         <div class="afd-ai-chat__msg-assistant-stack">
                                             <div class="afd-ai-chat__msg-bubble-ai"
@@ -149,8 +152,9 @@
                                                                     <div class="afd-ai-chat__reasoning-timeline">
                                                                         <template x-for="(event, eventIndex) in reasoningTimeline(part)" :key="event.id || (event.type + '-' + eventIndex)">
                                                                             <div class="afd-ai-chat__reasoning-timeline-item">
-                                                                                <template x-if="event.type === 'step'">
-                                                                                    <div class="afd-ai-chat__reasoning-step-message" x-html="renderMarkdown(event.content)"></div>
+                                                                                <template x-if="isProviderReasoningStep(event)">
+                                                                                    <div class="afd-ai-chat__reasoning-step-message"
+                                                                                         x-html="renderStreamingMarkdown(event.content)"></div>
                                                                                 </template>
                                                                                 <template x-if="event.type === 'activity'">
                                                                                     <div class="afd-ai-chat__tool-activity"
@@ -938,8 +942,7 @@
                         <div x-show="isLoading
                             && !isHistoryLoading
                             && currentAiMessageIndex === -1
-                            && (!thinkingEvents || thinkingEvents.length === 0)
-                            && thinkingSteps.length === 0
+                            && (!thinkingEvents || !thinkingEvents.some(event => event && event.type === 'activity'))
                             && toolActivities.length === 0"
                              class="afd-ai-chat__msg-ai afd-ai-chat__msg-ai--thinking"
                              x-transition.opacity.duration.150ms>
@@ -954,12 +957,9 @@
                                             </span>
                                         </span>
                                     </div>
-                                    <div class="afd-ai-chat__thinking-live-timeline" x-show="(thinkingEvents && thinkingEvents.length > 0) || thinkingSteps.length > 0 || toolActivities.length > 0">
-                                        <template x-for="event in (thinkingEvents || [])" :key="event.id">
+                                    <div class="afd-ai-chat__thinking-live-timeline" x-show="(thinkingEvents && thinkingEvents.some(event => event && event.type === 'activity')) || toolActivities.length > 0">
+                                        <template x-for="event in (thinkingEvents || []).filter(event => event && event.type === 'activity')" :key="event.id">
                                             <div class="afd-ai-chat__thinking-timeline-item">
-                                                <template x-if="event.type === 'step'">
-                                                    <div class="afd-ai-chat__thinking-step-message" x-html="renderStreamingMarkdown(event.content)"></div>
-                                                </template>
                                                 <template x-if="event.type === 'activity'">
                                                     <div class="afd-ai-chat__tool-activity"
                                                          :class="'afd-ai-chat__tool-activity--' + event.state">
@@ -980,7 +980,7 @@
                                             </div>
                                         </template>
                                     </div>
-                                    <div x-show="(!thinkingEvents || thinkingEvents.length === 0) && thinkingSteps.length === 0 && toolActivities.length === 0 && statusMessage && statusMessage.trim().length > 0"
+                                    <div x-show="(!thinkingEvents || !thinkingEvents.some(event => event && event.type === 'activity')) && toolActivities.length === 0 && statusMessage && statusMessage.trim().length > 0"
                                          x-transition.opacity.duration.150ms
                                          class="afd-ai-chat__tool-activity"
                                          aria-live="polite"
@@ -999,7 +999,7 @@
                         <!-- Codex reserves space below a short active turn,
                              so its submitted customer message can move into
                              the reading area instead of staying by composer. -->
-                        <div x-show="isLoading && isTurnStartPinned && pinnedTurnRequestId"
+                        <div x-show="isTurnStartPinned && pinnedTurnRequestId"
                              class="afd-ai-chat__turn-anchor-spacer"
                              data-role="chat-turn-anchor-spacer"
                              :style="'height:' + currentTurnAnchorSpacerHeight() + 'px'"

@@ -12,21 +12,12 @@ use Psr\Log\LoggerInterface;
 
 class Session implements HttpGetActionInterface
 {
-    private ResultFactory $resultFactory;
-    private CustomerSession $customerSession;
-    private LoggerInterface $logger;
-    private WebSocketTicketIssuer $ticketIssuer;
-
     public function __construct(
-        ResultFactory $resultFactory,
-        CustomerSession $customerSession,
-        LoggerInterface $logger,
-        WebSocketTicketIssuer $ticketIssuer
+        private readonly ResultFactory $resultFactory,
+        private readonly CustomerSession $customerSession,
+        private readonly LoggerInterface $logger,
+        private readonly WebSocketTicketIssuer $ticketIssuer
     ) {
-        $this->resultFactory = $resultFactory;
-        $this->customerSession = $customerSession;
-        $this->logger = $logger;
-        $this->ticketIssuer = $ticketIssuer;
     }
 
     public function execute()
@@ -47,7 +38,7 @@ class Session implements HttpGetActionInterface
                 'websocketTicket' => $this->ticketIssuer->issue($customerId, $sessionId),
             ]);
         } catch (\Exception $e) {
-            $this->logger->error('CHAT SESSION ERROR: ' . $e->getMessage());
+            $this->logger->error('CHAT SESSION ERROR', ['exception' => $e]);
             return $resultJson->setData([
                 'status' => 'error',
                 'isLoggedIn' => false,

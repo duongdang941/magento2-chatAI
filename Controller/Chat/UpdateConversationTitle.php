@@ -18,30 +18,15 @@ use Psr\Log\LoggerInterface;
 
 class UpdateConversationTitle implements HttpPostActionInterface, CsrfAwareActionInterface
 {
-    private HttpRequest $request;
-    private ResultFactory $resultFactory;
-    private ConversationRepositoryInterface $conversationRepository;
-    private ConversationStoreScope $conversationStoreScope;
-    private CustomerSession $customerSession;
-    private FormKey $formKey;
-    private LoggerInterface $logger;
-
     public function __construct(
-        HttpRequest $request,
-        ResultFactory $resultFactory,
-        ConversationRepositoryInterface $conversationRepository,
-        ConversationStoreScope $conversationStoreScope,
-        CustomerSession $customerSession,
-        FormKey $formKey,
-        LoggerInterface $logger
+        private readonly HttpRequest $request,
+        private readonly ResultFactory $resultFactory,
+        private readonly ConversationRepositoryInterface $conversationRepository,
+        private readonly ConversationStoreScope $conversationStoreScope,
+        private readonly CustomerSession $customerSession,
+        private readonly FormKey $formKey,
+        private readonly LoggerInterface $logger
     ) {
-        $this->request = $request;
-        $this->resultFactory = $resultFactory;
-        $this->conversationRepository = $conversationRepository;
-        $this->conversationStoreScope = $conversationStoreScope;
-        $this->customerSession = $customerSession;
-        $this->formKey = $formKey;
-        $this->logger = $logger;
     }
 
     public function createCsrfValidationException(RequestInterface $request): ?InvalidRequestException
@@ -95,7 +80,7 @@ class UpdateConversationTitle implements HttpPostActionInterface, CsrfAwareActio
                 'title' => $title
             ]);
         } catch (\Exception $e) {
-            $this->logger->error('UPDATE CONVERSATION TITLE ERROR: ' . $e->getMessage());
+            $this->logger->error('UPDATE CONVERSATION TITLE ERROR', ['exception' => $e]);
             return $resultJson->setData([
                 'status' => 'error',
                 'message' => 'Could not update conversation title'

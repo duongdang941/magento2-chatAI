@@ -3,53 +3,36 @@ declare(strict_types=1);
 
 namespace Afd\AI\Controller\Chat;
 
-use Magento\Framework\App\Action\HttpPostActionInterface;
-use Magento\Framework\App\CsrfAwareActionInterface;
-use Magento\Framework\App\Request\InvalidRequestException;
-use Magento\Framework\App\Request\Http as HttpRequest;
-use Magento\Framework\App\RequestInterface;
-use Magento\Framework\Controller\ResultFactory;
-use Magento\Framework\Controller\Result\Json;
 use Afd\AI\Api\ConversationRepositoryInterface;
 use Afd\AI\Model\ChatAttachmentStorage;
 use Afd\AI\Model\Conversation\ConversationStoreScope;
-use Magento\Framework\App\ResourceConnection;
-use Magento\Framework\Data\Form\FormKey;
+use Afd\AI\Model\Support\SupportTakeoverService;
 use Magento\Customer\Model\Session as CustomerSession;
+use Magento\Framework\App\Action\HttpPostActionInterface;
+use Magento\Framework\App\CsrfAwareActionInterface;
+use Magento\Framework\App\Request\Http as HttpRequest;
+use Magento\Framework\App\Request\InvalidRequestException;
+use Magento\Framework\App\RequestInterface;
+use Magento\Framework\App\ResourceConnection;
+use Magento\Framework\Controller\Result\Json;
+use Magento\Framework\Controller\ResultFactory;
+use Magento\Framework\Data\Form\FormKey;
 use Psr\Log\LoggerInterface;
 
 class DeleteConversation implements HttpPostActionInterface, CsrfAwareActionInterface
 {
-    private $request;
-    private $resultFactory;
-    private $conversationRepository;
-    private $resourceConnection;
-    private $customerSession;
-    private $formKey;
-    private $logger;
-    private ChatAttachmentStorage $chatAttachmentStorage;
-    private ConversationStoreScope $conversationStoreScope;
-
     public function __construct(
-        HttpRequest $request,
-        ResultFactory $resultFactory,
-        ConversationRepositoryInterface $conversationRepository,
-        ResourceConnection $resourceConnection,
-        CustomerSession $customerSession,
-        FormKey $formKey,
-        ChatAttachmentStorage $chatAttachmentStorage,
-        ConversationStoreScope $conversationStoreScope,
-        LoggerInterface $logger
+        private readonly HttpRequest $request,
+        private readonly ResultFactory $resultFactory,
+        private readonly ConversationRepositoryInterface $conversationRepository,
+        private readonly ResourceConnection $resourceConnection,
+        private readonly CustomerSession $customerSession,
+        private readonly FormKey $formKey,
+        private readonly ChatAttachmentStorage $chatAttachmentStorage,
+        private readonly ConversationStoreScope $conversationStoreScope,
+        private readonly SupportTakeoverService $supportTakeoverService,
+        private readonly LoggerInterface $logger
     ) {
-        $this->request = $request;
-        $this->resultFactory = $resultFactory;
-        $this->conversationRepository = $conversationRepository;
-        $this->resourceConnection = $resourceConnection;
-        $this->customerSession = $customerSession;
-        $this->formKey = $formKey;
-        $this->chatAttachmentStorage = $chatAttachmentStorage;
-        $this->conversationStoreScope = $conversationStoreScope;
-        $this->logger = $logger;
     }
 
     public function createCsrfValidationException(RequestInterface $request): ?InvalidRequestException
@@ -92,18 +75,7 @@ class DeleteConversation implements HttpPostActionInterface, CsrfAwareActionInte
                 $now = gmdate('Y-m-d H:i:s');
                 $connection->beginTransaction();
                 try {
-                    $connection->update(
-                        $this->resourceConnection->getTableName('afd_ai_support_case'),
-                        [
-                            'status' => 'closed',
-                            'takeover_state' => 'inactive',
-                            'takeover_expires_at' => null,
-                            'takeover_ended_at' => $now,
-                            'resolved_at' => $now,
-                            'updated_at' => $now,
-                        ],
-                        ['conversation_id = ?' => $conversationId]
-                    );
+                    $this->supportTakeoverService->closeByConversationId($conversationId);
                     $conversation->setData('is_archived', 1);
                     $conversation->setData('updated_at', $now);
                     $this->conversationRepository->save($conversation);
@@ -127,7 +99,7 @@ class DeleteConversation implements HttpPostActionInterface, CsrfAwareActionInte
 
             return $resultJson->setData(['status' => 'success']);
         } catch (\Exception $e) {
-            $this->logger->error('DELETE CONVERSATION ERROR: ' . $e->getMessage());
+            $this->logger->error('DELETE CONVERSATION ERROR', ['exception' => $e]);
             return $resultJson->setData(['status' => 'error', 'message' => 'Could not delete conversation']);
         }
     }

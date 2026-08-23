@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace Afd\AI\Controller\Adminhtml\Knowledge;
 
+use Afd\AI\Model\Knowledge\KnowledgeDocumentRepository;
 use Magento\Backend\App\Action;
 use Magento\Backend\App\Action\Context;
-use Magento\Framework\App\ResourceConnection;
 use Magento\Store\Model\StoreManagerInterface;
 
 class Save extends Action
@@ -15,7 +15,7 @@ class Save extends Action
 
     public function __construct(
         Context $context,
-        private readonly ResourceConnection $resource,
+        private readonly KnowledgeDocumentRepository $knowledgeRepository,
         private readonly StoreManagerInterface $storeManager
     ) {
         parent::__construct($context);
@@ -68,34 +68,35 @@ class Save extends Action
             }
         }
 
-        $connection = $this->resource->getConnection();
-        $table = $this->resource->getTableName('afd_ai_knowledge_document');
         $now = gmdate('Y-m-d H:i:s');
         $adminId = (int)($this->_auth->getUser()->getId() ?: 0);
         try {
             if ($id > 0) {
-                $old = $connection->fetchRow($connection->select()->from($table)->where('entity_id = ?', $id));
-                if (!$old) throw new \RuntimeException('Document not found.');
+                $old = $this->knowledgeRepository->getById($id);
+                if ($old === null) {
+                    throw new \RuntimeException('Document not found.');
+                }
                 $version = (int)($old['version'] ?? 1);
-                if ((string)($old['content'] ?? '') !== $content || (string)($old['status'] ?? '') !== $status) $version++;
-                $connection->update($table, [
-                    'title' => $title, 'identifier' => $identifier, 'content' => $content,
-                    'source_url' => $sourceUrl !== '' ? $sourceUrl : null, 'language' => $language,
-                    'status' => $status, 'store_id' => $storeId, 'website_id' => $websiteId,
-                    'customer_group_id' => $groupId > 0 ? $groupId : null, 'version' => $version,
-                    'effective_at' => $effectiveAt, 'expires_at' => $expiresAt, 'updated_by' => $adminId,
-                    'updated_at' => $now,
-                ], ['entity_id = ?' => $id]);
+                if ((string)($old['content'] ?? '') !== $content || (string)($old['status'] ?? '') !== $status) {
+                    $version++;
+                }
             } else {
-                $connection->insert($table, [
-                    'title' => $title, 'identifier' => $identifier, 'content' => $content,
-                    'source_url' => $sourceUrl !== '' ? $sourceUrl : null, 'language' => $language,
-                    'status' => $status, 'store_id' => $storeId, 'website_id' => $websiteId,
-                    'customer_group_id' => $groupId > 0 ? $groupId : null, 'version' => 1,
-                    'effective_at' => $effectiveAt, 'expires_at' => $expiresAt,
-                    'created_by' => $adminId, 'updated_by' => $adminId, 'created_at' => $now, 'updated_at' => $now,
-                ]);
+                $version = 1;
             }
+
+            $data = [
+                'title' => $title, 'identifier' => $identifier, 'content' => $content,
+                'source_url' => $sourceUrl !== '' ? $sourceUrl : null, 'language' => $language,
+                'status' => $status, 'store_id' => $storeId, 'website_id' => $websiteId,
+                'customer_group_id' => $groupId > 0 ? $groupId : null, 'version' => $version,
+                'effective_at' => $effectiveAt, 'expires_at' => $expiresAt,
+                'updated_by' => $adminId, 'updated_at' => $now,
+            ];
+            if ($id < 1) {
+                $data['created_by'] = $adminId;
+                $data['created_at'] = $now;
+            }
+            $this->knowledgeRepository->save($id, $data);
             $this->messageManager->addSuccessMessage(__('Knowledge document saved.'));
         } catch (\Throwable $error) {
             $this->messageManager->addErrorMessage(__('The knowledge document could not be saved: %1', $error->getMessage()));

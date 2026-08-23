@@ -664,11 +664,58 @@ const {
                 }
             },
 
+            // Reasoning text is emitted by the selected provider. The UI does
+            // not invent progress sentences: it only joins the provider's
+            // streamed deltas for the same reasoning step.
+            isProviderReasoningStep(event) {
+                const source = String(event?.source || '');
+                const isRestoredProviderStep = source === ''
+                    && String(event?.id || '').startsWith('provider-reasoning-')
+                    && String(event?.content || '').trim() !== '';
+                return event?.type === 'step'
+                    && (source === 'provider_reasoning' || isRestoredProviderStep);
+            },
+
+            isVisibleReasoningEvent(event) {
+                return event?.type === 'activity'
+                    || this.isProviderReasoningStep(event);
+            },
+
+            appendProviderReasoningDelta(data) {
+                if (data?.visibility !== 'public') return;
+                const delta = String(data.delta ?? data.content ?? '');
+                if (!delta) return;
+                if (!Array.isArray(this.thinkingEvents)) this.thinkingEvents = [];
+
+                const stepId = String(data.step_id || 'default').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80) || 'default';
+                const id = `provider-reasoning-${stepId}`;
+                const index = this.thinkingEvents.findIndex(event => event?.id === id);
+                const previous = index === -1 ? null : this.thinkingEvents[index];
+                const next = {
+                    id,
+                    type: 'step',
+                    source: 'provider_reasoning',
+                    content: `${String(previous?.content || '')}${delta}`.slice(0, 16000),
+                    state: 'running'
+                };
+                if (index === -1) this.thinkingEvents.push(next);
+                else this.thinkingEvents.splice(index, 1, next);
+            },
+
+            discardProviderReasoningStep(data) {
+                if (data?.visibility !== 'public' || !Array.isArray(this.thinkingEvents)) return;
+                const stepId = String(data.step_id || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
+                if (!stepId) return;
+                const id = `provider-reasoning-${stepId}`;
+                this.thinkingEvents = this.thinkingEvents.filter(event => event?.id !== id);
+            },
+
             syncLiveReasoningPart() {
-                const events = Array.isArray(this.thinkingEvents) ? this.thinkingEvents : [];
-                const steps = Array.isArray(this.thinkingSteps) ? this.thinkingSteps : [];
+                const events = (Array.isArray(this.thinkingEvents) ? this.thinkingEvents : [])
+                    .filter(event => event?.type === 'activity'
+                        || this.isVisibleReasoningEvent(event));
                 const activities = Array.isArray(this.toolActivities) ? this.toolActivities : [];
-                const hasReasoning = events.length > 0 || steps.length > 0 || activities.length > 0;
+                const hasReasoning = events.length > 0 || activities.length > 0;
                 let message = this.currentAiMessageIndex >= 0
                     ? this.messages[this.currentAiMessageIndex]
                     : null;
@@ -732,7 +779,7 @@ const {
                 }
 
                 reasoningPart.events = [...events];
-                reasoningPart.steps = [...steps];
+                reasoningPart.steps = events.filter(event => event?.type === 'step');
                 reasoningPart.activities = [...activities];
                 return reasoningPart;
             },
@@ -779,8 +826,7 @@ const {
                 if (this.isReasoningLive(part, index)) {
                     return this.t('thinking');
                 }
-                const events = Array.isArray(part.events) ? part.events : [];
-                const count = events.length || ((Array.isArray(part.steps) ? part.steps.length : 0) + (Array.isArray(part.activities) ? part.activities.length : 0));
+                const count = this.reasoningActivities(part).length;
                 if (count <= 1) return this.t('thought_process_1_step');
                 return this.t('thought_process_steps', { 1: count });
             },
@@ -806,28 +852,21 @@ const {
             reasoningSteps(part) {
                 if (!part) return [];
                 const events = Array.isArray(part.events) ? part.events : [];
-                const steps = events.filter(event => event?.type === 'step'
-                    && String(event.content || '').trim().length > 0);
-                // Some persisted turns contain the action timeline in
-                // `events` while their Thinking text is still in the legacy
-                // `steps` array. Do not let the presence of one activity hide
-                // the other representation.
-                return steps.length
-                    ? steps
-                    : (Array.isArray(part.steps) ? part.steps : []);
+                return events.filter(event => this.isProviderReasoningStep(event));
             },
 
-            // Codex renders one ordered timeline of reasoning text and tool
-            // rows. `events` already preserves arrival order; legacy turns
-            // fall back to their separate step/activity arrays.
+            // Codex exposes customer-safe progress and tool items. Afd uses
+            // only progress derived from an explicit tool action, never raw
+            // provider chain-of-thought or legacy reasoning text.
             reasoningTimeline(part) {
                 if (!part) return [];
                 const events = Array.isArray(part.events) ? part.events : [];
                 if (events.length > 0) {
                     return events.filter(event => event?.type === 'activity'
-                        || (event?.type === 'step' && String(event.content || '').trim().length > 0));
+                        || this.isVisibleReasoningEvent(event));
                 }
                 const steps = (Array.isArray(part.steps) ? part.steps : [])
+                    .filter(step => this.isProviderReasoningStep(step))
                     .map(step => ({ ...step, type: 'step' }));
                 const activities = (Array.isArray(part.activities) ? part.activities : [])
                     .map(activity => ({ ...activity, type: 'activity' }));
@@ -878,8 +917,7 @@ const {
 
             workedForLabel(message) {
                 const elapsedMs = Number(message?.workedForMs) || 0;
-                if (elapsedMs < 1000) return '';
-                return this.t('worked_for', { 1: this.formatElapsedMs(elapsedMs) });
+                return this.t('worked_for', { 1: this.formatElapsedMs(elapsedMs, { underOneSecond: 'zero' }) });
             },
 
             // Codex turn footer: while the turn runs the divider reads
@@ -1511,16 +1549,18 @@ const {
                 const requestId = String(data.request_id || '');
                 if (requestId && this.cancelledRequestIds[requestId]) return true;
 
-                // Older gateway frames (and the progress pulse during a rolling
-                // deploy) may not carry a request id. Once the active turn has
-                // ended, those lifecycle frames are stale too; accepting them
-                // would turn the completed Send button back into Stop.
+                // Lifecycle frames must always belong to a specific customer
+                // turn. A queued frame from an older gateway can arrive with
+                // no request id while a newer turn is active; accepting it
+                // would append the previous answer to the new one.
                 if (!requestId && !this.activeRequestId) {
                     return this.isResponseLifecycleMessage(data.type);
                 }
 
                 if (this.activeRequestId) {
-                    return requestId && requestId !== this.activeRequestId;
+                    return !requestId
+                        ? this.isResponseLifecycleMessage(data.type)
+                        : requestId !== this.activeRequestId;
                 }
 
                 // A WebSocket can already have queued status/tool frames when
@@ -1836,50 +1876,18 @@ const {
                     this.discardThinkingText();
 
                 } else if (data.type === 'thinking_delta') {
-                    const stepId = String(data.step_id || 'active-step');
-                    if (!Array.isArray(this.thinkingEvents)) this.thinkingEvents = [];
-                    let step = this.thinkingEvents.find(e => e.type === 'step' && e.id === stepId);
-                    if (!step) {
-                        step = {
-                            id: stepId,
-                            type: 'step',
-                            content: ''
-                        };
-                        this.thinkingEvents.push(step);
-                    }
-                    step.content += String(data.delta || '');
-                    this.markReasoningResumed();
+                    this.appendProviderReasoningDelta(data);
+                    this.markReasoningResumed?.();
                     this.syncLiveReasoningPart?.();
-                    this.isLoading = true;
-                    this.scheduleStreamingScroll();
 
                 } else if (data.type === 'discard_tentative_step') {
-                    const stepId = String(data.step_id || '');
-                    if (stepId && Array.isArray(this.thinkingEvents)) {
-                        this.thinkingEvents = this.thinkingEvents.filter(e => e.id !== stepId);
-                        this.syncLiveReasoningPart?.();
-                    }
+                    this.discardProviderReasoningStep(data);
+                    this.syncLiveReasoningPart?.();
 
                 } else if (data.type === 'thinking_step') {
-                    if (data.content && typeof data.content === 'string') {
-                        const stepId = String(data.step_id || 'step-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7));
-                        if (!Array.isArray(this.thinkingEvents)) this.thinkingEvents = [];
-                        let step = this.thinkingEvents.find(e => e.type === 'step' && e.id === stepId);
-                        if (step) {
-                            step.content = data.content;
-                        } else {
-                            this.thinkingEvents.push({
-                                id: stepId,
-                                type: 'step',
-                                content: data.content,
-                                tool: String(data.tool || '')
-                            });
-                        }
-                        this.markReasoningResumed();
-                        this.syncLiveReasoningPart?.();
-                        this.isLoading = true;
-                        this.scrollToBottom();
-                    }
+                    this.appendProviderReasoningDelta(data);
+                    this.markReasoningResumed?.();
+                    this.syncLiveReasoningPart?.();
 
                 } else if (data.type === 'chunk') {
                     this.statusMessage = '';
@@ -1890,14 +1898,19 @@ const {
                     // mounted until `done`, `error`, or `cancelled`.
                     if (this.currentAiMessageIndex === -1) {
                         const parts = [];
-                        if ((Array.isArray(this.thinkingEvents) && this.thinkingEvents.length > 0)
-                            || (Array.isArray(this.thinkingSteps) && this.thinkingSteps.length > 0)
+                        if ((Array.isArray(this.thinkingEvents) && this.thinkingEvents.some(event => event?.type === 'activity'
+                            || this.isVisibleReasoningEvent(event)))
                             || (Array.isArray(this.toolActivities) && this.toolActivities.length > 0)) {
                             parts.push({
                                 id: 'reasoning-' + Date.now(),
                                 type: 'reasoning',
-                                events: Array.isArray(this.thinkingEvents) ? [...this.thinkingEvents] : [],
-                                steps: Array.isArray(this.thinkingSteps) ? [...this.thinkingSteps] : [],
+                                events: Array.isArray(this.thinkingEvents)
+                                    ? this.thinkingEvents.filter(event => event?.type === 'activity'
+                                        || this.isVisibleReasoningEvent(event))
+                                    : [],
+                                steps: Array.isArray(this.thinkingEvents)
+                                    ? this.thinkingEvents.filter(event => this.isProviderReasoningStep(event))
+                                    : [],
                                 activities: Array.isArray(this.toolActivities) ? [...this.toolActivities] : [],
                                 startedAt: this.responseStartedAt || Date.now(),
                                 isManuallyCollapsed: false,
@@ -1916,15 +1929,20 @@ const {
                     } else {
                         const msg = this.messages[this.currentAiMessageIndex];
                         if (msg) {
-                            if (((Array.isArray(this.thinkingEvents) && this.thinkingEvents.length > 0)
-                                || (Array.isArray(this.thinkingSteps) && this.thinkingSteps.length > 0)
+                            if (((Array.isArray(this.thinkingEvents) && this.thinkingEvents.some(event => event?.type === 'activity'
+                                || this.isVisibleReasoningEvent(event)))
                                 || (Array.isArray(this.toolActivities) && this.toolActivities.length > 0))
                                 && !msg.parts.some(p => p?.type === 'reasoning')) {
                                 msg.parts.unshift({
                                     id: 'reasoning-' + Date.now(),
                                     type: 'reasoning',
-                                    events: Array.isArray(this.thinkingEvents) ? [...this.thinkingEvents] : [],
-                                    steps: Array.isArray(this.thinkingSteps) ? [...this.thinkingSteps] : [],
+                                    events: Array.isArray(this.thinkingEvents)
+                                        ? this.thinkingEvents.filter(event => event?.type === 'activity'
+                                            || this.isVisibleReasoningEvent(event))
+                                        : [],
+                                    steps: Array.isArray(this.thinkingEvents)
+                                        ? this.thinkingEvents.filter(event => this.isProviderReasoningStep(event))
+                                        : [],
                                     activities: Array.isArray(this.toolActivities) ? [...this.toolActivities] : [],
                                     startedAt: this.responseStartedAt || Date.now(),
                                     isManuallyCollapsed: false,
@@ -2012,7 +2030,7 @@ const {
                             ? true
                             : existingEvent?.isCurrentAction !== false
                     };
-                    this.markReasoningResumed();
+                    this.markReasoningResumed?.();
                     if (!Array.isArray(this.thinkingEvents)) this.thinkingEvents = [];
                     const eventIndex = this.thinkingEvents.findIndex(item => item.type === 'activity' && item.id === activityId);
                     if (eventIndex === -1) {
@@ -2363,7 +2381,14 @@ const {
                         delete this.cancelledRequestIds[data.request_id];
                     }
                     this.scheduleGuestSessionSnapshot();
-                    this.scrollToBottom();
+                    this.$nextTick(() => {
+                        // `scrollToBottom()` owns all follow-up placement. It
+                        // preserves the pinned customer turn when it still
+                        // fits, or follows the response once it overflows.
+                        // Calling `pinCurrentTurnToTop()` here as well caused
+                        // competing placements after the final render.
+                        this.scrollToBottom();
+                    });
                     this.scheduleCrossTabConversationSync(this.activeConversationId, 360);
                     if (Number(this.pendingSupportConversationId) === Number(this.activeConversationId)) {
                         const conversationId = Number(this.pendingSupportConversationId);
@@ -2392,9 +2417,11 @@ const {
             },
 
             flushPendingReasoningParts() {
-                const hasEvents = Array.isArray(this.thinkingEvents) && this.thinkingEvents.length > 0;
-                const hasLegacy = (Array.isArray(this.toolActivities) && this.toolActivities.length > 0)
-                    || (Array.isArray(this.thinkingSteps) && this.thinkingSteps.length > 0);
+                const publicEvents = (Array.isArray(this.thinkingEvents) ? this.thinkingEvents : [])
+                    .filter(event => event?.type === 'activity'
+                        || this.isVisibleReasoningEvent(event));
+                const hasEvents = publicEvents.length > 0;
+                const hasLegacy = Array.isArray(this.toolActivities) && this.toolActivities.length > 0;
                 if (!hasEvents && !hasLegacy) {
                     return;
                 }
@@ -2418,8 +2445,8 @@ const {
                 const reasoningPart = {
                     id: Date.now() + Math.random(),
                     type: 'reasoning',
-                    events: [...(this.thinkingEvents || [])],
-                    steps: [...(this.thinkingSteps || [])],
+                    events: publicEvents,
+                    steps: publicEvents.filter(event => event?.type === 'step'),
                     activities: [...(this.toolActivities || [])],
                     // Keep the completed reasoning/action timeline visible.
                     // The shopper can collapse it manually from the header;

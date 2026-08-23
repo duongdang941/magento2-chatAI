@@ -15,30 +15,15 @@ use Psr\Log\LoggerInterface;
 
 class LoadConversation implements HttpGetActionInterface
 {
-    private $request;
-    private $resultFactory;
-    private $conversationRepository;
-    private $customerSession;
-    private MessagePageLoader $messagePageLoader;
-    private ConversationStoreScope $conversationStoreScope;
-    private $logger;
-
     public function __construct(
-        HttpRequest $request,
-        ResultFactory $resultFactory,
-        ConversationRepositoryInterface $conversationRepository,
-        CustomerSession $customerSession,
-        MessagePageLoader $messagePageLoader,
-        ConversationStoreScope $conversationStoreScope,
-        LoggerInterface $logger
+        private readonly HttpRequest $request,
+        private readonly ResultFactory $resultFactory,
+        private readonly ConversationRepositoryInterface $conversationRepository,
+        private readonly CustomerSession $customerSession,
+        private readonly MessagePageLoader $messagePageLoader,
+        private readonly ConversationStoreScope $conversationStoreScope,
+        private readonly LoggerInterface $logger
     ) {
-        $this->request = $request;
-        $this->resultFactory = $resultFactory;
-        $this->conversationRepository = $conversationRepository;
-        $this->customerSession = $customerSession;
-        $this->messagePageLoader = $messagePageLoader;
-        $this->conversationStoreScope = $conversationStoreScope;
-        $this->logger = $logger;
     }
 
     public function execute()
@@ -82,7 +67,7 @@ class LoadConversation implements HttpGetActionInterface
                 'title' => $conversation->getTitle()
             ]);
         } catch (\Exception $e) {
-            $this->logger->error('LOAD CONVERSATION ERROR: ' . $e->getMessage());
+            $this->logger->error('LOAD CONVERSATION ERROR', ['exception' => $e]);
             return $resultJson->setData(['status' => 'error', 'messages' => []]);
         }
     }

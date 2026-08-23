@@ -16,24 +16,13 @@ use Magento\Framework\Exception\NoSuchEntityException;
 
 class ConversationRepository implements ConversationRepositoryInterface
 {
-    protected $resource;
-    protected $conversationFactory;
-    protected $conversationCollectionFactory;
-    protected $searchResultsFactory;
-    protected $collectionProcessor;
-
     public function __construct(
-        ConversationResource $resource,
-        ConversationFactory $conversationFactory,
-        ConversationCollectionFactory $conversationCollectionFactory,
-        SearchResultsInterfaceFactory $searchResultsFactory,
-        CollectionProcessorInterface $collectionProcessor
+        protected readonly ConversationResource $resource,
+        protected readonly ConversationFactory $conversationFactory,
+        protected readonly ConversationCollectionFactory $conversationCollectionFactory,
+        protected readonly SearchResultsInterfaceFactory $searchResultsFactory,
+        protected readonly CollectionProcessorInterface $collectionProcessor
     ) {
-        $this->resource = $resource;
-        $this->conversationFactory = $conversationFactory;
-        $this->conversationCollectionFactory = $conversationCollectionFactory;
-        $this->searchResultsFactory = $searchResultsFactory;
-        $this->collectionProcessor = $collectionProcessor;
     }
 
     public function save(ConversationInterface $conversation)

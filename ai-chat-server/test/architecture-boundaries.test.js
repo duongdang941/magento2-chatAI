@@ -82,14 +82,29 @@ test('frontend composition root delegates state and feature behaviour', () => {
     assert.doesNotMatch(compositionRoot, /pendingGuestOrderAccessParts:\s*\[/);
 });
 
-test('Thinking text and storefront actions use independent render regions', () => {
+test('storefront work history renders provider reasoning plus verified action items', () => {
     const template = read('..', 'view', 'frontend', 'templates', 'chat', 'partials', 'conversation.phtml');
-    assert.match(template, /x-for="step in reasoningSteps\(part\)"/);
-    assert.doesNotMatch(template, /x-if="!part\.events \|\| part\.events\.length === 0"/);
+    assert.match(template, /reasoningTimeline\(part\)/);
+    assert.match(template, /event\.type === 'activity'/);
+    assert.match(template, /isProviderReasoningStep\(event\)/);
+    assert.match(template, /renderStreamingMarkdown\(event\.content\)/);
+    assert.doesNotMatch(template, /reasoningSteps\(part\)/);
+});
 
-    const textRegion = template.indexOf("key=\"'text-' + part.id\"");
-    const actionRegion = template.indexOf("key=\"'actions-' + part.id\"");
-    assert.ok(textRegion >= 0 && actionRegion > textRegion, 'actions must render after customer-facing text');
+test('assistant message actions stay hidden until their turn is hovered or focused', () => {
+    const css = read('..', 'view', 'frontend', 'web', 'css', 'source', 'chat-widget', '_messages.less');
+    assert.match(css, /\.afd-ai-chat__msg-actions--assistant\s*\{[\s\S]{0,700}opacity:\s*0;[\s\S]{0,160}pointer-events:\s*none;/);
+    assert.match(css, /\.afd-ai-chat__msg-ai:hover \.afd-ai-chat__msg-actions,/);
+    assert.match(css, /@media \(hover: none\)[\s\S]{0,400}\.afd-ai-chat__msg-actions\s*\{[\s\S]{0,160}opacity:\s*1;/);
+});
+
+test('composer attachment previews open in the existing image viewer without removing the attachment', () => {
+    const composer = read('..', 'view', 'frontend', 'templates', 'chat', 'partials', 'composer.phtml');
+    const css = read('..', 'view', 'frontend', 'web', 'css', 'source', 'chat-widget', '_composer.less');
+    assert.match(composer, /afd-ai-chat__attachment-preview-trigger/);
+    assert.match(composer, /@click\.stop="openImageViewer\(imageAttachments, attachmentIndex\)"/);
+    assert.match(composer, /@click\.stop="removeImageAttachment\(attachmentIndex\)"/);
+    assert.match(css, /\.afd-ai-chat__attachment-preview-trigger\s*\{[\s\S]{0,500}cursor:\s*zoom-in;/);
 });
 
 test('storefront transports image bytes once and reads selected files sequentially', () => {

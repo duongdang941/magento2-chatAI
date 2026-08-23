@@ -10,6 +10,10 @@
                 <thought_level></thought_level>
                 <image_generation_enabled>0</image_generation_enabled>
             </general>
+            <catalog>
+                <excluded_name_terms>Demo Produkt,nicht kaufbar</excluded_name_terms>
+                <excluded_key_prefixes>demo,test</excluded_key_prefixes>
+            </catalog>
             <agent>
                 <max_tool_rounds>8</max_tool_rounds>
                 <max_tool_executions>15</max_tool_executions>

@@ -8,7 +8,6 @@ import { emitProductPresentation } from '../catalog/product-presentation.js';
 import {
     MAX_CATALOG_TOOL_ROUNDS
 } from '../catalog/catalog-agent-guidance.js';
-import { createCustomerTurnBuffer } from '../conversation/customer-turn-buffer.js';
 import { createResponseProgressPulse } from '../conversation/response-progress-pulse.js';
 import {
     guestOrderAccessInstruction
@@ -34,8 +33,6 @@ const tools = geminiToolDefinitions();
 // Gemini now receives the same canonical tool surface as every
 // OpenAI-compatible adapter. Provider-specific capabilities still report a
 // clear unavailable result at execution time when needed.
-const PROVISIONAL_TEXT_HOLD_MS = 900;
-
 // ==================== ORCHESTRATOR ====================
 
 export const streamChatResponse = async (userMessage, ws, history = [], customerToken = null, config = {}, options = {}) => {
@@ -158,7 +155,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
 
             let combinedParts = [];
             let functionCalls = [];
-            const currentStepId = 'step-' + (iteration + 1) + '-' + Math.random().toString(36).slice(2, 7);
             const smoothEmitter = createSmoothChunkEmitter({
                 emit: content => ws.send(JSON.stringify({ type: 'chunk', content })),
                 isCancelled
@@ -166,12 +162,12 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             const thinkingEmitter = createSmoothChunkEmitter({
                 emit: delta => ws.send(JSON.stringify({
                     type: 'thinking_delta',
-                    step_id: currentStepId,
-                    delta
+                    step_id: `reasoning-${iteration}`,
+                    delta,
+                    visibility: 'public'
                 })),
                 isCancelled,
                 intervalMs: 18,
-                targetFrames: 6,
                 minChars: 1,
                 maxChars: 24
             });
@@ -184,15 +180,15 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 const parts = chunk.candidates?.[0]?.content?.parts;
                 mergeProviderUsage(providerResponse, chunk.usageMetadata);
                 finishReason = chunk.candidates?.[0]?.finishReason || finishReason;
-                addProviderCitations(providerResponse, chunk.candidates?.[0]?.groundingMetadata?.groundingChunks);
-                if (parts) {
-                    for (const part of parts) {
-                        if (part.thought === true || part.thought) {
-                            thinkingEmitter.push(part.text || '');
-                        } else if (part.text) {
-                            smoothEmitter.push(part.text);
-                            hasVisibleText = true;
-                        }
+                    addProviderCitations(providerResponse, chunk.candidates?.[0]?.groundingMetadata?.groundingChunks);
+                    if (parts) {
+                        for (const part of parts) {
+                            if (part.thought === true || part.thought) {
+                                if (part.text) thinkingEmitter.push(part.text);
+                            } else if (part.text) {
+                                smoothEmitter.push(part.text);
+                                hasVisibleText = true;
+                            }
 
                         const normalizedPart = normalizeGeminiModelPart(part);
                         if (normalizedPart) {
@@ -208,9 +204,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 } catch (e) {}
             }
 
-            // Keep the reasoning timeline ahead of the next tool/final frame.
-            // Provider thought parts can arrive as large bursts; the emitter
-            // above paints those bursts in small ordered deltas.
             await thinkingEmitter.drain();
 
             if (combinedParts.length > 0) {

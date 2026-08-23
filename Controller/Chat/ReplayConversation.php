@@ -19,42 +19,19 @@ use Psr\Log\LoggerInterface;
 
 class ReplayConversation implements HttpGetActionInterface
 {
-    private HttpRequest $request;
-    private ResultFactory $resultFactory;
-    private ConversationRepositoryInterface $conversationRepository;
-    private MessageRepositoryInterface $messageRepository;
-    private SearchCriteriaBuilder $searchCriteriaBuilder;
-    private SortOrderBuilder $sortOrderBuilder;
-    private CheckoutSession $checkoutSession;
-    private CustomerSession $customerSession;
-    private ChatMessagePayload $chatMessagePayload;
-    private ConversationStoreScope $conversationStoreScope;
-    private LoggerInterface $logger;
-
     public function __construct(
-        HttpRequest $request,
-        ResultFactory $resultFactory,
-        ConversationRepositoryInterface $conversationRepository,
-        MessageRepositoryInterface $messageRepository,
-        SearchCriteriaBuilder $searchCriteriaBuilder,
-        SortOrderBuilder $sortOrderBuilder,
-        CheckoutSession $checkoutSession,
-        CustomerSession $customerSession,
-        ChatMessagePayload $chatMessagePayload,
-        ConversationStoreScope $conversationStoreScope,
-        LoggerInterface $logger
+        private readonly HttpRequest $request,
+        private readonly ResultFactory $resultFactory,
+        private readonly ConversationRepositoryInterface $conversationRepository,
+        private readonly MessageRepositoryInterface $messageRepository,
+        private readonly SearchCriteriaBuilder $searchCriteriaBuilder,
+        private readonly SortOrderBuilder $sortOrderBuilder,
+        private readonly CheckoutSession $checkoutSession,
+        private readonly CustomerSession $customerSession,
+        private readonly ChatMessagePayload $chatMessagePayload,
+        private readonly ConversationStoreScope $conversationStoreScope,
+        private readonly LoggerInterface $logger
     ) {
-        $this->request = $request;
-        $this->resultFactory = $resultFactory;
-        $this->conversationRepository = $conversationRepository;
-        $this->messageRepository = $messageRepository;
-        $this->searchCriteriaBuilder = $searchCriteriaBuilder;
-        $this->sortOrderBuilder = $sortOrderBuilder;
-        $this->checkoutSession = $checkoutSession;
-        $this->customerSession = $customerSession;
-        $this->chatMessagePayload = $chatMessagePayload;
-        $this->conversationStoreScope = $conversationStoreScope;
-        $this->logger = $logger;
     }
 
     public function execute()
@@ -136,7 +113,7 @@ class ReplayConversation implements HttpGetActionInterface
 
             return $resultJson->setData($response + ['status' => 'success']);
         } catch (\Exception $e) {
-            $this->logger->error('REPLAY CONVERSATION ERROR: ' . $e->getMessage());
+            $this->logger->error('REPLAY CONVERSATION ERROR', ['exception' => $e]);
             return $resultJson->setData([
                 'status' => 'error',
                 'message' => 'Could not load replay data',

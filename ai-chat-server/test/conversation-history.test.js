@@ -122,13 +122,19 @@ test('restores a persisted product grid together with its payload', () => {
     assert.match(productPart.html, /product\.jpg/);
 });
 
-test('persists customer-safe tool activity for the completed-turn timeline', () => {
+test('persists customer-safe tool progress and activity for the completed-turn timeline', () => {
     const stored = JSON.parse(codec.buildAssistantStoragePayload([
         {
             type: 'reasoning',
             events: [
                 { id: 'availability', type: 'activity', tool: 'getProductAvailability', state: 'completed', result_count: 1 },
-                { id: 'step-1', type: 'step', content: 'Checking current availability.' }
+                {
+                    id: 'progress-availability',
+                    type: 'step',
+                    source: 'tool_progress',
+                    tool: 'getProductAvailability',
+                    state: 'completed'
+                }
             ]
         },
         { type: 'text', raw: 'There are 35 items available.' }
@@ -143,6 +149,13 @@ test('persists customer-safe tool activity for the completed-turn timeline', () 
         state: 'completed',
         result_count: 1
     });
+    assert.deepEqual(reasoning.steps[0], {
+        id: 'progress-availability',
+        type: 'step',
+        source: 'tool_progress',
+        tool: 'getProductAvailability',
+        state: 'completed'
+    });
 
     const restored = codec.normalizeStoredAssistantMessage({
         entity_id: 43,
@@ -151,6 +164,7 @@ test('persists customer-safe tool activity for the completed-turn timeline', () 
     });
     assert.equal(restored.parts[0].type, 'reasoning');
     assert.equal(restored.parts[0].activities[0].tool, 'getProductAvailability');
+    assert.equal(restored.parts[0].steps[0].source, 'tool_progress');
 });
 
 test('allows the synced Admin limit to trim model history per request', () => {

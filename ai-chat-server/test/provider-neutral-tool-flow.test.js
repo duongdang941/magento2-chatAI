@@ -5,6 +5,7 @@ import {
     buildFallbackMessage,
     createProviderNeutralToolFlow
 } from '../services/orchestration/provider-neutral-tool-flow.js';
+import { CATALOG_AGENT_GUIDANCE } from '../services/catalog/catalog-agent-guidance.js';
 
 test('uses the same initial catalogue policy regardless of provider protocol', () => {
     for (const provider of ['gemini', 'openai', 'cockpit', 'openrouter', '9router']) {
@@ -16,6 +17,12 @@ test('uses the same initial catalogue policy regardless of provider protocol', (
         // not infer shopping intent (or force a tool) from the shopper text.
         assert.equal(flow.shouldForceProductSearch(), false, provider);
     }
+});
+
+test('requires product-page selection instead of collecting options in chat', () => {
+    assert.match(CATALOG_AGENT_GUIDANCE, /must be configured only on its returned product page/i);
+    assert.match(CATALOG_AGENT_GUIDANCE, /do not list, ask for, accept, or verify options in chat/i);
+    assert.match(CATALOG_AGENT_GUIDANCE, /only when the current Magento result says direct_addable=true/i);
 });
 
 test('keeps an unverified human-support reply focused on the verification card', async () => {
@@ -75,6 +82,50 @@ test('explains insufficient stock instead of inventing a product-page option req
     assert.equal(result.outcome.content.reason, 'insufficient_stock');
     assert.match(result.modelContext.instruction, /exceeds the currently available salable quantity/i);
     assert.doesNotMatch(result.modelContext.instruction, /needs product-page configuration/i);
+});
+
+test('blocks a repeated add-to-cart call after product-page configuration is required', async () => {
+    let browserCartRequests = 0;
+    const productPageUrl = 'https://afd.test/t-shirt-hellblau-mit-wunsch-aufdruck-1-design.html';
+    const flow = createProviderNeutralToolFlow({
+        provider: 'gemini',
+        currentUserMessage: { text: 'Thêm áo N022.A00 vào giỏ hàng.' },
+        options: {
+            requestBrowserCart: async () => {
+                browserCartRequests += 1;
+                return {
+                    status: 'requires_customer_action',
+                    reason: 'product_page_required',
+                    product: 'T-Shirt mit Wunschaufdruck',
+                    sku: 'N022.A00',
+                    url: productPageUrl,
+                    message: 'Please configure your design on the product page first.'
+                };
+            }
+        }
+    });
+
+    const first = await flow.execute({
+        id: 'product-page-first-call',
+        name: 'addToCart',
+        args: { sku: 'N022.A00', qty: 1 }
+    });
+    const retry = await flow.execute({
+        id: 'product-page-retry-call',
+        name: 'addToCart',
+        args: { sku: 'N022.A00', qty: 1 }
+    });
+
+    assert.equal(browserCartRequests, 1);
+    assert.equal(first.blocked, false);
+    assert.equal(retry.blocked, true);
+    assert.equal(retry.outcome.content.status, 'requires_customer_action');
+    assert.equal(retry.outcome.content.reason, 'product_page_required');
+    assert.equal(retry.outcome.content.sku, 'N022.A00');
+    assert.equal(retry.outcome.content.url, productPageUrl);
+    assert.equal(retry.outcome.content.blocked, true);
+    assert.match(retry.modelContext.instruction, /Do not retry addToCart/i);
+    assert.match(retry.modelContext.instruction, /only the returned product URL/i);
 });
 
 test('reconciles concurrent tool outcomes in model call order', () => {

@@ -51,6 +51,13 @@
             }
         };
 
+        const isRenderedChatMessage = message => {
+            const height = Number(message?.getBoundingClientRect?.().height);
+            // Unit-test doubles only expose `top`, while real x-show-hidden
+            // branches have a measured height of zero.
+            return !Number.isFinite(height) || height > 0;
+        };
+
         const disconnectMessageContentObserver = () => {
             cancelFrame(followScrollFrame);
             cancelFrame(settleScrollFrame);
@@ -81,6 +88,13 @@
             if (!chatWindow) return false;
             if (!force && typeof scope.shouldKeepCurrentTurnAtTop === 'function'
                 && scope.shouldKeepCurrentTurnAtTop(chatWindow)) {
+                // `done` can restore the turn intent while the spacer is
+                // still hidden. Once Alpine paints that spacer, there is new
+                // scroll range below a short response. Re-run the actual
+                // placement here so the submitted message moves back to the
+                // reading position instead of remaining pinned at the former
+                // bottom edge.
+                scope.pinCurrentTurnToTop?.(scope.pinnedTurnRequestId);
                 scope.isAtChatBottom = true;
                 scope.hasUnreadMessages = false;
                 return true;
@@ -185,6 +199,14 @@
                 // the reader leaving the latest response. Only a recent
                 // direct input gesture is allowed to stop auto-following.
                 messageUserScrollIntentHandler = event => {
+                    // Codex preserves an active short-turn reading anchor
+                    // through wheel movement while output is streaming. A
+                    // wheel event is not enough to cancel that anchor: the
+                    // next rendered chunk must remain in the reading area,
+                    // not jump back beside the composer.
+                    if (event?.type === 'wheel'
+                        && this.isTurnStartPinned
+                        && this.pinnedTurnRequestId) return;
                     // A normal click on a link, an action, or the Thinking
                     // disclosure is not a request to stop following. Native
                     // scrollbar drags target the scroll element itself.
@@ -198,8 +220,18 @@
 
             currentTurnUserMessage(chatWindow, requestId = this.pinnedTurnRequestId) {
                 if (!chatWindow || !requestId || typeof chatWindow.querySelectorAll !== 'function') return null;
-                return Array.from(chatWindow.querySelectorAll('[data-role="chat-user-message"]'))
-                    .find(message => message?.dataset?.requestId === String(requestId)) || null;
+                const messages = Array.from(chatWindow.querySelectorAll('[data-role="chat-user-message"]'));
+                return messages.find(message => message?.dataset?.requestId === String(requestId)
+                    && isRenderedChatMessage(message))
+                    || messages.filter(isRenderedChatMessage).at(-1)
+                    || null;
+            },
+
+            currentTurnAnchorMessage(chatWindow, requestId = this.pinnedTurnRequestId) {
+                // Keep one stable reading anchor for the whole turn. Moving
+                // it from the customer bubble to the assistant bubble when
+                // the first chunk arrives visibly jumps the transcript.
+                return this.currentTurnUserMessage(chatWindow, requestId);
             },
 
             currentTurnAnchorSpacerHeight() {
@@ -213,8 +245,10 @@
 
             shouldKeepCurrentTurnAtTop(chatWindow) {
                 if (!this.isTurnStartPinned || !this.pinnedTurnRequestId || !chatWindow) return false;
-                const userMessage = this.currentTurnUserMessage(chatWindow);
-                if (!userMessage || typeof userMessage.getBoundingClientRect !== 'function'
+                const anchorMessage = typeof this.currentTurnAnchorMessage === 'function'
+                    ? this.currentTurnAnchorMessage(chatWindow)
+                    : this.currentTurnUserMessage(chatWindow);
+                if (!anchorMessage || typeof anchorMessage.getBoundingClientRect !== 'function'
                     || typeof chatWindow.getBoundingClientRect !== 'function') {
                     // The request is already active but Alpine has not yet
                     // mounted its user bubble. Preserve the intent during
@@ -228,8 +262,8 @@
                     return false;
                 }
 
-                const userTop = chatWindow.scrollTop
-                    + userMessage.getBoundingClientRect().top
+                const anchorTop = chatWindow.scrollTop
+                    + anchorMessage.getBoundingClientRect().top
                     - chatWindow.getBoundingClientRect().top;
                 const spacer = typeof chatWindow.querySelector === 'function'
                     ? chatWindow.querySelector('[data-role="chat-turn-anchor-spacer"]')
@@ -243,7 +277,7 @@
                 // The spacer creates the scroll range required to move a
                 // short turn upward. It is not response content, so exclude
                 // it when deciding whether the real turn has grown tall.
-                const turnHeight = chatWindow.scrollHeight - spacerHeight - Math.max(0, userTop);
+                const turnHeight = chatWindow.scrollHeight - spacerHeight - Math.max(0, anchorTop);
                 if (turnHeight <= Math.max(0, chatWindow.clientHeight - 16)) return true;
 
                 this.isTurnStartPinned = false;
@@ -268,14 +302,16 @@
                 this.pinnedTurnRequestId = normalizedRequestId;
                 if (!chatWindow) return;
 
-                const userMessage = this.currentTurnUserMessage(chatWindow, normalizedRequestId);
-                if (!userMessage || typeof userMessage.getBoundingClientRect !== 'function'
+                const anchorMessage = typeof this.currentTurnAnchorMessage === 'function'
+                    ? this.currentTurnAnchorMessage(chatWindow, normalizedRequestId)
+                    : this.currentTurnUserMessage(chatWindow, normalizedRequestId);
+                if (!anchorMessage || typeof anchorMessage.getBoundingClientRect !== 'function'
                     || typeof chatWindow.getBoundingClientRect !== 'function') return;
 
                 const targetTop = Math.max(
                     0,
                     chatWindow.scrollTop
-                        + userMessage.getBoundingClientRect().top
+                        + anchorMessage.getBoundingClientRect().top
                         - chatWindow.getBoundingClientRect().top
                         - (chatWindow.clientHeight * NEW_TURN_VIEWPORT_OFFSET_RATIO)
                 );
@@ -371,13 +407,10 @@
             shouldShowMessage(msg, index = -1) {
                 if (!msg) return false;
                 if (msg.deleted === true) return true;
-                // While a customer edits a turn, hide its old reply branch.
-                // The current user item stays visible because it contains the
-                // inline editor; submitting it then replaces that branch in
-                // durable history too.
-                if (!this.humanSupportActive
-                    && this.editingMessageIndex !== null
-                    && index > this.editingMessageIndex) return false;
+                // Codex keeps the existing transcript visible while an older
+                // customer message is edited. Only submitting the edit replaces
+                // that later branch; merely opening the inline form must not
+                // make the subsequent conversation disappear.
                 if (msg.role === 'user') return true;
                 if (msg.interrupted === true) return true;
                 if (!Array.isArray(msg.parts)) return false;

@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 namespace Afd\AI\Model\Config\Source;
 
 class OpenAiModel implements \Magento\Framework\Data\OptionSourceInterface

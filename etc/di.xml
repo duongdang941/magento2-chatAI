@@ -34,16 +34,6 @@
         </arguments>
     </type>
 
-    <!-- This database still contains product attributes from an uninstalled
-         Bss_GiftCard module. The compatibility virtual types preserve those
-         legacy values long enough for Magento's fulltext indexer to read the
-         catalog; they do not re-enable the missing GiftCard module. -->
-    <virtualType name="Bss\GiftCard\Model\Attribute\Source\Backend\Amounts" type="Magento\Eav\Model\Entity\Attribute\Backend\ArrayBackend"/>
-    <virtualType name="Bss\GiftCard\Model\Attribute\Source\Backend\Template" type="Magento\Eav\Model\Entity\Attribute\Backend\ArrayBackend"/>
-    <virtualType name="Bss\GiftCard\Model\Attribute\Source\Type" type="Magento\Eav\Model\Entity\Attribute\Source\Table"/>
-    <virtualType name="Bss\GiftCard\Model\Attribute\Source\Price" type="Magento\Eav\Model\Entity\Attribute\Source\Table"/>
-    <virtualType name="Bss\GiftCard\Model\Attribute\Source\Template" type="Magento\Eav\Model\Entity\Attribute\Source\Table"/>
-    <virtualType name="Bss\GiftCard\Model\Attribute\Source\Pattern" type="Magento\Eav\Model\Entity\Attribute\Source\Table"/>
 
     <type name="Magento\Framework\Console\CommandListInterface">
         <arguments>

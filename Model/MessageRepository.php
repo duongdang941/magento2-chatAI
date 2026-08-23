@@ -16,24 +16,13 @@ use Magento\Framework\Exception\NoSuchEntityException;
 
 class MessageRepository implements MessageRepositoryInterface
 {
-    protected $resource;
-    protected $messageFactory;
-    protected $messageCollectionFactory;
-    protected $searchResultsFactory;
-    protected $collectionProcessor;
-
     public function __construct(
-        MessageResource $resource,
-        MessageFactory $messageFactory,
-        MessageCollectionFactory $messageCollectionFactory,
-        SearchResultsInterfaceFactory $searchResultsFactory,
-        CollectionProcessorInterface $collectionProcessor
+        protected readonly MessageResource $resource,
+        protected readonly MessageFactory $messageFactory,
+        protected readonly MessageCollectionFactory $messageCollectionFactory,
+        protected readonly SearchResultsInterfaceFactory $searchResultsFactory,
+        protected readonly CollectionProcessorInterface $collectionProcessor
     ) {
-        $this->resource = $resource;
-        $this->messageFactory = $messageFactory;
-        $this->messageCollectionFactory = $messageCollectionFactory;
-        $this->searchResultsFactory = $searchResultsFactory;
-        $this->collectionProcessor = $collectionProcessor;
     }
 
     public function save(MessageInterface $message)

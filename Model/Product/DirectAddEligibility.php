@@ -42,7 +42,12 @@ class DirectAddEligibility
             // small attribute set. Reload the product so custom options are
             // present when Magento validates the buy request.
             $product = $this->productRepository->getById($productId, false, null, true);
-            if ($product->getTypeId() !== 'simple' || !$product->isSaleable()) {
+            // Chat never owns a product's selection UI. Even an optional
+            // custom option must be chosen on the product page so the shopper
+            // can see its price, dependency, and storefront validation.
+            if ($product->getTypeId() !== 'simple'
+                || !$product->isSaleable()
+                || $this->hasCustomerOptions($product)) {
                 return $this->eligibilityByProductId[$productId] = false;
             }
 
@@ -69,5 +74,13 @@ class DirectAddEligibility
             // not validate the same request it would receive from the cart.
             return $this->eligibilityByProductId[$productId] = false;
         }
+    }
+
+    private function hasCustomerOptions($product): bool
+    {
+        // has_options is the persisted Magento product flag. Reading the data
+        // field rather than the magic getHasOptions() accessor also keeps this
+        // boundary explicit for lightweight product objects.
+        return (bool)$product->getData('has_options');
     }
 }

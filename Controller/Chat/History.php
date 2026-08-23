@@ -18,39 +18,18 @@ use Psr\Log\LoggerInterface;
 
 class History implements HttpGetActionInterface
 {
-    private $request;
-    private $resultFactory;
-    private $messageRepository;
-    private $searchCriteriaBuilder;
-    private $sortOrderBuilder;
-    private $checkoutSession;
-    private $customerSession;
-    private $chatMessagePayload;
-    private MessagePageLoader $messagePageLoader;
-    private $logger;
-
     public function __construct(
-        HttpRequest $request,
-        ResultFactory $resultFactory,
-        MessageRepositoryInterface $messageRepository,
-        SearchCriteriaBuilder $searchCriteriaBuilder,
-        SortOrderBuilder $sortOrderBuilder,
-        CheckoutSession $checkoutSession,
-        CustomerSession $customerSession,
-        ChatMessagePayload $chatMessagePayload,
-        MessagePageLoader $messagePageLoader,
-        LoggerInterface $logger
+        private readonly HttpRequest $request,
+        private readonly ResultFactory $resultFactory,
+        private readonly MessageRepositoryInterface $messageRepository,
+        private readonly SearchCriteriaBuilder $searchCriteriaBuilder,
+        private readonly SortOrderBuilder $sortOrderBuilder,
+        private readonly CheckoutSession $checkoutSession,
+        private readonly CustomerSession $customerSession,
+        private readonly ChatMessagePayload $chatMessagePayload,
+        private readonly MessagePageLoader $messagePageLoader,
+        private readonly LoggerInterface $logger
     ) {
-        $this->request = $request;
-        $this->resultFactory = $resultFactory;
-        $this->messageRepository = $messageRepository;
-        $this->searchCriteriaBuilder = $searchCriteriaBuilder;
-        $this->sortOrderBuilder = $sortOrderBuilder;
-        $this->checkoutSession = $checkoutSession;
-        $this->customerSession = $customerSession;
-        $this->chatMessagePayload = $chatMessagePayload;
-        $this->messagePageLoader = $messagePageLoader;
-        $this->logger = $logger;
     }
 
     public function execute()
@@ -140,7 +119,7 @@ class History implements HttpGetActionInterface
 
             return $resultJson->setData($response);
         } catch (\Exception $e) {
-            $this->logger->error('HISTORY ERROR: ' . $e->getMessage());
+            $this->logger->error('HISTORY ERROR', ['exception' => $e]);
             return $resultJson->setData(['status' => 'error', 'messages' => []]);
         }
     }

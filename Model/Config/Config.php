@@ -20,6 +20,8 @@ class Config
     public const XML_PATH_PROVIDER = 'afd_ai/general/provider';
     public const XML_PATH_MODEL = 'afd_ai/general/model';
     public const XML_PATH_THOUGHT_LEVEL = 'afd_ai/general/thought_level';
+    public const XML_PATH_CATALOG_EXCLUDED_NAME_TERMS = 'afd_ai/catalog/excluded_name_terms';
+    public const XML_PATH_CATALOG_EXCLUDED_KEY_PREFIXES = 'afd_ai/catalog/excluded_key_prefixes';
 
     public const XML_PATH_MAGENTO_SECURE_BASE_URL = 'web/secure/base_url';
     public const XML_PATH_MAGENTO_UNSECURE_BASE_URL = 'web/unsecure/base_url';
@@ -588,6 +590,48 @@ class Config
             ScopeInterface::SCOPE_STORE,
             $storeId
         ));
+    }
+
+    /** @return array<int, string> */
+    public function getCatalogExcludedNameTerms(?int $storeId = null): array
+    {
+        $raw = trim((string)$this->scopeConfig->getValue(
+            self::XML_PATH_CATALOG_EXCLUDED_NAME_TERMS,
+            ScopeInterface::SCOPE_STORE,
+            $storeId
+        ));
+
+        return $this->splitCommaSeparated($raw);
+    }
+
+    /** @return array<int, string> */
+    public function getCatalogExcludedKeyPrefixes(?int $storeId = null): array
+    {
+        $raw = trim((string)$this->scopeConfig->getValue(
+            self::XML_PATH_CATALOG_EXCLUDED_KEY_PREFIXES,
+            ScopeInterface::SCOPE_STORE,
+            $storeId
+        ));
+
+        return $this->splitCommaSeparated($raw);
+    }
+
+    /** @return array<int, string> */
+    private function splitCommaSeparated(string $value): array
+    {
+        if ($value === '') {
+            return [];
+        }
+
+        $items = [];
+        foreach (explode(',', $value) as $item) {
+            $normalized = trim($item);
+            if ($normalized !== '') {
+                $items[] = $normalized;
+            }
+        }
+
+        return array_values(array_unique($items));
     }
 
 }

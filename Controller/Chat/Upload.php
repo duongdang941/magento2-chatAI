@@ -163,7 +163,7 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
         } catch (\Throwable $e) {
             fclose($targetFile);
             $this->removeFile($tempFilePath);
-            $this->logger->error('Attachment stream upload error: ' . $e->getMessage());
+            $this->logger->error('Attachment stream upload error', ['exception' => $e]);
             return $result->setHttpResponseCode(500)->setData([
                 'success' => false,
                 'error' => 'Upload stream failed.'

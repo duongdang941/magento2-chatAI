@@ -54,11 +54,60 @@
     background-clip: padding-box;
 }
 
+.afd-ai-chat__attachment-preview-trigger {
+    .afd-chat-button-reset();
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    border-radius: inherit;
+    cursor: zoom-in;
+}
+
+.afd-ai-chat__attachment-preview-trigger:focus-visible {
+    outline: 2px solid var(--afd-chat-accent-live);
+    outline-offset: 2px;
+}
+
 .afd-ai-chat__attachment-thumb {
+    display: block;
     width: 100%;
     height: 100%;
     border-radius: inherit;
     object-fit: cover;
+    transition: transform 0.18s @afd-chat-ease, filter 0.18s @afd-chat-ease;
+}
+
+.afd-ai-chat__attachment-preview-zoom {
+    position: absolute;
+    right: 0.32rem;
+    bottom: 0.32rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 999px;
+    background: rgba(17, 17, 19, 0.68);
+    color: #ffffff;
+    font-size: 0.82rem;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(0.14rem);
+    transition: opacity 0.16s @afd-chat-ease, transform 0.16s @afd-chat-ease;
+}
+
+.afd-ai-chat__attachment-preview-trigger:hover .afd-ai-chat__attachment-thumb,
+.afd-ai-chat__attachment-preview-trigger:focus-visible .afd-ai-chat__attachment-thumb {
+    filter: brightness(0.86);
+    transform: scale(1.025);
+}
+
+.afd-ai-chat__attachment-preview-trigger:hover .afd-ai-chat__attachment-preview-zoom,
+.afd-ai-chat__attachment-preview-trigger:focus-visible .afd-ai-chat__attachment-preview-zoom {
+    opacity: 1;
+    transform: none;
 }
 
 .afd-ai-chat__attachment-copy {
@@ -109,6 +158,13 @@
 
 .afd-ai-chat__attachment-remove .material-symbols-outlined {
     font-size: 0.82rem;
+}
+
+@media (hover: none) {
+    .afd-ai-chat__attachment-preview-zoom {
+        opacity: 1;
+        transform: none;
+    }
 }
 
 .afd-ai-chat__upload-error {

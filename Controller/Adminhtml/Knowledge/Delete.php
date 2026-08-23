@@ -3,16 +3,18 @@ declare(strict_types=1);
 
 namespace Afd\AI\Controller\Adminhtml\Knowledge;
 
+use Afd\AI\Model\Knowledge\KnowledgeDocumentRepository;
 use Magento\Backend\App\Action;
 use Magento\Backend\App\Action\Context;
-use Magento\Framework\App\ResourceConnection;
 
 class Delete extends Action
 {
     public const ADMIN_RESOURCE = 'Afd_AI::knowledge';
 
-    public function __construct(Context $context, private readonly ResourceConnection $resource)
-    {
+    public function __construct(
+        Context $context,
+        private readonly KnowledgeDocumentRepository $knowledgeRepository
+    ) {
         parent::__construct($context);
     }
 
@@ -28,7 +30,7 @@ class Delete extends Action
             return $this->_redirect('afd_ai/knowledge/index');
         }
         try {
-            $this->resource->getConnection()->delete($this->resource->getTableName('afd_ai_knowledge_document'), ['entity_id = ?' => $id]);
+            $this->knowledgeRepository->delete($id);
             $this->messageManager->addSuccessMessage(__('Knowledge document deleted and removed from retrieval.'));
         } catch (\Throwable $error) {
             $this->messageManager->addErrorMessage(__('The knowledge document could not be deleted.'));

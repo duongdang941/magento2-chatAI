@@ -48,6 +48,23 @@ class SupportTakeoverService
         ) === 1;
     }
 
+    public function closeByConversationId(int $conversationId): bool
+    {
+        $now = gmdate('Y-m-d H:i:s');
+        return $this->resource->getConnection()->update(
+            $this->resource->getTableName('afd_ai_support_case'),
+            [
+                'status' => 'closed',
+                'takeover_state' => 'inactive',
+                'takeover_expires_at' => null,
+                'takeover_ended_at' => $now,
+                'resolved_at' => $now,
+                'updated_at' => $now,
+            ],
+            ['conversation_id = ?' => $conversationId]
+        ) > 0;
+    }
+
     /** @return array{active:bool,closed:bool,is_support:bool,status:string,agent_label:string,case_id:int} */
     public function getConversationState(
         int $conversationId,

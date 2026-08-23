@@ -272,6 +272,57 @@ export function toOpenAiContent(parts = [], fallbackText = '', baseUrl = '') {
     return normalizedParts;
 }
 
+export function toAnthropicContent(parts = [], fallbackText = '', baseUrl = '') {
+    const normalizedParts = [];
+
+    for (const part of Array.isArray(parts) ? parts : []) {
+        if (!part || typeof part !== 'object') {
+            continue;
+        }
+
+        const text = normalizeText(part.text ?? part.raw ?? '');
+        if (text) {
+            normalizedParts.push({ type: 'text', text });
+        }
+
+        const attachmentRef = extractAttachmentRef(part);
+        if (attachmentRef) {
+            const localData = attachmentRef.attachment_id
+                ? resolveLocalAttachmentData(attachmentRef.attachment_id)
+                : null;
+            if (localData) {
+                normalizedParts.push({
+                    type: 'image',
+                    source: {
+                        type: 'base64',
+                        media_type: localData.mimeType,
+                        data: localData.data
+                    }
+                });
+            }
+            continue;
+        }
+
+        const inlineData = extractInlineData(part);
+        if (inlineData) {
+            normalizedParts.push({
+                type: 'image',
+                source: {
+                    type: 'base64',
+                    media_type: inlineData.mime_type,
+                    data: inlineData.data
+                }
+            });
+        }
+    }
+
+    if (normalizedParts.length > 0) {
+        return normalizedParts;
+    }
+
+    return normalizeText(extractTextFromParts(parts) || fallbackText);
+}
+
 export function toGeminiParts(parts = [], fallbackText = '', baseUrl = '') {
     const normalizedParts = [];
     let hasImage = false;
@@ -585,52 +636,45 @@ export function recordOutboundAssistantPart(assistantParts, parsed) {
             purpose: parsed.purpose === 'support' ? 'support' : 'order',
             expires_at: parsed.expires_at
         });
-    } else if (parsed.type === 'thinking_delta') {
+    } else if ((parsed.type === 'thinking_delta' || parsed.type === 'thinking_step')
+        && parsed.visibility === 'public') {
+        const content = String(parsed.delta ?? parsed.content ?? '');
+        if (!content) return;
         let reasoningPart = assistantParts.find(p => p.type === 'reasoning');
         if (!reasoningPart) {
             reasoningPart = { type: 'reasoning', events: [], steps: [], activities: [] };
             assistantParts.unshift(reasoningPart);
         }
         if (!Array.isArray(reasoningPart.events)) reasoningPart.events = [];
-        const stepId = String(parsed.step_id || 'step-active');
-        let stepItem = reasoningPart.events.find(e => e.type === 'step' && e.id === stepId);
-        if (!stepItem) {
-            stepItem = {
-                id: stepId,
-                type: 'step',
-                content: ''
-            };
-            reasoningPart.events.push(stepItem);
-        }
-        stepItem.content += String(parsed.delta || '');
-    } else if (parsed.type === 'discard_tentative_step') {
-        let reasoningPart = assistantParts.find(p => p.type === 'reasoning');
-        if (reasoningPart && Array.isArray(reasoningPart.events)) {
-            const stepId = String(parsed.step_id || '');
-            if (stepId) {
-                reasoningPart.events = reasoningPart.events.filter(e => e.id !== stepId);
-            }
-        }
-    } else if (parsed.type === 'thinking_step' && parsed.content) {
-        let reasoningPart = assistantParts.find(p => p.type === 'reasoning');
-        if (!reasoningPart) {
-            reasoningPart = { type: 'reasoning', events: [], steps: [], activities: [] };
-            assistantParts.unshift(reasoningPart);
-        }
-        if (!Array.isArray(reasoningPart.events)) reasoningPart.events = [];
-        const stepId = String(parsed.step_id || 'step-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7));
-        const existing = reasoningPart.events.find(e => e.type === 'step' && e.id === stepId);
+        if (!Array.isArray(reasoningPart.steps)) reasoningPart.steps = [];
+        const stepId = String(parsed.step_id || 'default').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80) || 'default';
+        const id = `provider-reasoning-${stepId}`;
+        const existing = reasoningPart.events.find(step => step.type === 'step' && step.id === id);
         if (existing) {
-            existing.content = String(parsed.content);
+            existing.content = `${String(existing.content || '')}${content}`.slice(0, 16000);
+            existing.state = 'completed';
         } else {
-            const stepItem = {
-                id: stepId,
+            const step = {
+                id,
                 type: 'step',
-                content: String(parsed.content),
-                tool: String(parsed.tool || '')
+                source: 'provider_reasoning',
+                content: content.slice(0, 16000),
+                state: 'completed'
             };
-            reasoningPart.events.push(stepItem);
-            if (Array.isArray(reasoningPart.steps)) reasoningPart.steps.push(stepItem);
+            reasoningPart.events.push(step);
+            reasoningPart.steps.push(step);
+        }
+    } else if (parsed.type === 'discard_tentative_step' && parsed.visibility === 'public') {
+        const stepId = String(parsed.step_id || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
+        if (!stepId) return;
+        const id = `provider-reasoning-${stepId}`;
+        for (const reasoningPart of assistantParts.filter(part => part?.type === 'reasoning')) {
+            if (Array.isArray(reasoningPart.events)) {
+                reasoningPart.events = reasoningPart.events.filter(event => event?.id !== id);
+            }
+            if (Array.isArray(reasoningPart.steps)) {
+                reasoningPart.steps = reasoningPart.steps.filter(step => step?.id !== id);
+            }
         }
     } else if (parsed.type === 'tool_activity' && parsed.tool) {
         let reasoningPart = assistantParts.find(p => p.type === 'reasoning');

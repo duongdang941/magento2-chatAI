@@ -31,7 +31,9 @@ function createChat() {
     };
     const context = {
         window: browserWindow,
-        document: {},
+        document: {
+            getElementById() { return null; }
+        },
         Date,
         Math,
         Set,
@@ -121,7 +123,7 @@ test('queues the address form until the final customer-facing stream text is com
     assert.equal(chat.pendingOrderAddressFormParts.length, 0);
 });
 
-test('keeps live reasoning in the same assistant bubble through completion', () => {
+test('shows the provider reasoning text before the first tool activity', () => {
     const chat = createChat();
     chat.thinkingEvents = [];
     chat.thinkingSteps = [];
@@ -130,15 +132,16 @@ test('keeps live reasoning in the same assistant bubble through completion', () 
         type: 'thinking_step',
         request_id: 'stream-1',
         step_id: 'draft',
-        content: 'Drafting Vietnamese text'
+        content: 'Drafting Vietnamese text',
+        visibility: 'public'
     });
 
     assert.equal(chat.currentAiMessageIndex, 0);
     assert.equal(chat.messages.length, 1);
-    const reasoningPart = chat.messages[0].parts[0];
-    assert.equal(reasoningPart.type, 'reasoning');
-    assert.equal(reasoningPart.isExpanded, true);
-    const reasoningId = reasoningPart.id;
+    assert.deepEqual(
+        Array.from(chat.reasoningSteps(chat.messages[0].parts[0]), step => [step.source, step.content, step.state]),
+        [['provider_reasoning', 'Drafting Vietnamese text', 'running']]
+    );
 
     chat.handleStreamMessage({
         type: 'tool_activity',
@@ -153,6 +156,11 @@ test('keeps live reasoning in the same assistant bubble through completion', () 
         ['reasoning', 'text']
     );
     assert.equal(chat.messages[0].parts[0].isExpanded, false);
+    const reasoningId = chat.messages[0].parts[0].id;
+    assert.deepEqual(
+        Array.from(chat.reasoningSteps(chat.messages[0].parts[0]), step => [step.source, step.content, step.state]),
+        [['provider_reasoning', 'Drafting Vietnamese text', 'running']]
+    );
 
     chat.handleStreamMessage({
         type: 'tool_activity',
@@ -175,12 +183,14 @@ test('stops the previous action when the gateway starts the next action', () => 
 
     chat.handleStreamMessage({
         type: 'tool_activity',
+        request_id: 'stream-1',
         activity_id: 'catalog-1',
         tool: 'searchProducts',
         state: 'running'
     });
     chat.handleStreamMessage({
         type: 'tool_activity',
+        request_id: 'stream-1',
         activity_id: 'category-2',
         tool: 'searchCategories',
         state: 'running'
@@ -199,12 +209,14 @@ test('keeps the last completed action shimmering until a newer action starts', (
 
     chat.handleStreamMessage({
         type: 'tool_activity',
+        request_id: 'stream-1',
         activity_id: 'catalog-1',
         tool: 'searchProducts',
         state: 'running'
     });
     chat.handleStreamMessage({
         type: 'tool_activity',
+        request_id: 'stream-1',
         activity_id: 'catalog-1',
         tool: 'searchProducts',
         state: 'completed',
@@ -217,6 +229,7 @@ test('keeps the last completed action shimmering until a newer action starts', (
 
     chat.handleStreamMessage({
         type: 'tool_activity',
+        request_id: 'stream-1',
         activity_id: 'category-2',
         tool: 'searchCategories',
         state: 'running'
@@ -229,7 +242,7 @@ test('keeps the last completed action shimmering until a newer action starts', (
     );
 });
 
-test('keeps Thinking text when actions and legacy steps share a reasoning part', () => {
+test('filters legacy Thinking text while retaining actions', () => {
     const chat = createChat();
     const part = {
         type: 'reasoning',
@@ -246,11 +259,12 @@ test('keeps Thinking text when actions and legacy steps share a reasoning part',
         }]
     };
 
-    assert.deepEqual(chat.reasoningSteps(part), [part.steps[0]]);
+    assert.equal(chat.reasoningSteps(part).length, 0);
+    assert.deepEqual(Array.from(chat.reasoningTimeline(part), event => event.id), ['tool-catalog-1']);
     assert.deepEqual(chat.reasoningActivities(part), [part.events[0]]);
 });
 
-test('does not let an empty streamed step hide legacy Thinking text', () => {
+test('filters every legacy Thinking step from the activity timeline', () => {
     const chat = createChat();
     const part = {
         type: 'reasoning',
@@ -261,36 +275,43 @@ test('does not let an empty streamed step hide legacy Thinking text', () => {
         steps: [{ id: 'legacy-step', type: 'step', content: 'Visible Thinking text.' }]
     };
 
-    assert.equal(chat.reasoningSteps(part)[0].content, 'Visible Thinking text.');
+    assert.equal(chat.reasoningSteps(part).length, 0);
+    assert.deepEqual(Array.from(chat.reasoningTimeline(part), event => event.id), ['tool-1']);
     assert.equal(chat.reasoningActivities(part)[0].tool, 'searchProducts');
 });
 
-test('retains Thinking and actions through a realistic streaming completion sequence', () => {
+test('retains streamed provider reasoning with actions through completion', () => {
     const chat = createChat();
 
-    chat.handleStreamMessage({ type: 'thinking_delta', step_id: 'draft', delta: 'Checking the catalogue.' });
+    chat.handleStreamMessage({ type: 'thinking_delta', request_id: 'stream-1', step_id: 'draft', delta: 'Checking the catalogue.', visibility: 'public' });
     chat.handleStreamMessage({
         type: 'tool_activity',
+        request_id: 'stream-1',
         activity_id: 'tool-catalog-1',
         tool: 'searchProducts',
         state: 'running'
     });
-    chat.handleStreamMessage({ type: 'chunk', content: 'I found the matching products.' });
+    chat.handleStreamMessage({ type: 'chunk', request_id: 'stream-1', content: 'I found the matching products.' });
     chat.handleStreamMessage({
         type: 'tool_activity',
+        request_id: 'stream-1',
         activity_id: 'tool-catalog-1',
         tool: 'searchProducts',
         state: 'completed',
         result_count: 2
     });
-    chat.handleStreamMessage({ type: 'done' });
+    chat.handleStreamMessage({ type: 'done', request_id: 'stream-1' });
 
     const message = chat.messages[0];
     const reasoning = message.parts.find(part => part.type === 'reasoning');
     const text = message.parts.find(part => part.type === 'text');
     assert.ok(reasoning);
     assert.ok(text);
-    assert.equal(chat.reasoningSteps(reasoning)[0].content, 'Checking the catalogue.');
+    assert.deepEqual(
+        Array.from(chat.reasoningSteps(reasoning), step => [step.source, step.content, step.state]),
+        [['provider_reasoning', 'Checking the catalogue.', 'running']]
+    );
+    assert.deepEqual(Array.from(chat.reasoningTimeline(reasoning), event => event.type), ['step', 'activity']);
     assert.equal(chat.reasoningActivities(reasoning)[0].state, 'completed');
     assert.equal(reasoning.isExpanded, false);
     assert.equal(chat.isLoading, false);
@@ -299,34 +320,41 @@ test('retains Thinking and actions through a realistic streaming completion sequ
 test('keeps an explicit collapse separate from automatic stream updates', () => {
     const chat = createChat();
 
-    chat.handleStreamMessage({ type: 'thinking_delta', step_id: 'draft', delta: 'Thinking stays in the timeline.' });
+    chat.handleStreamMessage({ type: 'thinking_delta', request_id: 'stream-1', step_id: 'draft', delta: 'Thinking stays in the timeline.', visibility: 'public' });
+    assert.equal(chat.messages.length, 1);
+    assert.deepEqual(
+        Array.from(chat.reasoningSteps(chat.messages[0].parts[0]), step => step.source),
+        ['provider_reasoning']
+    );
+    chat.handleStreamMessage({
+        type: 'tool_activity',
+        request_id: 'stream-1',
+        activity_id: 'tool-catalog-1',
+        tool: 'searchProducts',
+        state: 'running'
+    });
     const reasoning = chat.messages[0].parts[0];
     chat.toggleReasoning(reasoning);
     assert.equal(reasoning.isExpanded, false);
     assert.equal(reasoning.isManuallyCollapsed, true);
 
-    chat.handleStreamMessage({
-        type: 'tool_activity',
-        activity_id: 'tool-catalog-1',
-        tool: 'searchProducts',
-        state: 'running'
-    });
-    chat.handleStreamMessage({ type: 'chunk', content: 'The answer is still being prepared.' });
+    chat.handleStreamMessage({ type: 'chunk', request_id: 'stream-1', content: 'The answer is still being prepared.' });
     assert.equal(reasoning.isExpanded, false);
-    assert.equal(chat.reasoningSteps(reasoning)[0].content, 'Thinking stays in the timeline.');
+    assert.equal(chat.reasoningSteps(reasoning).length, 1);
     assert.equal(chat.reasoningActivities(reasoning)[0].state, 'running');
 
     chat.toggleReasoning(reasoning);
     chat.handleStreamMessage({
         type: 'tool_activity',
+        request_id: 'stream-1',
         activity_id: 'tool-catalog-1',
         tool: 'searchProducts',
         state: 'completed'
     });
-    chat.handleStreamMessage({ type: 'done' });
+    chat.handleStreamMessage({ type: 'done', request_id: 'stream-1' });
     assert.equal(reasoning.isExpanded, true);
     assert.equal(reasoning.isManuallyCollapsed, false);
-    assert.equal(chat.reasoningSteps(reasoning)[0].content, 'Thinking stays in the timeline.');
+    assert.equal(chat.reasoningSteps(reasoning).length, 1);
 });
 
 test('creates one reasoning part when a legacy action arrives before the first text chunk', () => {
@@ -334,10 +362,10 @@ test('creates one reasoning part when a legacy action arrives before the first t
 
     chat.thinkingSteps = [{ id: 'legacy-step', type: 'step', content: 'Legacy Thinking text.' }];
     chat.toolActivities = [{ id: 'legacy-tool', type: 'activity', tool: 'searchProducts', state: 'running' }];
-    chat.handleStreamMessage({ type: 'chunk', content: 'Final text follows.' });
+    chat.handleStreamMessage({ type: 'chunk', request_id: 'stream-1', content: 'Final text follows.' });
 
     assert.deepEqual(Array.from(chat.messages[0].parts, part => part.type), ['reasoning', 'text']);
-    assert.equal(chat.messages[0].parts[0].steps[0].content, 'Legacy Thinking text.');
+    assert.equal(chat.messages[0].parts[0].steps.length, 0);
     assert.equal(chat.messages[0].parts[0].activities[0].tool, 'searchProducts');
     assert.equal(chat.messages[0].parts[0].isExpanded, false);
 });
@@ -418,7 +446,7 @@ test('retains the live DOM key when durable history replaces a completed respons
     assert.equal(chat.messageRenderKey({ entity_id: 42, role: 'assistant' }, 1), 'message-42');
 });
 
-test('does not erase the assistant bubble when a legacy discard frame arrives', () => {
+test('does not expose an unmarked provider reasoning frame when a discard frame arrives', () => {
     const chat = createChat();
 
     chat.handleStreamMessage({
@@ -437,7 +465,7 @@ test('does not erase the assistant bubble when a legacy discard frame arrives', 
     chat.handleStreamMessage({ type: 'discard_thinking_text', request_id: 'stream-1' });
 
     assert.equal(chat.messages.length, 1);
-    assert.equal(chat.reasoningSteps(chat.messages[0].parts[0])[0].content, 'Keep this Thinking text.');
+    assert.equal(chat.reasoningSteps(chat.messages[0].parts[0]).length, 0);
     assert.equal(chat.reasoningActivities(chat.messages[0].parts[0])[0].state, 'running');
 });
 
@@ -487,6 +515,58 @@ test('does not revive the composer stop state when a stale status frame follows 
 
     assert.equal(chat.isLoading, false);
     assert.equal(chat.statusMessage, '');
+});
+
+test('ignores an uncorrelated request-less stream frame while a newer turn is active', () => {
+    const chat = createChat();
+
+    // A legacy gateway can still have an old frame queued after the shopper
+    // has started the next request. Without a request id it cannot safely be
+    // associated with the visible assistant bubble.
+    chat.handleStreamMessage({
+        type: 'chunk',
+        content: 'Stale content from an earlier conversation.'
+    });
+    chat.handleStreamMessage({
+        type: 'thinking_delta',
+        content: 'Stale reasoning from an earlier conversation.'
+    });
+
+    assert.equal(chat.messages.length, 0);
+    assert.equal(chat.currentAiMessageIndex, -1);
+
+    chat.handleStreamMessage({
+        type: 'chunk',
+        request_id: 'stream-1',
+        content: 'Current response.'
+    });
+
+    assert.equal(chat.messages.length, 1);
+    assert.equal(chat.messages[0].parts[0].raw, 'Current response.');
+});
+
+test('uses one content follower after a compact response completes', () => {
+    const chat = createChat();
+    const anchoredRequestIds = [];
+    let scrollCalls = 0;
+    chat.isAtChatBottom = true;
+    chat.pinCurrentTurnToTop = requestId => anchoredRequestIds.push(requestId);
+    chat.scrollToBottom = () => { scrollCalls += 1; };
+
+    chat.handleStreamMessage({ type: 'done', request_id: 'stream-1' });
+
+    assert.deepEqual(anchoredRequestIds, []);
+    assert.equal(scrollCalls, 1);
+
+    const readerScrolledAway = createChat();
+    readerScrolledAway.isAtChatBottom = false;
+    readerScrolledAway.pinCurrentTurnToTop = requestId => anchoredRequestIds.push(requestId);
+    readerScrolledAway.scrollToBottom = () => { scrollCalls += 1; };
+
+    readerScrolledAway.handleStreamMessage({ type: 'done', request_id: 'stream-1' });
+
+    assert.deepEqual(anchoredRequestIds, []);
+    assert.equal(scrollCalls, 2);
 });
 
 test('ends the composer request when gateway admission is busy', () => {

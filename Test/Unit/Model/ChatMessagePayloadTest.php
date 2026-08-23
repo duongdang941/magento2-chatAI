@@ -78,4 +78,28 @@ class ChatMessagePayloadTest extends TestCase
         );
         self::assertSame('image', $decoded['parts'][0]['type']);
     }
+
+    public function testProviderReasoningSourceSurvivesAssistantPayloadRoundTrip(): void
+    {
+        $storeManager = $this->createMock(StoreManagerInterface::class);
+        $payload = new ChatMessagePayload(
+            $this->createMock(ProductRendererInterface::class),
+            $this->createMock(UrlFinderInterface::class),
+            $storeManager
+        );
+
+        $encoded = $payload->encodeAssistantParts([[
+            'type' => 'reasoning',
+            'events' => [[
+                'id' => 'provider-reasoning-reasoning-1',
+                'type' => 'step',
+                'source' => 'provider_reasoning',
+                'content' => '**Analyzing** the request.'
+            ]]
+        ]]);
+        $decoded = $payload->decodeStoredMessage('assistant', $encoded, 'message-4');
+
+        self::assertSame('provider_reasoning', $decoded['parts'][0]['events'][0]['source']);
+        self::assertSame('**Analyzing** the request.', $decoded['parts'][0]['events'][0]['content']);
+    }
 }

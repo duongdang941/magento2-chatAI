@@ -66,6 +66,7 @@ export function createProviderNeutralToolFlow({
         lastToolOutcome: null,
         pendingProductPresentation: null,
         terminalCatalog: false,
+        productPageRequiredCart: null,
         toolErrorMessage: ''
     };
 
@@ -123,6 +124,26 @@ export function createProviderNeutralToolFlow({
                 args && typeof args === 'object' ? args : {}
             );
             catalogRetrievalPolicy.observeToolCall(toolName);
+
+            // A product-page configuration is a terminal shopper action for
+            // this turn. The model may receive the result and try the cart
+            // again with the same or different arguments, but a design/upload
+            // cannot be safely fabricated by chat. Return the original
+            // product-page result without reopening the browser cart bridge.
+            if (toolName === 'addToCart' && state.productPageRequiredCart) {
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: normalizedArgs,
+                    content: blockedProductPageRequiredCart(state.productPageRequiredCart),
+                    blocked: true,
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
+            }
+
             const guardrail = authorizeCommerceTool({
                 name: toolName,
                 args: normalizedArgs,
@@ -227,6 +248,8 @@ export function createProviderNeutralToolFlow({
             } catch (error) {
                 content = { status: 'error', error: error?.message || 'Tool execution failed.' };
             }
+
+            rememberProductPageRequiredCart(state, toolName, content);
 
             emitCustomerToolEvents({ ws, name: toolName, content, options });
             const contentStatus = String(content?.status || '').toLowerCase();
@@ -506,7 +529,7 @@ function presentToolResult({ name, args, content, shopperMessage, options }) {
                 : (scope.unavailable_query_match
                 ? 'A close catalogue identity exists but is disabled. Stop retrieval. Do not browse a similar-sounding category and do not substitute another product. State that no currently available exact match was found.'
                 : (items.length > 0
-                    ? `Only mention products returned in this page. direct_addable is Magento-validated: state that a product can be added immediately only when it is true. A default_add_qty above 1 must be stated as the minimum directly addable quantity, with qty_increment when relevant. When this search used directAddOnly, every returned product meets that requirement. ${catalogCoverageInstruction(pagination)} Do not invent products from later pages.`
+                    ? `Only mention products returned in this page. direct_addable is Magento-validated: state that a product can be added immediately only when it is true. For a purchase request, any item with direct_addable=false, requires_variant_selection=true, or non-empty variant_options must be configured on its returned product URL: do not collect, list, or validate option choices in chat and do not call addToCart. A default_add_qty above 1 must be stated as the minimum directly addable quantity, with qty_increment when relevant. When this search used directAddOnly, every returned product meets that requirement. ${catalogCoverageInstruction(pagination)} Do not invent products from later pages.`
                     : 'No products matched this retrieval. Before concluding there is no match, inspect categories or retry a meaningfully different query/category when that can resolve the request.'))
         };
     } else if (name === 'listCategories') {
@@ -617,7 +640,33 @@ function cartResultContext(name, content) {
                         ? 'The requested quantity exceeds the currently available salable quantity. Explain the quantity limitation, use the latest availability evidence when present, and ask for a smaller quantity. Do not say product configuration is missing and do not claim the cart changed.'
                     : reason === 'invalid_quantity'
                         ? 'The product does not need product-page configuration. Explain the returned minimum, maximum, and increment rules. Ask for a valid quantity; do not claim the cart changed.'
+                        : reason === 'product_page_required'
+                            ? 'The cart did not change. The shopper must complete the required configuration on the returned product page. Do not retry addToCart, search again, check availability, or call any other commerce tool. Explain this briefly in the shopper\'s language and include only the returned product URL; never construct or invent another URL.'
                         : 'This is a selection or product-page requirement, not an out-of-stock result. Do not say unavailable. State only the listed missing or invalid option labels and keep prior confirmed choices.'
+    };
+}
+
+function rememberProductPageRequiredCart(state, name, content) {
+    if (name !== 'addToCart'
+        || String(content?.status || '').toLowerCase() !== 'requires_customer_action'
+        || String(content?.reason || '').toLowerCase() !== 'product_page_required') {
+        return;
+    }
+
+    state.productPageRequiredCart = Object.freeze({
+        status: 'requires_customer_action',
+        reason: 'product_page_required',
+        product: String(content?.product || '').trim(),
+        sku: String(content?.sku || '').trim(),
+        url: String(content?.url || '').trim(),
+        message: String(content?.message || '').trim()
+    });
+}
+
+function blockedProductPageRequiredCart(requirement) {
+    return {
+        ...requirement,
+        blocked: true
     };
 }
 

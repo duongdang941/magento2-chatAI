@@ -714,7 +714,11 @@ class ChatMessagePayload
 
             $content = mb_substr(trim((string)($event['content'] ?? '')), 0, 1600);
             if ($content !== '') {
-                $events[] = ['id' => $id, 'type' => 'step', 'content' => $content];
+                $normalized = ['id' => $id, 'type' => 'step', 'content' => $content];
+                if (($event['source'] ?? '') === 'provider_reasoning') {
+                    $normalized['source'] = 'provider_reasoning';
+                }
+                $events[] = $normalized;
             }
         }
 

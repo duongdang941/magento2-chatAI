@@ -8,7 +8,6 @@ import { emitProductPresentation } from '../catalog/product-presentation.js';
 import {
     MAX_CATALOG_TOOL_ROUNDS
 } from '../catalog/catalog-agent-guidance.js';
-import { createCustomerTurnBuffer } from '../conversation/customer-turn-buffer.js';
 import { createResponseProgressPulse } from '../conversation/response-progress-pulse.js';
 import {
     guestOrderAccessInstruction
@@ -45,8 +44,6 @@ const configuredProviderStreamTimeout = Number(process.env.AI_PROVIDER_STREAM_TI
 const PROVIDER_STREAM_TIMEOUT_MS = Number.isFinite(configuredProviderStreamTimeout)
     ? Math.max(15000, Math.min(Math.trunc(configuredProviderStreamTimeout), 300000))
     : 120000;
-const PROVISIONAL_TEXT_HOLD_MS = 900;
-
 const tools = openAiToolDefinitions();
 
 export const streamChatResponse = async (userMessage, ws, history = [], customerToken = null, config = {}, options = {}) => {
@@ -145,7 +142,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         for (let iteration = 0; iteration < maxToolRounds; iteration += 1) {
             if (isCancelled()) return { cancelled: true };
 
-            const currentStepId = 'step-' + (iteration + 1) + '-' + Math.random().toString(36).slice(2, 7);
             const assistantMessage = {
                 role: 'assistant',
                 content: '',
@@ -159,12 +155,12 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             const thinkingEmitter = createSmoothChunkEmitter({
                 emit: delta => ws.send(JSON.stringify({
                     type: 'thinking_delta',
-                    step_id: currentStepId,
-                    delta
+                    step_id: `reasoning-${iteration}`,
+                    delta,
+                    visibility: 'public'
                 })),
                 isCancelled,
                 intervalMs: 18,
-                targetFrames: 6,
                 minChars: 1,
                 maxChars: 24
             });
@@ -249,8 +245,8 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                         },
                         isCancelled
                         });
-                    await thinkingEmitter.drain();
                     if (parsedStream.cancelled) return { cancelled: true };
+                    await thinkingEmitter.drain();
                     finishReason = parsedStream.finishReason || finishReason;
                     mergeProviderUsage(providerResponse, parsedStream.usage);
                     addProviderCitations(providerResponse, parsedStream.citations);
@@ -293,12 +289,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 }
                 await smoothEmitter.drain();
                 break;
-            } else if (assistantMessage.content && assistantMessage.content.trim().length > 0) {
-                ws.send(JSON.stringify({
-                    type: 'thinking_step',
-                    step_id: currentStepId,
-                    content: assistantMessage.content.trim()
-                }));
             }
 
             let stopAfterToolBatch = false;

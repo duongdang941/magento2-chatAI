@@ -391,9 +391,9 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
     }
 
     /**
-     * Tool activity is public progress metadata; retain only its small,
-     * allow-listed display fields. Reasoning text is already customer-visible
-     * in the live UI, so keep it bounded and sanitized for history parity.
+     * Retain only explicit tool actions and their generated, customer-safe
+     * progress notes. Legacy provider reasoning must never reappear in the
+     * history timeline.
      */
     function normalizeReasoningPart(part) {
         const sourceEvents = Array.isArray(part?.events) ? part.events : [
@@ -430,8 +430,31 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
                 continue;
             }
 
-            const content = sanitizeCustomerResponse(String(source.content || '')).slice(0, 1600).trim();
-            if (content) events.push({ id, type, content });
+            if (source.source === 'provider_reasoning') {
+                const content = sanitizeCustomerResponse(source.content || '').slice(0, 16000);
+                if (!content) continue;
+                events.push({
+                    id,
+                    type,
+                    source: 'provider_reasoning',
+                    content,
+                    state: 'completed'
+                });
+                continue;
+            }
+
+            if (source.source !== 'tool_progress') continue;
+            const tool = String(source.tool || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 80);
+            if (!tool) continue;
+            events.push({
+                id,
+                type,
+                source: 'tool_progress',
+                tool,
+                state: ['running', 'completed', 'failed'].includes(String(source.state || ''))
+                    ? String(source.state)
+                    : 'completed'
+            });
         }
 
         if (events.length === 0) return null;

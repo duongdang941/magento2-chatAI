@@ -8,6 +8,7 @@ use Afd\AI\Api\CatalogVisibilityPolicyInterface;
 use Afd\AI\Model\Catalog\ShopperScope;
 use Afd\AI\Model\Catalog\ShopperScopeResolver;
 use Afd\AI\Model\Catalog\PriceConstraintConverter;
+use Afd\AI\Model\Config\Config;
 use Afd\AI\Model\Data\ToolResponseFactory;
 use Afd\AI\Model\Product\CatalogIdentityMatcher;
 use Afd\AI\Model\Product\DirectAddEligibility;
@@ -42,7 +43,8 @@ class CatalogSearchTool
         private readonly CatalogIdentityMatcher $catalogIdentityMatcher,
         private readonly ShopperScopeResolver $shopperScopeResolver,
         private readonly CatalogVisibilityPolicyInterface $catalogVisibilityPolicy,
-        private readonly PriceConstraintConverter $priceConstraintConverter
+        private readonly PriceConstraintConverter $priceConstraintConverter,
+        private readonly Config $config
     ) {
     }
 
@@ -648,12 +650,14 @@ class CatalogSearchTool
 
     private function applyInternalProductFilters($collection): void
     {
-        $collection->addAttributeToFilter('name', ['nlike' => '%Demo Produkt%']);
-        $collection->addAttributeToFilter('name', ['nlike' => '%nicht kaufbar%']);
-        $collection->addFieldToFilter('sku', ['nlike' => 'demo%']);
-        $collection->addFieldToFilter('sku', ['nlike' => 'test%']);
-        $collection->addAttributeToFilter('url_key', ['nlike' => 'demo%']);
-        $collection->addAttributeToFilter('url_key', ['nlike' => 'test%']);
+        foreach ($this->config->getCatalogExcludedNameTerms() as $term) {
+            $collection->addAttributeToFilter('name', ['nlike' => '%' . $term . '%']);
+        }
+
+        foreach ($this->config->getCatalogExcludedKeyPrefixes() as $prefix) {
+            $collection->addFieldToFilter('sku', ['nlike' => $prefix . '%']);
+            $collection->addAttributeToFilter('url_key', ['nlike' => $prefix . '%']);
+        }
     }
 
     /** @param array<int, int> $categoryIds */

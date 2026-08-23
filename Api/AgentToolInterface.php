@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Afd\AI\Api;
 
+use Afd\AI\Api\Data\ToolResponseInterface;
+
 interface AgentToolInterface
 {
     /**
@@ -35,7 +37,7 @@ interface AgentToolInterface
         string $excludedTerms = '',
         int $customerGroupId = 0,
         int $customerId = 0
-    );
+    ): ToolResponseInterface;
 
     /**
      * Get the current salable quantity for a product or a selected variant.
@@ -51,14 +53,14 @@ interface AgentToolInterface
         string $selectedOptions = '',
         int $customerGroupId = 0,
         int $customerId = 0
-    );
+    ): ToolResponseInterface;
 
     /**
      * List product categories available in the store
      *
      * @return \Afd\AI\Api\Data\ToolResponseInterface
      */
-    public function listCategories(int $customerGroupId = 0, int $customerId = 0);
+    public function listCategories(int $customerGroupId = 0, int $customerId = 0): ToolResponseInterface;
 
     /**
      * Add product to cart
@@ -67,7 +69,7 @@ interface AgentToolInterface
      * @param int|null $qty
      * @return \Afd\AI\Api\Data\ToolResponseInterface
      */
-    public function addToCart(string $sku, int $qty = 1);
+    public function addToCart(string $sku, int $qty = 1): ToolResponseInterface;
 
     /**
      * Update product quantity in cart
@@ -76,7 +78,7 @@ interface AgentToolInterface
      * @param int $qty
      * @return \Afd\AI\Api\Data\ToolResponseInterface
      */
-    public function updateCartItem(string $sku, int $qty);
+    public function updateCartItem(string $sku, int $qty): ToolResponseInterface;
 
     /**
      * Remove product from cart
@@ -85,14 +87,14 @@ interface AgentToolInterface
      * @param string|null $cartTarget checkout or quote
      * @return \Afd\AI\Api\Data\ToolResponseInterface
      */
-    public function removeFromCart(string $sku, string $cartTarget = 'checkout');
+    public function removeFromCart(string $sku, string $cartTarget = 'checkout'): ToolResponseInterface;
 
     /**
      * Get current customer information
      *
      * @return \Afd\AI\Api\Data\ToolResponseInterface
      */
-    public function getCustomerInfo();
+    public function getCustomerInfo(): ToolResponseInterface;
 
     /**
      * Get recent orders of current customer
@@ -100,14 +102,14 @@ interface AgentToolInterface
      * @param int|null $limit
      * @return \Afd\AI\Api\Data\ToolResponseInterface
      */
-    public function getRecentOrders(int $limit = 5);
+    public function getRecentOrders(int $limit = 5): ToolResponseInterface;
 
     /**
      * Get customer addresses
      *
      * @return \Afd\AI\Api\Data\ToolResponseInterface
      */
-    public function getCustomerAddresses();
+    public function getCustomerAddresses(): ToolResponseInterface;
 
     /**
      * Get product details for comparison
@@ -121,12 +123,12 @@ interface AgentToolInterface
         string $sku2,
         int $customerGroupId = 0,
         int $customerId = 0
-    );
+    ): ToolResponseInterface;
 
     /**
      * Get active coupon codes for store
      *
      * @return \Afd\AI\Api\Data\ToolResponseInterface
      */
-    public function getActiveCoupons(int $customerGroupId = 0, int $customerId = 0);
+    public function getActiveCoupons(int $customerGroupId = 0, int $customerId = 0): ToolResponseInterface;
 }

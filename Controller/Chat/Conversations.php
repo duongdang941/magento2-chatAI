@@ -18,33 +18,16 @@ class Conversations implements HttpGetActionInterface
 {
     private const PAGE_SIZE = 20;
 
-    private $resultFactory;
-    private $conversationRepository;
-    private $searchCriteriaBuilder;
-    private $sortOrderBuilder;
-    private $customerSession;
-    private $logger;
-    private $request;
-    private ConversationStoreScope $conversationStoreScope;
-
     public function __construct(
-        ResultFactory $resultFactory,
-        ConversationRepositoryInterface $conversationRepository,
-        SearchCriteriaBuilder $searchCriteriaBuilder,
-        SortOrderBuilder $sortOrderBuilder,
-        CustomerSession $customerSession,
-        LoggerInterface $logger,
-        RequestInterface $request,
-        ConversationStoreScope $conversationStoreScope
+        private readonly ResultFactory $resultFactory,
+        private readonly ConversationRepositoryInterface $conversationRepository,
+        private readonly SearchCriteriaBuilder $searchCriteriaBuilder,
+        private readonly SortOrderBuilder $sortOrderBuilder,
+        private readonly CustomerSession $customerSession,
+        private readonly LoggerInterface $logger,
+        private readonly RequestInterface $request,
+        private readonly ConversationStoreScope $conversationStoreScope
     ) {
-        $this->resultFactory = $resultFactory;
-        $this->conversationRepository = $conversationRepository;
-        $this->searchCriteriaBuilder = $searchCriteriaBuilder;
-        $this->sortOrderBuilder = $sortOrderBuilder;
-        $this->customerSession = $customerSession;
-        $this->logger = $logger;
-        $this->request = $request;
-        $this->conversationStoreScope = $conversationStoreScope;
     }
 
     public function execute()
@@ -105,7 +88,7 @@ class Conversations implements HttpGetActionInterface
                 'isLoggedIn' => true
             ]);
         } catch (\Exception $e) {
-            $this->logger->error('CONVERSATIONS ERROR: ' . $e->getMessage());
+            $this->logger->error('CONVERSATIONS ERROR', ['exception' => $e]);
             return $resultJson->setData([
                 'status' => 'error',
                 'conversations' => [],
