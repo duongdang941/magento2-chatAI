@@ -76,7 +76,7 @@ class SupportMessagePublisher
 
         try {
             $curl = $this->curlFactory->create();
-            $this->gatewayTlsConfigurator->configure($curl);
+            $this->gatewayTlsConfigurator->configure($curl, $url);
             $curl->setTimeout(5);
             $curl->addHeader('Accept', 'application/json');
             $curl->addHeader('Content-Type', 'application/json');

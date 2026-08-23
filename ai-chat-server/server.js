@@ -247,6 +247,16 @@ const connectionLifecycle = createConnectionLifecycle({
 });
 
 wss.on('connection', async (ws, req) => {
+    try {
+        // Configurations are shared through Redis. Refresh the configured
+        // origins at each connection so a newly synchronized Magento tenant
+        // is accepted by every replica without a Node restart.
+        addConfiguredWebSocketOrigins(allowedWebSocketOrigins, await getAiConfigSnapshot(runtime));
+    } catch {
+        metrics.increment('websocket_rejected', { reason: 'config_unavailable' });
+        ws.close(1013, 'Gateway configuration is temporarily unavailable');
+        return;
+    }
     if (!admitLocalWebSocketConnection(ws, req, {
         admission: websocketAdmission,
         currentConnections: wss.clients.size - 1,

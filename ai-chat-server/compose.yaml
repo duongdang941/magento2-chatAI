@@ -72,11 +72,14 @@ services:
     restart: unless-stopped
     depends_on:
       gateway-1:
-        condition: service_healthy
+        # Magento is synchronized through this public edge.  Its `/health`
+        # remains degraded until the local-only Magento origin is reachable,
+        # so do not block Nginx itself on that health result.
+        condition: service_started
       gateway-2:
-        condition: service_healthy
+        condition: service_started
       gateway-3:
-        condition: service_healthy
+        condition: service_started
     ports:
       - "${GATEWAY_PORT:-3001}:8080"
     volumes:

@@ -53,7 +53,7 @@ class InvalidateGatewayCatalogCache implements ObserverInterface
         $timestamp = (string)time();
         try {
             $curl = $this->curlFactory->create();
-            $this->gatewayTlsConfigurator->configure($curl);
+            $this->gatewayTlsConfigurator->configure($curl, $url);
             $curl->setTimeout(3);
             $curl->addHeader('Content-Type', 'application/json');
             $curl->addHeader('X-Afd-AI-Timestamp', $timestamp);

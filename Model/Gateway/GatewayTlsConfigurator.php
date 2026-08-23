@@ -6,8 +6,8 @@ namespace Afd\AI\Model\Gateway;
 use Magento\Framework\HTTP\Client\Curl;
 
 /**
- * Applies the local Valet CA bundle to Magento-to-gateway requests when it is
- * available on the current machine.
+ * Applies the local Valet CA bundle only to Magento-to-gateway requests for a
+ * local Valet hostname when it is available on the current machine.
  *
  * Production has no Valet CA file, so cURL retains the operating system CA
  * bundle and validates the public gateway certificate normally. No hostname,
@@ -24,14 +24,29 @@ class GatewayTlsConfigurator
     {
     }
 
-    public function configure(Curl $curl): void
+    public function configure(Curl $curl, string $targetUrl): void
     {
+        if (!$this->usesValetCertificate($targetUrl)) {
+            return;
+        }
+
         foreach ($this->valetCaCandidates() as $caFile) {
             if (is_file($caFile) && is_readable($caFile)) {
                 $curl->setOption(CURLOPT_CAINFO, $caFile);
                 return;
             }
         }
+    }
+
+    private function usesValetCertificate(string $targetUrl): bool
+    {
+        $host = parse_url(trim($targetUrl), PHP_URL_HOST);
+        if (!is_string($host)) {
+            return false;
+        }
+
+        $host = strtolower(rtrim($host, '.'));
+        return $host === 'localhost' || str_ends_with($host, '.test');
     }
 
     /** @return string[] */

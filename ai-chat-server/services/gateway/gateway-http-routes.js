@@ -124,7 +124,11 @@ export function registerGatewayHttpRoutes({
     onConfigAccepted = () => {},
     providerHealth = () => [],
     metricsToken = process.env.AI_METRICS_TOKEN || '',
-    syncSecret = process.env.AI_NODE_SYNC_SECRET || ''
+    syncSecret = process.env.AI_NODE_SYNC_SECRET || '',
+    // A production gateway can serve several Magento installations. In that
+    // mode no one installation is a global readiness dependency: every chat
+    // carries its signed tenant and uses that tenant's synchronized URL.
+    requireMagentoHealth = Boolean(String(process.env.MAGENTO_API_URL || '').trim())
 }) {
     let healthSnapshot = { expiresAt: 0, healthy: false };
 
@@ -139,7 +143,7 @@ export function registerGatewayHttpRoutes({
         const now = Date.now();
         if (healthSnapshot.expiresAt <= now) {
             const [magentoOk, runtimeHealth] = await Promise.all([
-                db.pingMagento(),
+                requireMagentoHealth ? db.pingMagento() : true,
                 Promise.resolve(runtime.getHealth())
             ]);
             const providerStates = providerHealth();

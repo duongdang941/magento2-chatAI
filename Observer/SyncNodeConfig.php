@@ -176,7 +176,7 @@ class SyncNodeConfig implements ObserverInterface
 
         try {
             $this->curl->setTimeout(5);
-            $this->gatewayTlsConfigurator->configure($this->curl);
+            $this->gatewayTlsConfigurator->configure($this->curl, $reloadUrl);
             $this->curl->addHeader('Accept', 'application/json');
             $this->curl->addHeader('Content-Type', 'application/json');
             $this->curl->addHeader('X-Afd-AI-Timestamp', $timestamp);

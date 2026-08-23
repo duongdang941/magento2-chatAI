@@ -135,7 +135,8 @@ test('health route exposes only status and caches the Magento probe', async () =
         db: { pingMagento: async () => { probeCount += 1; return true; } },
         websocketConnections: () => 9,
         metricsToken: '',
-        syncSecret: 's'.repeat(32)
+        syncSecret: 's'.repeat(32),
+        requireMagentoHealth: true
     });
 
     const responses = [];
@@ -155,6 +156,36 @@ test('health route exposes only status and caches the Magento probe', async () =
         { statusCode: 200, payload: { status: 'ok', providers: [] } }
     ]);
     assert.equal(probeCount, 1);
+});
+
+test('health does not make one legacy Magento URL a shared-gateway dependency', async () => {
+    const routes = new Map();
+    const app = {
+        use() {},
+        get(path, handler) { routes.set(`GET ${path}`, handler); },
+        post(path, handler) { routes.set(`POST ${path}`, handler); }
+    };
+    let probeCount = 0;
+    registerGatewayHttpRoutes({
+        app,
+        runtime: { getHealth: () => ({ connected: true }) },
+        metrics: { toPrometheus: async () => '' },
+        db: { pingMagento: async () => { probeCount += 1; return false; } },
+        websocketConnections: () => 0,
+        metricsToken: '',
+        syncSecret: 's'.repeat(32),
+        requireMagentoHealth: false
+    });
+
+    const response = {
+        status(code) { this.statusCode = code; return this; },
+        json(payload) { this.payload = payload; }
+    };
+
+    await routes.get('GET /health')({}, response);
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.payload, { status: 'ok', providers: [] });
+    assert.equal(probeCount, 0);
 });
 
 test('support notification is signed, replay protected, and broadcasts only normalized identity data', async () => {

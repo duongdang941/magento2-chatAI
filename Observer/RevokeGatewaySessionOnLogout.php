@@ -50,7 +50,7 @@ class RevokeGatewaySessionOnLogout implements ObserverInterface
 
         try {
             $curl = $this->curlFactory->create();
-            $this->gatewayTlsConfigurator->configure($curl);
+            $this->gatewayTlsConfigurator->configure($curl, $serverUrl);
             $curl->setTimeout(3);
             $curl->addHeader('Accept', 'application/json');
             $curl->addHeader('Content-Type', 'application/json');
