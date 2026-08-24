@@ -5,6 +5,8 @@ namespace Afd\AI\Test\Unit\Model;
 
 use Afd\AI\Api\ProductRendererInterface;
 use Afd\AI\Model\ChatMessagePayload;
+use Afd\AI\Model\Payload\OrderAddressNormalizer;
+use Afd\AI\Model\Payload\ProductPayloadNormalizer;
 use Magento\Store\Model\Store;
 use Magento\Store\Model\StoreManagerInterface;
 use Magento\Framework\UrlInterface;
@@ -21,8 +23,12 @@ class ChatMessagePayloadTest extends TestCase
         $storeManager->method('getStore')->willReturn($store);
 
         $payload = new ChatMessagePayload(
-            $this->createMock(ProductRendererInterface::class),
-            $this->createMock(UrlFinderInterface::class),
+            new ProductPayloadNormalizer(
+                $this->createMock(ProductRendererInterface::class),
+                $this->createMock(UrlFinderInterface::class),
+                $storeManager
+            ),
+            new OrderAddressNormalizer(),
             $storeManager
         );
 
@@ -59,8 +65,12 @@ class ChatMessagePayloadTest extends TestCase
     {
         $storeManager = $this->createMock(StoreManagerInterface::class);
         $payload = new ChatMessagePayload(
-            $this->createMock(ProductRendererInterface::class),
-            $this->createMock(UrlFinderInterface::class),
+            new ProductPayloadNormalizer(
+                $this->createMock(ProductRendererInterface::class),
+                $this->createMock(UrlFinderInterface::class),
+                $storeManager
+            ),
+            new OrderAddressNormalizer(),
             $storeManager
         );
 
@@ -83,8 +93,12 @@ class ChatMessagePayloadTest extends TestCase
     {
         $storeManager = $this->createMock(StoreManagerInterface::class);
         $payload = new ChatMessagePayload(
-            $this->createMock(ProductRendererInterface::class),
-            $this->createMock(UrlFinderInterface::class),
+            new ProductPayloadNormalizer(
+                $this->createMock(ProductRendererInterface::class),
+                $this->createMock(UrlFinderInterface::class),
+                $storeManager
+            ),
+            new OrderAddressNormalizer(),
             $storeManager
         );
 

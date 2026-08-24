@@ -736,6 +736,121 @@
     // silently overrides an Admin value above sixteen.
     const MAX_MODEL_HISTORY_MESSAGES = 40;
 
+    function utf8ByteLength(value) {
+        const source = String(value || '');
+        if (typeof TextEncoder === 'function') {
+            return new TextEncoder().encode(source).byteLength;
+        }
+        return unescape(encodeURIComponent(source)).length;
+    }
+
+    function mergeProductGridHtml(existingHtml, nextHtml) {
+        const existing = document.createElement('div');
+        const incoming = document.createElement('div');
+        existing.innerHTML = String(existingHtml || '');
+        incoming.innerHTML = String(nextHtml || '');
+
+        const existingGrid = existing.querySelector('.afd-ai-chat__product-grid');
+        const incomingGrid = incoming.querySelector('.afd-ai-chat__product-grid');
+        if (!existingGrid || !incomingGrid) {
+            return `${existing.innerHTML}${incoming.innerHTML}`;
+        }
+
+        Array.from(incomingGrid.children).forEach((card) => {
+            existingGrid.appendChild(card);
+        });
+        return existing.innerHTML;
+    }
+
+    function mergeProductPayload(existingPayload, incomingPayload) {
+        const existing = existingPayload && typeof existingPayload === 'object' ? existingPayload : {};
+        const incoming = incomingPayload && typeof incomingPayload === 'object' ? incomingPayload : {};
+        const seen = new Set();
+        const items = [];
+
+        [...(Array.isArray(existing.items) ? existing.items : []), ...(Array.isArray(incoming.items) ? incoming.items : [])]
+            .forEach((item) => {
+                const id = Number(item?.id || 0);
+                if (id > 0 && !seen.has(id)) {
+                    seen.add(id);
+                    items.push(item);
+                }
+            });
+
+        const total = Number(incoming.pagination?.total ?? incoming.total
+            ?? existing.pagination?.total ?? existing.total ?? items.length);
+        const safeTotal = Number.isFinite(total) ? Math.max(items.length, total) : items.length;
+
+        return {
+            ...existing,
+            ...incoming,
+            product_ids: Array.from(seen),
+            items,
+            coverage: {
+                shown: items.length,
+                total: safeTotal,
+                remaining: Math.max(0, safeTotal - items.length),
+                complete: items.length >= safeTotal
+            },
+            pagination: {
+                ...(existing.pagination || {}),
+                ...(incoming.pagination || {})
+            },
+            scope: {
+                ...(existing.scope || {}),
+                ...(incoming.scope || {})
+            }
+        };
+    }
+
+    function postFeedback(url, payload) {
+        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+        const timeoutId = window.setTimeout(() => controller?.abort(), 10000);
+
+        return fetch(url, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-Form-Key': getBrowserFormKey()
+            },
+            body: JSON.stringify(payload),
+            ...(controller ? { signal: controller.signal } : {})
+        })
+        .then(async (response) => {
+            let result = null;
+            try {
+                result = await response.json();
+            } catch (error) {
+                throw new Error('The feedback service returned an invalid response.');
+            }
+            if (!response.ok || result?.status !== 'success') {
+                throw new Error(result?.message || 'The rating could not be saved.');
+            }
+            return result;
+        })
+        .catch((error) => {
+            if (controller?.signal.aborted) {
+                throw new Error('The feedback request timed out. Please try again.');
+            }
+            throw error;
+        })
+        .finally(() => {
+            window.clearTimeout(timeoutId);
+        });
+    }
+
+    // Storefront debug tracing. Off unless the merchant opts in via
+    // window.afdAiChatConfig.debug, so production consoles stay quiet.
+    function debugLog(...args) {
+        try {
+            if (typeof window === 'undefined' || window.afdAiChatConfig?.debug !== true) return;
+            if (typeof console === 'undefined' || typeof console.log !== 'function') return;
+            console.log(...args);
+        } catch (e) { }
+    }
+
     modules.helpers = {
         sanitizeHtml,
         sanitizeStreamingHtml,
@@ -759,6 +874,11 @@
         IMAGE_UPLOAD_MAX_TOTAL_PIXELS,
         MAX_WEBSOCKET_PAYLOAD_BYTES,
         IMAGE_UPLOAD_TYPES,
-        MAX_MODEL_HISTORY_MESSAGES
+        MAX_MODEL_HISTORY_MESSAGES,
+        utf8ByteLength,
+        mergeProductGridHtml,
+        mergeProductPayload,
+        postFeedback,
+        debugLog
     };
 }(window.AfdAiChat = window.AfdAiChat || {}));

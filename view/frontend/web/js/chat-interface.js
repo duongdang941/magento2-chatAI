@@ -26,6 +26,9 @@
             modules.streamRendererMethods(context),
             modules.streamMethods(context),
             modules.orderAddressStreamMethods(context),
+            modules.guestOrderStreamMethods(context),
+            modules.reasoningStreamMethods(context),
+            modules.imageFeedbackStreamMethods(context),
             modules.windowMethods(context),
             modules.shellMethods(context)
         );

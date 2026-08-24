@@ -2,6 +2,7 @@ import {
     createCatalogToolPresentation
 } from '../catalog/product-presentation.js';
 import { catalogCoverageInstruction } from '../catalog/catalog-agent-guidance.js';
+import { logger } from '../logger.js';
 import { createCatalogQueryContinuity } from '../catalog/catalog-query-continuity.js';
 import { createCatalogRetrievalPolicy } from '../catalog/catalog-retrieval-policy.js';
 import {
@@ -226,7 +227,7 @@ export function createProviderNeutralToolFlow({
 
             // Arguments can include personal data. Operational logs retain only
             // a bounded tool name regardless of the selected provider.
-            console.log('[Tool flow] Executing storefront tool', { tool: toolName.slice(0, 80) });
+            logger.debug('tool-flow', 'Executing storefront tool', { tool: toolName.slice(0, 80) });
             const activityId = createToolActivityId(id, toolName);
             emitToolActivity(ws, { activityId, toolName, state: 'running' });
 

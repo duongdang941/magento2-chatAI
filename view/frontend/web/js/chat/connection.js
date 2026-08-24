@@ -17,7 +17,8 @@ const {
     IMAGE_UPLOAD_MAX_BYTES,
     IMAGE_UPLOAD_MAX_COUNT,
     IMAGE_UPLOAD_TYPES,
-    MAX_MODEL_HISTORY_MESSAGES
+    MAX_MODEL_HISTORY_MESSAGES,
+    debugLog
 } = context.helpers;
 
         return {
@@ -386,7 +387,7 @@ const {
                     return;
                 }
                 if (data.type === 'conversation_messages') {
-                    console.log('[AFD-AI-CHAT] WS received conversation_messages:', data);
+                    debugLog?.('[AFD-AI-CHAT] WS received conversation_messages:', data);
                     if (data.status === 'success') {
                         this.clearTransportNotice('history-load-timeout');
                         this.clearTransportNotice('history-load-failed');

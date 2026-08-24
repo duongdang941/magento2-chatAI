@@ -8,6 +8,9 @@ const streamSource = fs.readFileSync(
     'utf8'
 );
 const orderAddressSource = fs.readFileSync(new URL('../../view/frontend/web/js/chat/order-address-stream.js', import.meta.url), 'utf8');
+const guestOrderStreamSource = fs.readFileSync(new URL('../../view/frontend/web/js/chat/guest-order-stream.js', import.meta.url), 'utf8');
+const reasoningStreamSource = fs.readFileSync(new URL('../../view/frontend/web/js/chat/reasoning-stream.js', import.meta.url), 'utf8');
+const imageFeedbackStreamSource = fs.readFileSync(new URL('../../view/frontend/web/js/chat/image-feedback-stream.js', import.meta.url), 'utf8');
 const streamRendererSource = fs.readFileSync(
     new URL('../../view/frontend/web/js/chat/stream-renderer.js', import.meta.url),
     'utf8'
@@ -41,10 +44,12 @@ function createChat() {
         String,
         Array,
         Object,
-        ResizeObserver: undefined
+        ResizeObserver: undefined,
+        JSON,
+        Intl
     };
     vm.runInNewContext(streamRendererSource, context);
-    vm.runInNewContext(streamSource, context); vm.runInNewContext(orderAddressSource, context); vm.runInNewContext(shellSource, context);
+    vm.runInNewContext(streamSource, context); vm.runInNewContext(orderAddressSource, context); vm.runInNewContext(guestOrderStreamSource, context); vm.runInNewContext(reasoningStreamSource, context); vm.runInNewContext(imageFeedbackStreamSource, context); vm.runInNewContext(shellSource, context);
     const moduleContext = {
         config: {},
         urls: {},
@@ -59,12 +64,18 @@ function createChat() {
     const rendererMethods = browserWindow.AfdAiChat.streamRendererMethods(moduleContext);
     const methods = browserWindow.AfdAiChat.streamMethods(moduleContext);
     const orderAddressMethods = browserWindow.AfdAiChat.orderAddressStreamMethods(moduleContext);
+    const guestOrderMethods = browserWindow.AfdAiChat.guestOrderStreamMethods(moduleContext);
+    const reasoningMethods = browserWindow.AfdAiChat.reasoningStreamMethods(moduleContext);
+    const imageFeedbackMethods = browserWindow.AfdAiChat.imageFeedbackStreamMethods(moduleContext);
     const shellMethods = browserWindow.AfdAiChat.shellMethods(moduleContext);
 
     return {
         ...rendererMethods,
         ...methods,
         ...orderAddressMethods,
+        ...guestOrderMethods,
+        ...reasoningMethods,
+        ...imageFeedbackMethods,
         ...shellMethods,
         messages: [],
         currentAiMessageIndex: -1,

@@ -1,6 +1,9 @@
 import { CATALOG_AGENT_GUIDANCE } from '../catalog/catalog-agent-guidance.js';
 import { GUEST_ORDER_AGENT_GUIDANCE } from '../customer/guest-order-access-guidance.js';
-import { RESPONSE_LANGUAGE_AGENT_GUIDANCE } from '../conversation/response-language-guidance.js';
+import {
+    RESPONSE_LANGUAGE_AGENT_GUIDANCE,
+    turnResponseLanguageInstruction
+} from '../conversation/response-language-guidance.js';
 
 const CORE_RULES = `
 1. Use the same language as the shopper's latest message for ALL output (including step-by-step thinking, tool explanations, and final answers) unless explicitly asked otherwise. Preserve catalogue labels as data, but never switch the surrounding prose to the catalogue language. Use plain text/Markdown only: do not emit emoji or decorative four-byte Unicode icons in customer prose; the chat UI supplies its own icons.
@@ -36,7 +39,12 @@ PRODUCT ADVISOR MODE:
 - Keep candidate references tied to SKU/product_ref and the current Magento scope. A candidate from an earlier turn is a reference hint, not permission to reuse old price, stock, or visibility.
 - When the shopper selects or rejects a candidate, preserve the decision in the current tool flow and do not restart discovery unnecessarily.`;
 
-export function buildAgentSystemInstruction({ extendedTools = false, productAdvisorEnabled = false } = {}) {
+export function buildAgentSystemInstruction({
+    extendedTools = false,
+    productAdvisorEnabled = false,
+    shopperMessage = ''
+} = {}) {
+    const turnLanguageInstruction = turnResponseLanguageInstruction(shopperMessage);
     return `You are an intelligent, versatile, and helpful AI assistant.
 You help shoppers discover products, manage orders, and check store policies using the available store tools whenever relevant.
 You are also friendly, knowledgeable, and happy to assist with general questions, creative writing, essays, stories, explanations, learning, and general conversation. Never refuse general requests, text writing, essays, or conversation by claiming you are only limited to shopping.
@@ -49,5 +57,5 @@ ${CATALOG_AGENT_GUIDANCE}
 
 ${GUEST_ORDER_AGENT_GUIDANCE}
 
-${RESPONSE_LANGUAGE_AGENT_GUIDANCE}`;
+${RESPONSE_LANGUAGE_AGENT_GUIDANCE}${turnLanguageInstruction ? `\n\n${turnLanguageInstruction}` : ''}`;
 }

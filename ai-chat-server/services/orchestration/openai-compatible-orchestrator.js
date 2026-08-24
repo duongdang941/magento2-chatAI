@@ -60,9 +60,14 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         model
     });
     const agentConfig = config.agent || {};
+    const currentUserMessage = typeof userMessage === 'object' && userMessage !== null
+        ? userMessage
+        : { text: userMessage };
+    const currentUserText = String(currentUserMessage.text || currentUserMessage.content || '');
     const systemInstruction = buildAgentSystemInstruction({
         extendedTools: true,
-        productAdvisorEnabled: config.features?.product_advisor_enabled === true
+        productAdvisorEnabled: config.features?.product_advisor_enabled === true,
+        shopperMessage: currentUserText
     });
     const maxToolRounds = Math.max(1, Math.min(Number(agentConfig.max_tool_rounds) || MAX_CATALOG_TOOL_ROUNDS, 12));
     const maxOutputTokens = Math.max(256, Math.min(Number(agentConfig.max_output_tokens) || MAX_OUTPUT_TOKENS, 8192));
@@ -99,9 +104,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         return { cancelled: false, error };
     }
 
-    const currentUserMessage = typeof userMessage === 'object' && userMessage !== null
-        ? userMessage
-        : { text: userMessage };
     const messages = [
         {
             role: 'system',

@@ -3,27 +3,17 @@ declare(strict_types=1);
 
 namespace Afd\AI\Model;
 
-use Afd\AI\Api\ProductRendererInterface;
-use Magento\CatalogUrlRewrite\Model\ProductUrlRewriteGenerator;
+use Afd\AI\Model\Payload\ProductPayloadNormalizer;
+use Afd\AI\Model\Payload\OrderAddressNormalizer;
 use Magento\Framework\UrlInterface;
 use Magento\Store\Model\StoreManagerInterface;
-use Magento\UrlRewrite\Model\UrlFinderInterface;
-use Magento\UrlRewrite\Service\V1\Data\UrlRewrite;
 
 class ChatMessagePayload
 {
-    private const MAX_LEGACY_PRODUCT_CARDS = 10;
-
-    /** @var string[] */
-    private const ORDER_ADDRESS_FIELDS = [
-        'prefix', 'firstname', 'middlename', 'lastname', 'suffix', 'company',
-        'street', 'city', 'region', 'region_id', 'postcode', 'country_id',
-        'telephone', 'fax', 'vat_id',
-    ];
 
     public function __construct(
-        private readonly ProductRendererInterface $productRenderer,
-        private readonly UrlFinderInterface $urlFinder,
+        private readonly ProductPayloadNormalizer $productNormalizer,
+        private readonly OrderAddressNormalizer $addressNormalizer,
         private readonly StoreManagerInterface $storeManager
     ) {
     }
@@ -41,7 +31,7 @@ class ChatMessagePayload
             $type = (string)($part['type'] ?? 'text');
 
             if ($type === 'products') {
-                $payload = $this->normalizeProductPayload($part['payload'] ?? null);
+                $payload = $this->productNormalizer->normalizeProductPayload($part['payload'] ?? null);
                 $html = trim((string)($part['html'] ?? ''));
 
                 if ($payload !== null || $html !== '') {
@@ -93,7 +83,7 @@ class ChatMessagePayload
             }
 
             if ($type === 'order_address_form') {
-                $addressForm = $this->normalizeOrderAddressFormPart($part);
+                $addressForm = $this->addressNormalizer->normalizeOrderAddressFormPart($part);
                 if ($addressForm !== null) {
                     $normalizedParts[] = $addressForm;
                 }
@@ -176,7 +166,7 @@ class ChatMessagePayload
             $partId = $messageId !== '' ? $messageId . '-' . $index : (string)$index;
 
             if ($type === 'products') {
-                $payload = $this->normalizeProductPayload($part['payload'] ?? null);
+                $payload = $this->productNormalizer->normalizeProductPayload($part['payload'] ?? null);
                 $storedHtml = trim((string)($part['html'] ?? ''));
                 // Re-render with the current Magento scope when possible so
                 // prices, salability and CSRF forms stay fresh.  If a product
@@ -185,7 +175,7 @@ class ChatMessagePayload
                 // the persisted safe grid as a presentation fallback instead
                 // of dropping the entire product result from history.
                 $renderedHtml = $payload !== null
-                    ? $this->renderProductPayload($payload)
+                    ? $this->productNormalizer->renderProductPayload($payload)
                     : '';
                 $html = $renderedHtml !== '' ? $renderedHtml : $storedHtml;
                 if ($html !== '') {
@@ -237,7 +227,7 @@ class ChatMessagePayload
             }
 
             if ($type === 'order_address_form') {
-                $addressForm = $this->normalizeOrderAddressFormPart($part);
+                $addressForm = $this->addressNormalizer->normalizeOrderAddressFormPart($part);
                 if ($addressForm !== null) {
                     $addressForm['id'] = $partId;
                     $parts[] = $addressForm;
@@ -272,9 +262,9 @@ class ChatMessagePayload
             ];
         }
 
-        $parts = $this->mergeSequentialProductParts($parts);
-        if (!$this->hasProductPart($parts)) {
-            $legacyProductPart = $this->recoverLegacyProductGrid(
+        $parts = $this->productNormalizer->mergeSequentialProductParts($parts);
+        if (!$this->productNormalizer->hasProductPart($parts)) {
+            $legacyProductPart = $this->productNormalizer->recoverLegacyProductGrid(
                 (string)($decoded['text'] ?? $content),
                 $messageId
             );
@@ -326,203 +316,6 @@ class ChatMessagePayload
         return implode("\n\n", $textParts);
     }
 
-    /**
-     * The gateway persists the current Magento address only as a short-lived
-     * visual snapshot. This is never an authorization record; saving still
-     * revalidates the order owner, shipment state and guest verification.
-     *
-     * @param array<string, mixed> $part
-     * @return array<string, mixed>|null
-     */
-    private function normalizeOrderAddressFormPart(array $part): ?array
-    {
-        $formId = mb_substr(trim((string)($part['form_id'] ?? $part['formId'] ?? '')), 0, 160);
-        $orderNumber = mb_substr(trim((string)($part['order_number'] ?? $part['orderNumber'] ?? '')), 0, 64);
-        $resourceType = ($part['resource_type'] ?? $part['resourceType'] ?? '') === 'customer_account'
-            ? 'customer_account'
-            : 'order';
-        if ($formId === '' || ($resourceType === 'order' && $orderNumber === '')) {
-            return null;
-        }
-
-        $sourceAddresses = is_array($part['addresses'] ?? null) ? $part['addresses'] : [];
-        $addresses = [
-            'billing' => $this->normalizeOrderAddress($sourceAddresses['billing'] ?? null),
-            'shipping' => $this->normalizeOrderAddress($sourceAddresses['shipping'] ?? null),
-        ];
-        $addressTypes = [];
-        foreach ((array)($part['address_types'] ?? $part['addressTypes'] ?? []) as $type) {
-            if (!in_array($type, ['billing', 'shipping'], true)
-                || $addresses[$type] === null
-                || in_array($type, $addressTypes, true)
-            ) {
-                continue;
-            }
-            $addressTypes[] = $type;
-        }
-        if ($addressTypes === []) {
-            return null;
-        }
-
-        $requestedType = (string)($part['address_type'] ?? $part['addressType'] ?? '');
-        $addressType = in_array($requestedType, $addressTypes, true)
-            ? $requestedType
-            : (in_array('shipping', $addressTypes, true) ? 'shipping' : 'billing');
-        $createdAt = max(1, (int)($part['created_at'] ?? $part['createdAt'] ?? round(microtime(true) * 1000)));
-        $expiresAt = max(
-            $createdAt,
-            (int)($part['expires_at'] ?? $part['expiresAt'] ?? ($createdAt + 900000))
-        );
-        if ($expiresAt <= (int)round(microtime(true) * 1000)) {
-            // An expired card remains in history for context, but the address
-            // values must not be sent back to the storefront. The frontend
-            // renders this blank schema beneath its expiry overlay.
-            foreach ($addressTypes as $type) {
-                $addresses[$type] = [];
-            }
-        }
-
-        return [
-            'type' => 'order_address_form',
-            'form_id' => $formId,
-            'action_token' => mb_substr((string)($part['action_token'] ?? $part['actionToken'] ?? ''), 0, 2048),
-            'created_at' => $createdAt,
-            'expires_at' => $expiresAt,
-            'access_scope' => ($part['access_scope'] ?? $part['accessScope'] ?? '') === 'customer'
-                ? 'customer'
-                : 'guest',
-            'resource_type' => $resourceType,
-            'order_number' => $orderNumber,
-            'addresses' => $addresses,
-            'address_types' => $addressTypes,
-            'address_type' => $addressType,
-            'fields' => $this->normalizeOrderAddressFields($part['fields'] ?? []),
-            'countries' => $this->normalizeOrderAddressCountries($part['countries'] ?? []),
-            'regions' => $this->normalizeOrderAddressRegions($part['regions'] ?? []),
-        ];
-    }
-
-    /** @return array<string, mixed>|null */
-    private function normalizeOrderAddress(mixed $source): ?array
-    {
-        if (!is_array($source)) {
-            return null;
-        }
-
-        $address = [];
-        foreach (self::ORDER_ADDRESS_FIELDS as $field) {
-            if (!array_key_exists($field, $source)) {
-                continue;
-            }
-            if ($field === 'street') {
-                $street = is_array($source['street']) ? $source['street'] : preg_split('/\R/', (string)$source['street']);
-                $address['street'] = array_map(
-                    static fn (mixed $line): string => mb_substr((string)$line, 0, 255),
-                    array_slice($street ?: [], 0, 4)
-                );
-                continue;
-            }
-            if ($field === 'region_id') {
-                $address[$field] = max(0, (int)$source[$field]);
-                continue;
-            }
-            $address[$field] = $field === 'country_id'
-                ? strtoupper(trim((string)$source[$field]))
-                : mb_substr((string)$source[$field], 0, 255);
-        }
-
-        return $address;
-    }
-
-    /** @return array<int, array<string, mixed>> */
-    private function normalizeOrderAddressFields(mixed $source): array
-    {
-        if (!is_array($source)) {
-            return [];
-        }
-
-        $fields = [];
-        foreach ($source as $field) {
-            if (!is_array($field)) {
-                continue;
-            }
-            $code = trim((string)($field['code'] ?? ''));
-            if (!in_array($code, self::ORDER_ADDRESS_FIELDS, true) || $code === 'region_id' || isset($fields[$code])) {
-                continue;
-            }
-            $fields[$code] = [
-                'code' => $code,
-                'label' => mb_substr(trim((string)($field['label'] ?? $code)), 0, 120),
-                'required' => !empty($field['required']),
-                'line_count' => $code === 'street'
-                    ? max(1, min((int)($field['line_count'] ?? $field['lineCount'] ?? 1), 4))
-                    : 1,
-            ];
-        }
-
-        return array_values($fields);
-    }
-
-    /** @return array<int, array<string, mixed>> */
-    private function normalizeOrderAddressCountries(mixed $source): array
-    {
-        if (!is_array($source)) {
-            return [];
-        }
-
-        $countries = [];
-        foreach ($source as $country) {
-            if (!is_array($country)) {
-                continue;
-            }
-            $value = strtoupper(trim((string)($country['value'] ?? '')));
-            if (!preg_match('/^[A-Z]{2}$/', $value) || isset($countries[$value])) {
-                continue;
-            }
-            $countries[$value] = [
-                'value' => $value,
-                'label' => mb_substr(trim((string)($country['label'] ?? $value)), 0, 120),
-                'is_region_required' => !empty($country['is_region_required'])
-                    || !empty($country['isRegionRequired']),
-                'is_zip_required' => ($country['is_zip_required'] ?? $country['isZipRequired'] ?? true) !== false,
-            ];
-        }
-
-        return array_values($countries);
-    }
-
-    /** @return array<string, array<int, array<string, mixed>>> */
-    private function normalizeOrderAddressRegions(mixed $source): array
-    {
-        if (!is_array($source)) {
-            return [];
-        }
-
-        $regions = [];
-        foreach ($source as $countryId => $countryRegions) {
-            $country = strtoupper(trim((string)$countryId));
-            if (!preg_match('/^[A-Z]{2}$/', $country) || !is_array($countryRegions)) {
-                continue;
-            }
-            foreach ($countryRegions as $region) {
-                if (!is_array($region)) {
-                    continue;
-                }
-                $id = max(0, (int)($region['id'] ?? 0));
-                $name = mb_substr(trim((string)($region['name'] ?? '')), 0, 120);
-                if ($id < 1 || $name === '') {
-                    continue;
-                }
-                $regions[$country][] = [
-                    'id' => $id,
-                    'code' => mb_substr(trim((string)($region['code'] ?? '')), 0, 32),
-                    'name' => $name,
-                ];
-            }
-        }
-
-        return $regions;
-    }
 
     /**
      * Generated images are stored as public Magento media URLs, never image
@@ -603,56 +396,6 @@ class ChatMessagePayload
         return preg_match($generatedSuffixPattern, $suffix) === 1;
     }
 
-    /**
-     * Normalize legacy gateway output to one shopper-facing result set. Later
-     * pages extend the active set; a new page-one search replaces the previous
-     * internal retrieval attempt.
-     *
-     * @param array<int, array<string, mixed>> $parts
-     * @return array<int, array<string, mixed>>
-     */
-    private function mergeSequentialProductParts(array $parts): array
-    {
-        $mergedParts = [];
-        $productPart = null;
-
-        foreach ($parts as $part) {
-            $payload = $part['type'] === 'products' && is_array($part['payload'] ?? null)
-                ? $part['payload']
-                : null;
-            if ($payload === null) {
-                $mergedParts[] = $part;
-                continue;
-            }
-
-            if ($productPart === null) {
-                $productPart = $part;
-                continue;
-            }
-
-            $currentPayload = is_array($productPart['payload'] ?? null)
-                ? $productPart['payload']
-                : [];
-            if ($this->isNextProductPage($currentPayload, $payload)) {
-                $combinedPayload = $this->mergeProductPayloadPages($currentPayload, $payload);
-                $renderedHtml = $this->renderProductPayload($combinedPayload);
-                $productPart['payload'] = $combinedPayload;
-                if ($renderedHtml !== '') {
-                    $productPart['html'] = $renderedHtml;
-                }
-            } else {
-                // Same-turn search refinement: only the final retrieval is a
-                // presentation, earlier searches remain model evidence only.
-                $productPart = $part;
-            }
-        }
-
-        if ($productPart !== null) {
-            $mergedParts[] = $productPart;
-        }
-
-        return $mergedParts;
-    }
 
     /**
      * Store only customer-safe progress information. The tool name, state and
@@ -734,341 +477,6 @@ class ChatMessagePayload
         ];
     }
 
-    /** @param array<int, array<string, mixed>> $parts */
-    private function hasProductPart(array $parts): bool
-    {
-        foreach ($parts as $part) {
-            if (($part['type'] ?? '') === 'products' && trim((string)($part['html'] ?? '')) !== '') {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Legacy assistant rows from older gateway versions may have only prose
-     * containing verified Magento product links. Recover cards from local URL
-     * rewrites only; external links, malformed paths and unresolved rewrites
-     * never become a product grid.
-     *
-     * @return array<string, mixed>|null
-     */
-    private function recoverLegacyProductGrid(string $content, string $messageId): ?array
-    {
-        if ($content === ''
-            || preg_match_all('~\[[^\]\r\n]{1,255}\]\(([^\s)]+)\)~u', $content, $matches) < 1
-        ) {
-            return null;
-        }
-
-        try {
-            $store = $this->storeManager->getStore();
-            $storeId = (int)$store->getId();
-            $storeHost = strtolower((string)parse_url((string)$store->getBaseUrl(), PHP_URL_HOST));
-        } catch (\Throwable) {
-            return null;
-        }
-
-        if ($storeId < 1 || $storeHost === '') {
-            return null;
-        }
-
-        $productIds = [];
-        foreach (array_slice($matches[1], 0, self::MAX_LEGACY_PRODUCT_CARDS * 2) as $candidate) {
-            $parsed = parse_url(html_entity_decode((string)$candidate, ENT_QUOTES, 'UTF-8'));
-            if (!is_array($parsed)) {
-                continue;
-            }
-            $host = strtolower((string)($parsed['host'] ?? ''));
-            if ($host !== '' && !hash_equals($storeHost, $host)) {
-                continue;
-            }
-            $path = rawurldecode(ltrim((string)($parsed['path'] ?? ''), '/'));
-            if ($path === '' || strlen($path) > 255 || str_contains($path, '..')) {
-                continue;
-            }
-
-            $rewrite = $this->urlFinder->findOneByData([
-                UrlRewrite::REQUEST_PATH => $path,
-                UrlRewrite::STORE_ID => $storeId,
-                UrlRewrite::ENTITY_TYPE => ProductUrlRewriteGenerator::ENTITY_TYPE,
-                UrlRewrite::REDIRECT_TYPE => 0,
-            ]);
-            $productId = $rewrite ? (int)$rewrite->getEntityId() : 0;
-            if ($productId > 0) {
-                $productIds[$productId] = $productId;
-            }
-            if (count($productIds) >= self::MAX_LEGACY_PRODUCT_CARDS) {
-                break;
-            }
-        }
-
-        if ($productIds === []) {
-            return null;
-        }
-
-        $html = $this->productRenderer->renderProducts(implode(',', $productIds));
-        if (trim($html) === '') {
-            return null;
-        }
-
-        return [
-            'id' => $messageId !== '' ? $messageId . '-legacy-products' : 'legacy-products',
-            'type' => 'products',
-            'html' => $html,
-            'payload' => [
-                'contract_version' => 2,
-                'kind' => 'product_list',
-                'product_ids' => array_values($productIds),
-                'items' => [],
-                'total' => count($productIds),
-                'coverage' => [
-                    'shown' => count($productIds),
-                    'total' => count($productIds),
-                    'remaining' => 0,
-                    'complete' => true,
-                ],
-                'pagination' => [
-                    'page' => 1,
-                    'page_size' => count($productIds),
-                    'total' => count($productIds),
-                    'returned' => count($productIds),
-                    'has_more' => false,
-                    'next_page' => null,
-                    'can_load_more' => false,
-                    'chat_card_limit' => self::MAX_LEGACY_PRODUCT_CARDS,
-                    'truncated_for_chat' => false,
-                ],
-            ],
-        ];
-    }
-
-    /** @param array<string, mixed> $existing @param array<string, mixed> $incoming */
-    private function isNextProductPage(array $existing, array $incoming): bool
-    {
-        $existingPage = max(1, (int)($existing['pagination']['page'] ?? 1));
-        $incomingPage = max(1, (int)($incoming['pagination']['page'] ?? 1));
-        if ($incomingPage <= $existingPage) {
-            return false;
-        }
-
-        $existingCategoryId = (int)($existing['scope']['category_id'] ?? 0);
-        $incomingCategoryId = (int)($incoming['scope']['category_id'] ?? 0);
-        if ($existingCategoryId > 0 && $existingCategoryId === $incomingCategoryId) {
-            return true;
-        }
-
-        $existingQuery = mb_strtolower(trim((string)($existing['query'] ?? '')));
-        return $existingQuery !== ''
-            && $existingQuery === mb_strtolower(trim((string)($incoming['query'] ?? '')));
-    }
-
-    /** @param array<string, mixed> $existing @param array<string, mixed> $incoming */
-    private function mergeProductPayloadPages(array $existing, array $incoming): array
-    {
-        $items = [];
-        $productIds = [];
-
-        foreach ([$existing, $incoming] as $payload) {
-            foreach ((array)($payload['product_ids'] ?? []) as $productId) {
-                $id = (int)$productId;
-                if ($id > 0) {
-                    $productIds[$id] = $id;
-                }
-            }
-            foreach ((array)($payload['items'] ?? []) as $item) {
-                if (!is_array($item)) {
-                    continue;
-                }
-                $id = (int)($item['id'] ?? 0);
-                $serializedItem = (string)json_encode(
-                    $item,
-                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
-                );
-                $key = $id > 0 ? 'id:' . $id : 'fallback:' . hash('sha256', $serializedItem);
-                if (!isset($items[$key])) {
-                    $items[$key] = $item;
-                }
-                if ($id > 0) {
-                    $productIds[$id] = $id;
-                }
-            }
-        }
-
-        $combined = array_replace_recursive($existing, $incoming);
-        $combined['query'] = trim((string)($incoming['query'] ?? '')) ?: (string)($existing['query'] ?? '');
-        $combined['product_ids'] = array_values($productIds);
-        $combined['items'] = array_values($items);
-        $combined['total'] = max(
-            count($combined['items']),
-            (int)($existing['total'] ?? 0),
-            (int)($incoming['total'] ?? 0),
-            (int)($existing['pagination']['total'] ?? 0),
-            (int)($incoming['pagination']['total'] ?? 0)
-        );
-
-        $pagination = array_replace(
-            is_array($existing['pagination'] ?? null) ? $existing['pagination'] : [],
-            is_array($incoming['pagination'] ?? null) ? $incoming['pagination'] : []
-        );
-        if ($pagination !== []) {
-            $hasMore = $combined['total'] > count($combined['items']);
-            $pagination['page'] = max(
-                (int)($existing['pagination']['page'] ?? 1),
-                (int)($incoming['pagination']['page'] ?? 1)
-            );
-            $pagination['total'] = $combined['total'];
-            $pagination['returned'] = count($combined['items']);
-            $pagination['has_more'] = $hasMore;
-            $pagination['next_page'] = $hasMore ? $pagination['page'] + 1 : null;
-            $combined['pagination'] = $pagination;
-        }
-
-        return $combined;
-    }
-
-    private function normalizeProductPayload(mixed $payload): ?array
-    {
-        if (!is_array($payload)) {
-            return null;
-        }
-
-        $contractVersion = max(1, min(2, (int)($payload['contract_version'] ?? 1)));
-        $rawProductIds = array_values(array_unique(array_filter(array_map(
-            'intval',
-            is_array($payload['product_ids'] ?? null) ? $payload['product_ids'] : []
-        ))));
-        $rawItems = array_values(array_filter(
-            (array)($payload['items'] ?? []),
-            'is_array'
-        ));
-        $legacyExactTotal = max(count($rawProductIds), count($rawItems));
-        $pagination = $this->normalizeProductPagination($payload['pagination'] ?? null);
-        $visibleLimit = $pagination !== null
-            ? min(
-                (int)$pagination['chat_card_limit'],
-                (int)$pagination['page'] * (int)$pagination['page_size']
-            )
-            : 20;
-
-        $productIds = array_slice($rawProductIds, 0, $visibleLimit);
-
-        $items = [];
-        foreach (array_slice($rawItems, 0, $visibleLimit) as $item) {
-            if (!is_array($item)) {
-                continue;
-            }
-
-            $normalizedItem = [
-                'id' => isset($item['id']) ? (int)$item['id'] : 0,
-                'sku' => (string)($item['sku'] ?? ''),
-                'name' => (string)($item['name'] ?? ''),
-                'price' => (string)($item['price'] ?? ''),
-                'url' => (string)($item['url'] ?? ''),
-                'in_stock' => (string)($item['in_stock'] ?? ''),
-                'product_type' => (string)($item['product_type'] ?? ''),
-                'requires_variant_selection' => (bool)($item['requires_variant_selection'] ?? false),
-                'variant_options' => $this->normalizeVariantOptions($item['variant_options'] ?? [])
-            ];
-
-            if ($normalizedItem['id'] > 0) {
-                $productIds[] = $normalizedItem['id'];
-            }
-
-            $items[] = $normalizedItem;
-        }
-
-        $productIds = array_slice(
-            array_values(array_unique(array_filter($productIds))),
-            0,
-            $visibleLimit
-        );
-        if ($productIds === [] && $items === []) {
-            return null;
-        }
-
-        $normalizedPayload = [
-            'contract_version' => $contractVersion,
-            'kind' => 'product_list',
-            'query' => (string)($payload['query'] ?? ''),
-            'product_ids' => $productIds,
-            'items' => $items,
-            'total' => $contractVersion < 2
-                ? $legacyExactTotal
-                : (isset($payload['total']) ? (int)$payload['total'] : count($productIds))
-        ];
-
-        if ($pagination !== null) {
-            if ($contractVersion < 2) {
-                $pagination['total'] = $legacyExactTotal;
-                $pagination['has_more'] = (
-                    (int)$pagination['page'] * (int)$pagination['page_size']
-                ) < $legacyExactTotal;
-                $pagination['next_page'] = $pagination['has_more']
-                    ? (int)$pagination['page'] + 1
-                    : null;
-            }
-            $pagination['returned'] = count($items);
-            $normalizedPayload['pagination'] = $pagination;
-        }
-
-        $scope = $this->normalizeProductScope($payload['scope'] ?? null);
-        if ($scope !== null) {
-            $normalizedPayload['scope'] = $scope;
-        }
-
-        // Continuation tokens are intentionally transient. The authenticated
-        // Node gateway issues a fresh token from this safe pagination contract
-        // when it rehydrates a persisted conversation.
-        return $normalizedPayload;
-    }
-
-    /** @return array<string, int|bool|null>|null */
-    private function normalizeProductPagination(mixed $pagination): ?array
-    {
-        if (!is_array($pagination)) {
-            return null;
-        }
-
-        $pageSize = max(1, min(10, (int)($pagination['page_size'] ?? 5)));
-        $page = max(1, (int)($pagination['page'] ?? 1));
-        $returned = max(0, (int)($pagination['returned'] ?? 0));
-        $total = max($returned, (int)($pagination['total'] ?? 0));
-        $hasMore = (bool)($pagination['has_more'] ?? false);
-
-        return [
-            'total' => $total,
-            'page' => $page,
-            'page_size' => $pageSize,
-            'returned' => $returned,
-            'has_more' => $hasMore,
-            'next_page' => $hasMore ? max($page + 1, (int)($pagination['next_page'] ?? 0)) : null,
-            'chat_card_limit' => max(1, min(100, (int)($pagination['chat_card_limit'] ?? 20))),
-            'truncated_for_chat' => (bool)($pagination['truncated_for_chat'] ?? false),
-        ];
-    }
-
-    /** @return array<string, int|string|bool|null>|null */
-    private function normalizeProductScope(mixed $scope): ?array
-    {
-        if (!is_array($scope)) {
-            return null;
-        }
-
-        $url = trim((string)($scope['category_url'] ?? ''));
-        if ($url !== '' && !preg_match('#^(?:https?://|/)#i', $url)) {
-            $url = '';
-        }
-
-        return [
-            'category_id' => (int)($scope['category_id'] ?? 0) ?: null,
-            'category_name' => mb_substr(trim((string)($scope['category_name'] ?? '')), 0, 255),
-            'category_url' => $url,
-            'includes_descendants' => (bool)($scope['includes_descendants'] ?? false),
-            'direct_add_only' => (bool)($scope['direct_add_only'] ?? false),
-        ];
-    }
 
     /**
      * Preserve configurable dimensions without assuming project-specific
@@ -1076,47 +484,5 @@ class ChatMessagePayload
      *
      * @return array<int, array{code: string, label: string, values: array<int, string>}>
      */
-    private function normalizeVariantOptions(mixed $options): array
-    {
-        if (!is_array($options)) {
-            return [];
-        }
 
-        $normalized = [];
-        foreach ($options as $option) {
-            if (!is_array($option)) {
-                continue;
-            }
-
-            $values = array_values(array_filter(array_map(
-                static fn (mixed $value): string => trim((string)$value),
-                is_array($option['values'] ?? null) ? $option['values'] : []
-            )));
-            if ($values === []) {
-                continue;
-            }
-
-            $normalized[] = [
-                'code' => trim((string)($option['code'] ?? '')),
-                'label' => trim((string)($option['label'] ?? '')),
-                'values' => array_values(array_unique($values)),
-            ];
-        }
-
-        return $normalized;
-    }
-
-    private function renderProductPayload(array $payload): string
-    {
-        $productIds = array_values(array_unique(array_filter(array_map(
-            'intval',
-            is_array($payload['product_ids'] ?? null) ? $payload['product_ids'] : []
-        ))));
-
-        if ($productIds === []) {
-            return '';
-        }
-
-        return $this->productRenderer->renderProducts(implode(',', $productIds));
-    }
 }

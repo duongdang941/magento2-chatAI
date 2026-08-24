@@ -4,6 +4,7 @@ import {
 } from '../conversation/message-parts.js';
 import { summarizeError } from '../gateway/error-summary.js';
 import { createSmoothChunkEmitter } from '../conversation/smooth-chunk-emitter.js';
+import { logger } from '../logger.js';
 import { emitProductPresentation } from '../catalog/product-presentation.js';
 import {
     MAX_CATALOG_TOOL_ROUNDS
@@ -45,9 +46,14 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         const apiKey = config.api_key || process.env.GEMINI_API_KEY;
         const modelName = config.model || "gemini-1.5-flash";
         const agentConfig = config.agent || {};
+        const currentUserMessage = typeof userMessage === 'object' && userMessage !== null
+            ? userMessage
+            : { text: userMessage };
+        const currentUserText = String(currentUserMessage.text || currentUserMessage.content || '');
         const systemInstruction = buildAgentSystemInstruction({
             extendedTools: true,
-            productAdvisorEnabled: config.features?.product_advisor_enabled === true
+            productAdvisorEnabled: config.features?.product_advisor_enabled === true,
+            shopperMessage: currentUserText
         });
         const maxToolRounds = Math.max(1, Math.min(Number(agentConfig.max_tool_rounds) || MAX_CATALOG_TOOL_ROUNDS, 12));
         const maxOutputTokens = Math.max(256, Math.min(Number(agentConfig.max_output_tokens) || 2048, 8192));
@@ -59,7 +65,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         });
         let finishReason = '';
 
-        console.log(`[Gemini] Starting stream with model: ${modelName}`);
+        logger.debug('gemini', `Starting stream with model: ${modelName}`);
 
         if (!apiKey) {
             ws.send(JSON.stringify({
@@ -69,9 +75,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             return;
         }
 
-        const currentUserMessage = typeof userMessage === 'object' && userMessage !== null
-            ? userMessage
-            : { text: userMessage };
         const toolFlow = createProviderNeutralToolFlow({
             ws,
             customerToken,
@@ -132,7 +135,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             }
 
             iteration++;
-            console.log(`[Gemini] Iteration ${iteration}, Turn: ${chatHistory[chatHistory.length - 1].role}`);
+            logger.debug('gemini', `Iteration ${iteration}, Turn: ${chatHistory[chatHistory.length - 1].role}`);
 
             // Keep tool-selection policy provider-neutral. Gemini needs its
             // own wire format, but the decision comes from the same shared

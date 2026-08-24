@@ -2,10 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+    inferResponseLanguage,
     normalizeResponseLanguage,
     normalizeResponseLanguageEvidence,
-    responseLanguageInstruction
+    responseLanguageInstruction,
+    turnResponseLanguageInstruction
 } from '../services/conversation/response-language-guidance.js';
+import { buildAgentSystemInstruction } from '../services/orchestration/agent-system-guidance.js';
 
 test('keeps a bounded language tag and rejects injected instructions', () => {
     assert.equal(normalizeResponseLanguage('vi'), 'vi');
@@ -18,6 +21,17 @@ test('locks customer prose while allowing foreign catalogue names', () => {
 
     assert.match(instruction, /RESPONSE LANGUAGE FOR THIS TURN: vi/);
     assert.match(instruction, /foreign catalogue names/i);
+});
+
+test('locks a short English greeting even when conversation history uses another language', () => {
+    assert.equal(inferResponseLanguage('hello'), 'en');
+    assert.equal(inferResponseLanguage('Xin chào, bạn giúp tôi nhé'), 'vi');
+    assert.equal(inferResponseLanguage('Bitte hilf mir'), 'de');
+
+    const lock = turnResponseLanguageInstruction('hello');
+    assert.match(lock, /RESPONSE LANGUAGE LOCK FOR THIS TURN: English \(en\)/);
+    assert.match(lock, /Do not add a translation/i);
+    assert.match(buildAgentSystemInstruction({ shopperMessage: 'hello' }), /RESPONSE LANGUAGE LOCK FOR THIS TURN: English \(en\)/);
 });
 
 test('prefers verified grammatical evidence over an incorrect model language label', () => {

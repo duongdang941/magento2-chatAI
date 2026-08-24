@@ -79,11 +79,16 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
     const baseUrl = config.base_url || DEFAULT_ANTHROPIC_BASE_URL;
     const endpointUrl = normalizeEndpointUrl(baseUrl);
     const agentConfig = config.agent || {};
+    const currentUserMessage = typeof userMessage === 'object' && userMessage !== null
+        ? userMessage
+        : { text: userMessage };
+    const currentUserText = String(currentUserMessage.text || currentUserMessage.content || '');
 
     const systemInstruction = [
         buildAgentSystemInstruction({
             extendedTools: true,
-            productAdvisorEnabled: config.features?.product_advisor_enabled === true
+            productAdvisorEnabled: config.features?.product_advisor_enabled === true,
+            shopperMessage: currentUserText
         }),
         `RUNTIME TOOL BUDGET: Use at most ${agentConfig.max_tool_rounds || 8} reasoning rounds. Finish from verified evidence.`,
         pageContextInstruction(options.pageContext),
@@ -101,18 +106,13 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
     let finishReason = '';
     const providerStreamTimeoutMs = Math.max(15000, Math.min(Number(agentConfig.provider_stream_timeout_ms) || PROVIDER_STREAM_TIMEOUT_MS, 300000));
 
-    const currentUserMessage = typeof userMessage === 'object' && userMessage !== null
-        ? userMessage
-        : { text: userMessage };
-    const userText = currentUserMessage.text || currentUserMessage.content || '';
-
     const messages = [
         ...formatAnthropicHistory(history),
         {
             role: 'user',
             content: toAnthropicContent(
                 Array.isArray(currentUserMessage.parts) ? currentUserMessage.parts : [],
-                userText
+                currentUserText
             )
         }
     ];

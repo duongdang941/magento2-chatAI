@@ -15,6 +15,9 @@ const methods = sandbox.window.AfdAiChat.streamMethods({
     urls: {},
     helpers: {
         hydrateProductGridHtml: (html) => html,
+        utf8ByteLength: (value) => Buffer.byteLength(String(value || ''), 'utf8'),
+        mergeProductGridHtml: (existing, incoming) => String(existing || '') + String(incoming || ''),
+        mergeProductPayload: (existing, incoming) => ({ ...(existing || {}), ...(incoming || {}) }),
         MAX_WEBSOCKET_PAYLOAD_BYTES: 128
     }
 });

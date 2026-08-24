@@ -4,6 +4,65 @@ export const RESPONSE_LANGUAGE_AGENT_GUIDANCE = `RESPONSE LANGUAGE CONTRACT:
 - Every catalogue tool call must set responseLanguage to the BCP-47 language tag selected from that grammatical frame. Keep the same tag through all retrieval rounds in the turn.
 - Before emitting customer-visible text, silently verify that headings, explanations, price labels, availability labels, links, and follow-up questions use responseLanguage.`;
 
+const RESPONSE_LANGUAGE_NAMES = Object.freeze({
+    de: 'German',
+    en: 'English',
+    vi: 'Vietnamese'
+});
+
+const RESPONSE_LANGUAGE_WORDS = Object.freeze({
+    de: new Set(['aber', 'bitte', 'danke', 'das', 'der', 'die', 'du', 'ein', 'eine', 'für', 'hallo', 'ich', 'ist', 'mit', 'nicht', 'und', 'was', 'wie']),
+    en: new Set(['can', 'could', 'hello', 'help', 'hey', 'hi', 'how', 'please', 'thank', 'thanks', 'the', 'what', 'where', 'with', 'would']),
+    vi: new Set(['ban', 'bạn', 'can', 'cần', 'chao', 'chào', 'cho', 'có', 'cua', 'của', 'giup', 'giúp', 'khong', 'không', 'minh', 'mình', 'muon', 'muốn', 'nay', 'này', 'toi', 'tôi', 'viet', 'viết', 'xin'])
+});
+
+function languageExplicitlyRequested(message) {
+    const text = String(message || '').trim().toLocaleLowerCase();
+    const requested = [
+        ['vi', /(?:reply|respond|answer|speak|write)\s+(?:in\s+)?vietnamese\b|(?:trả lời|nói|viết)\s+(?:bằng|tiếng)\s+việt\b/u],
+        ['en', /(?:reply|respond|answer|speak|write)\s+(?:in\s+)?english\b|(?:trả lời|nói|viết)\s+(?:bằng|tiếng)\s+anh\b/u],
+        ['de', /(?:reply|respond|answer|speak|write)\s+(?:in\s+)?german\b|(?:trả lời|nói|viết)\s+(?:bằng|tiếng)\s+đức\b/u]
+    ];
+    return requested.find(([, pattern]) => pattern.test(text))?.[0] || '';
+}
+
+export function inferResponseLanguage(shopperMessage) {
+    const message = String(shopperMessage || '').trim();
+    if (!message) return '';
+
+    const explicitLanguage = languageExplicitlyRequested(message);
+    if (explicitLanguage) return explicitLanguage;
+
+    const normalized = message.toLocaleLowerCase();
+    const scores = { de: 0, en: 0, vi: 0 };
+    const words = normalized.match(/\p{L}+/gu) || [];
+
+    if (/[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]/u.test(normalized)) {
+        scores.vi += 3;
+    }
+    if (/[äöüß]/u.test(normalized)) {
+        scores.de += 3;
+    }
+
+    for (const word of words) {
+        for (const [language, knownWords] of Object.entries(RESPONSE_LANGUAGE_WORDS)) {
+            if (knownWords.has(word)) scores[language] += 1;
+        }
+    }
+
+    const ranked = Object.entries(scores).sort(([, left], [, right]) => right - left);
+    if (!ranked[0] || ranked[0][1] < 1 || ranked[0][1] === ranked[1]?.[1]) return '';
+    return ranked[0][0];
+}
+
+export function turnResponseLanguageInstruction(shopperMessage) {
+    const language = inferResponseLanguage(shopperMessage);
+    const name = RESPONSE_LANGUAGE_NAMES[language];
+    if (!name) return '';
+
+    return `RESPONSE LANGUAGE LOCK FOR THIS TURN: ${name} (${language}). This overrides the language used in earlier conversation turns. Write all customer-facing prose in ${name} only. Do not add a translation, duplicate greeting, or any other customer-facing text in another language unless the shopper explicitly requests it.`;
+}
+
 export function normalizeResponseLanguage(value) {
     const language = String(value || '').trim();
     if (!language || language.length > 35 || !/^[\p{L}]{2,20}(?:[- ][\p{L}]{2,20}){0,2}$/u.test(language)) {

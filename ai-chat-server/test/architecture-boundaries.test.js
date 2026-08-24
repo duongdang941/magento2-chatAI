@@ -98,6 +98,14 @@ test('assistant message actions stay hidden until their turn is hovered or focus
     assert.match(css, /@media \(hover: none\)[\s\S]{0,400}\.afd-ai-chat__msg-actions\s*\{[\s\S]{0,160}opacity:\s*1;/);
 });
 
+test('every provider receives the current-turn language lock before it sees history', () => {
+    for (const filename of ['gemini-orchestrator.js', 'openai-compatible-orchestrator.js', 'anthropic-orchestrator.js']) {
+        const source = read('services', 'orchestration', filename);
+        assert.match(source, /const currentUserText = String\(currentUserMessage\.text \|\| currentUserMessage\.content \|\| ''\);/);
+        assert.match(source, /shopperMessage:\s*currentUserText/);
+    }
+});
+
 test('composer attachment previews open in the existing image viewer without removing the attachment', () => {
     const composer = read('..', 'view', 'frontend', 'templates', 'chat', 'partials', 'composer.phtml');
     const css = read('..', 'view', 'frontend', 'web', 'css', 'source', 'chat-widget', '_composer.less');

@@ -16,7 +16,8 @@ const {
     IMAGE_UPLOAD_MAX_BYTES,
     IMAGE_UPLOAD_MAX_COUNT,
     IMAGE_UPLOAD_TYPES,
-    MAX_MODEL_HISTORY_MESSAGES
+    MAX_MODEL_HISTORY_MESSAGES,
+    debugLog
 } = context.helpers;
 
         const messageHydrationFingerprint = (message = {}) => {
@@ -226,7 +227,7 @@ const {
 
             switchConversation(conversationId, forceReload = false, options = {}) {
                 const targetConversationId = Number(conversationId) || 0;
-                console.log('[AFD-AI-CHAT] switchConversation triggered:', { targetConversationId, forceReload, options, activeId: this.activeConversationId, wsConnected: this.wsConnected });
+                debugLog?.('[AFD-AI-CHAT] switchConversation triggered:', { targetConversationId, forceReload, options, activeId: this.activeConversationId, wsConnected: this.wsConnected });
                 if (!targetConversationId) return;
                 if (!forceReload && Number(this.activeConversationId) === targetConversationId && this.hasStartedChat) return;
 
@@ -278,10 +279,10 @@ const {
                     refresh: preserveVisibleMessages
                 };
                 if (this.socket && this.wsConnected) {
-                    console.log('[AFD-AI-CHAT] Sending WS load_conversation request:', request);
+                    debugLog?.('[AFD-AI-CHAT] Sending WS load_conversation request:', request);
                     this.socket.send(JSON.stringify(request));
                 } else {
-                    console.log('[AFD-AI-CHAT] Sending HTTP load_conversation request for id:', targetConversationId);
+                    debugLog?.('[AFD-AI-CHAT] Sending HTTP load_conversation request for id:', targetConversationId);
                     fetch(urls.loadConversation + '?id=' + targetConversationId).then(r=>r.json()).then(data => {
                         const response = {
                             ...data,
@@ -289,7 +290,7 @@ const {
                             client_load_token: loadToken,
                             refresh: preserveVisibleMessages || data.refresh === true
                         };
-                        console.log('[AFD-AI-CHAT] HTTP load_conversation response:', response);
+                        debugLog?.('[AFD-AI-CHAT] HTTP load_conversation response:', response);
                         if (!this.isCurrentConversationResponse(response)) return;
                         this.isLoading = false;
                         this.applyConversationMessagePage(response, false);
@@ -321,7 +322,7 @@ const {
             },
 
             applyConversationMessagePage(data, append) {
-                console.log('[AFD-AI-CHAT] applyConversationMessagePage received:', { data, append, activeId: this.activeConversationId });
+                debugLog?.('[AFD-AI-CHAT] applyConversationMessagePage received:', { data, append, activeId: this.activeConversationId });
                 if (!this.isCurrentConversationResponse(data)) {
                     console.warn('[AFD-AI-CHAT] applyConversationMessagePage rejected by isCurrentConversationResponse');
                     if (append) {
@@ -342,7 +343,7 @@ const {
                     pageMessages = Array.isArray(data.messages)
                         ? data.messages.map(message => this.normalizeLoadedMessage(message))
                         : [];
-                    console.log('[AFD-AI-CHAT] pageMessages normalized successfully:', { count: pageMessages.length, sample: pageMessages[0] });
+                    debugLog?.('[AFD-AI-CHAT] pageMessages normalized successfully:', { count: pageMessages.length, sample: pageMessages[0] });
                 } catch (err) {
                     console.error('[AFD-AI-CHAT] Error normalizing loaded messages:', err);
                 }
