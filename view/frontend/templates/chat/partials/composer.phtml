@@ -84,13 +84,15 @@
                                   placeholder="Message..."
                                   rows="1"></textarea>
                     <div class="afd-ai-chat__composer-bar">
-                        <button type="button"
-                                class="afd-ai-chat__input-icon-btn"
-                                :class="{ 'afd-ai-chat__input-icon-btn--active': imageAttachments.length > 0 }"
-                                :disabled="!canUploadImages || isReadingAttachments || ['requesting_permission', 'recording', 'transcribing'].includes(voiceState) || ['connecting', 'connected', 'ending'].includes(liveVoiceState)"
-                                @click="openImagePicker()">
-                            <span class="material-symbols-outlined">add</span>
-                        </button>
+                        <template x-if="canUploadImages">
+                            <button type="button"
+                                    class="afd-ai-chat__input-icon-btn"
+                                    :class="{ 'afd-ai-chat__input-icon-btn--active': imageAttachments.length > 0 }"
+                                    :disabled="isReadingAttachments || ['requesting_permission', 'recording', 'transcribing'].includes(voiceState) || ['connecting', 'connected', 'ending'].includes(liveVoiceState)"
+                                    @click="openImagePicker()">
+                                <span class="material-symbols-outlined">add</span>
+                            </button>
+                        </template>
                         <?php if ($block->isVoiceInputEnabled()): ?>
                             <button type="button"
                                     class="afd-ai-chat__input-icon-btn afd-ai-chat__voice-btn"

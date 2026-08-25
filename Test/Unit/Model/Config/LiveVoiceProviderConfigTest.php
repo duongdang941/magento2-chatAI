@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Afd\AI\Test\Unit\Model\Config;
 
+use Afd\AI\Api\Data\ProviderInterface;
 use Afd\AI\Api\ProviderRepositoryInterface;
 use Afd\AI\Model\Config\Config;
 use Afd\AI\Model\Gateway\GatewaySecretManager;
@@ -28,21 +29,26 @@ class LiveVoiceProviderConfigTest extends TestCase
         self::assertSame('', $config->getVoiceConfig()['live']['model']);
     }
 
-    public function testGeminiUsesItsDedicatedVoiceModelSetting(): void
+    public function testGeminiUsesVoiceModelConfiguredOnTheSelectedModel(): void
     {
         $scopeConfig = $this->createMock(ScopeConfigInterface::class);
         $scopeConfig->method('getValue')->willReturnCallback(
             static fn (string $path): string => match ($path) {
                 Config::XML_PATH_PROVIDER => 'gemini',
-                Config::XML_PATH_VOICE_GEMINI_MODEL => 'gemini-2.5-flash',
+                Config::XML_PATH_MODEL => 'gemini-voice',
                 default => '',
             }
         );
         $scopeConfig->method('isSetFlag')->willReturn(false);
 
-        $config = $this->createConfig($scopeConfig);
+        $config = $this->createConfig($scopeConfig, $this->providerRepository('gemini', [[
+            'id' => 'gemini-voice',
+            'capabilities' => ['voice_dictation' => true],
+            'voice_model' => 'gemini-2.5-flash',
+        ]]));
 
         self::assertSame('gemini-2.5-flash', $config->getVoiceConfig()['transcription_model']);
+        self::assertTrue($config->getVoiceConfig()['enabled']);
     }
 
     public function testLiveVoiceUsesItsSettingWhenOpenAiIsTheSelectedProvider(): void
@@ -53,7 +59,10 @@ class LiveVoiceProviderConfigTest extends TestCase
         );
         $scopeConfig->method('isSetFlag')->willReturn(true);
 
-        $config = $this->createConfig($scopeConfig);
+        $config = $this->createConfig($scopeConfig, $this->providerRepository('openai', [[
+            'id' => 'openai-voice',
+            'capabilities' => ['voice_dictation' => true],
+        ]]));
 
         self::assertTrue($config->getVoiceConfig()['live']['enabled']);
     }
@@ -76,12 +85,26 @@ class LiveVoiceProviderConfigTest extends TestCase
         self::assertSame(30, $config->getVoiceConfig()['live']['max_duration_seconds']);
     }
 
-    private function createConfig(ScopeConfigInterface $scopeConfig): Config
+    /** @param array<int, array<string, mixed>> $models */
+    private function providerRepository(string $code, array $models): ProviderRepositoryInterface
+    {
+        $provider = $this->createMock(ProviderInterface::class);
+        $provider->method('getModelsList')->willReturn($models);
+
+        $repository = $this->createMock(ProviderRepositoryInterface::class);
+        $repository->method('getByCode')->with($code)->willReturn($provider);
+        return $repository;
+    }
+
+    private function createConfig(
+        ScopeConfigInterface $scopeConfig,
+        ?ProviderRepositoryInterface $providerRepository = null
+    ): Config
     {
         return new Config(
             $scopeConfig,
             $this->createMock(EncryptorInterface::class),
-            $this->createMock(ProviderRepositoryInterface::class),
+            $providerRepository ?? $this->createMock(ProviderRepositoryInterface::class),
             $this->createMock(GatewaySecretManager::class),
             $this->createMock(LoggerInterface::class)
         );

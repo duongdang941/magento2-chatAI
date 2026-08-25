@@ -37,6 +37,25 @@ export function createToolActivityContinuationKey({ toolName, args = {} } = {}) 
     return `activity-${crypto.createHash('sha256').update(identity).digest('hex').slice(0, 24)}`;
 }
 
+/**
+ * An opaque execution key for the per-turn duplicate-call guard.
+ *
+ * This is intentionally separate from the customer-visible continuation key.
+ * An image request can make a native attempt and then immediately retry with
+ * internal SVG fallback markup. They are one shopper operation in the
+ * timeline, but two distinct executions: the fallback must not be rejected as
+ * a duplicate merely because it keeps the same visible action row.
+ */
+export function createToolExecutionFingerprint({ toolName, args = {} } = {}) {
+    const name = String(toolName || 'unknown').trim().slice(0, 80) || 'unknown';
+    const identity = JSON.stringify(canonicalizeActivityIdentity({
+        tool: name,
+        args: executionFingerprintArguments(name, args)
+    }));
+
+    return `execution-${crypto.createHash('sha256').update(identity).digest('hex').slice(0, 24)}`;
+}
+
 export function createToolActivityPresentation({
     toolName,
     args = {},
@@ -165,9 +184,36 @@ function semanticActivityArguments(toolName, args = {}) {
         };
     }
 
+    if (toolName === 'generateImage') {
+        // `svg_content` is gateway-internal fallback material, not a second
+        // customer request. Keep native and SVG attempts for the same prompt
+        // in one continuous visible action without looking at translated text.
+        return {
+            prompt: normalizeActivityText(source.prompt)
+        };
+    }
+
     return Object.fromEntries(Object.entries(source)
         .filter(([key]) => !isPresentationOrPagingArgument(key))
         .map(([key, value]) => [key, normalizeActivityValue(value)]));
+}
+
+function executionFingerprintArguments(toolName, args = {}) {
+    const source = withoutToolActivityPresentation(args);
+
+    if (toolName === 'generateImage') {
+        const svgContent = typeof source.svg_content === 'string' ? source.svg_content : '';
+        return {
+            prompt: normalizeActivityText(source.prompt),
+            // Do not retain model-provided SVG in the duplicate guard. Its
+            // digest allows a corrected fallback retry while keeping it opaque.
+            fallback_svg_digest: svgContent
+                ? crypto.createHash('sha256').update(svgContent).digest('hex')
+                : ''
+        };
+    }
+
+    return semanticActivityArguments(toolName, source);
 }
 
 function isPresentationOrPagingArgument(key) {

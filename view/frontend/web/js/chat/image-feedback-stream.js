@@ -73,6 +73,16 @@
 
             handleGeneratedImageError(part, event) {
                 if (!part) return;
+                const url = String(part.url || '').trim();
+                const targetUrl = String(event?.target?.getAttribute?.('src') || '').trim();
+                // A generation placeholder has no image resource yet. Ignore
+                // its stale browser error event instead of replacing the
+                // in-progress card with an erroneous failure alert.
+                if (part.status !== 'complete'
+                    || !/^(?:https?:\/\/|\/media\/afd-ai\/generated\/)/i.test(url)
+                    || (targetUrl && targetUrl !== url)) {
+                    return;
+                }
                 part.status = 'error';
                 const fallback = 'The generated image could not be loaded. Please try again.';
                 const translated = typeof this.t === 'function'

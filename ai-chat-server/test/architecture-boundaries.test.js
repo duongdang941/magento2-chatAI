@@ -107,6 +107,45 @@ test('assistant message actions stay hidden until their turn is hovered or focus
     assert.match(css, /@media \(hover: none\)[\s\S]{0,400}\.afd-ai-chat__msg-actions\s*\{[\s\S]{0,160}opacity:\s*1;/);
 });
 
+test('does not mount a generated image until a completed URL is available', () => {
+    const template = read('..', 'view', 'frontend', 'templates', 'chat', 'partials', 'conversation.phtml');
+    const imageStream = read('..', 'view', 'frontend', 'web', 'js', 'chat', 'image-feedback-stream.js');
+
+    assert.match(template, /<template x-if="part\.status !== 'generating' && part\.status !== 'error' && part\.url">\s*<figure class="afd-ai-chat__generated-image-result">/);
+    assert.doesNotMatch(template, /<figure x-show="part\.status !== 'generating' && part\.status !== 'error' && part\.url"/);
+    assert.match(imageStream, /if \(part\.status !== 'complete'[\s\S]{0,350}targetUrl && targetUrl !== url/);
+});
+
+test('provider model editor owns media capabilities and no longer hides output limits in Advanced', () => {
+    const template = read('..', 'view', 'adminhtml', 'templates', 'provider', 'modal.phtml');
+    const source = read('..', 'view', 'adminhtml', 'web', 'js', 'provider-modal.js');
+    const systemXml = read('..', 'etc', 'adminhtml', 'system.xml');
+
+    assert.ok(template.indexOf('zcodeSubMaxOutputTokens') < template.indexOf('zcode-model-capabilities'));
+    assert.match(template, /zcodeSubCapabilityImage/);
+    assert.match(template, /zcodeSubCapabilityVideo/);
+    assert.match(template, /zcodeSubCapabilityVoice/);
+    assert.doesNotMatch(template, /zcodeAdvancedToggle/);
+    assert.match(source, /capabilities\]\[image_generation\]/);
+    assert.match(source, /capabilities\]\[video_generation\]/);
+    assert.match(source, /capabilities\]\[voice_dictation\]/);
+    assert.doesNotMatch(systemXml, /image_generation_enabled/);
+    assert.doesNotMatch(systemXml, /image_transport/);
+});
+
+test('a stopped response keeps a full gap before the following shopper message', () => {
+    const template = read('..', 'view', 'frontend', 'templates', 'chat', 'partials', 'conversation.phtml');
+    const css = read('..', 'view', 'frontend', 'web', 'css', 'source', 'chat-widget', '_messages.less');
+    const entrypoint = read('..', 'view', 'frontend', 'web', 'css', 'chat-widget.less');
+
+    assert.match(template, /class="afd-ai-chat__messages-content"/);
+    assert.match(template, /class="afd-ai-chat__run-interruption"/);
+    assert.match(css, /\.afd-ai-chat__messages-content\s*>\s*div\s*\+\s*div\s*\{\s*margin-top:\s*1\.05rem;/);
+    assert.match(css, /\[data-ui-density="compact"\]\s+\.afd-ai-chat__messages-content\s*>\s*div\s*\+\s*div\s*\{\s*margin-top:\s*0\.7rem;/);
+    assert.match(entrypoint, /\.afd-ai-chat__messages-content\s*>\s*div\s*\+\s*div\s*\{\s*margin-top:\s*1\.05rem;/);
+    assert.match(entrypoint, /\[data-ui-density="compact"\]\s+\.afd-ai-chat__messages-content\s*>\s*div\s*\+\s*div\s*\{\s*margin-top:\s*0\.7rem;/);
+});
+
 test('every provider receives the current-turn language lock before it sees history', () => {
     for (const filename of ['gemini-orchestrator.js', 'openai-compatible-orchestrator.js', 'anthropic-orchestrator.js']) {
         const source = read('services', 'orchestration', filename);

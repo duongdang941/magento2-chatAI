@@ -7,6 +7,7 @@ use Afd\AI\Api\ProviderRepositoryInterface;
 use Afd\AI\Model\ProviderFactory;
 use Magento\Backend\App\Action;
 use Magento\Backend\App\Action\Context;
+use Magento\Framework\App\Cache\Manager as CacheManager;
 use Magento\Framework\App\Action\HttpPostActionInterface;
 use Magento\Framework\Controller\Result\JsonFactory;
 use Magento\Framework\Event\ManagerInterface as EventManager;
@@ -23,6 +24,7 @@ class Save extends Action implements HttpPostActionInterface
         private readonly ProviderFactory $providerFactory,
         private readonly JsonFactory $jsonFactory,
         private readonly EventManager $eventManager,
+        private readonly CacheManager $cacheManager,
         private readonly LoggerInterface $logger
     ) {
         parent::__construct($context);
@@ -61,20 +63,31 @@ class Save extends Action implements HttpPostActionInterface
                 $maxOutputConfigured = array_key_exists('max_output_tokens_configured', $m)
                     ? !empty($m['max_output_tokens_configured'])
                     : ($hasMaxOutputTokens && (int)$rawMaxOutputTokens !== 8192);
+                $capabilities = $this->normalizeCapabilities($m);
                 $model = [
                     "id" => $mId,
                     "name" => trim((string)($m["name"] ?? $mId)),
                     "context_window" => max(1000, (int)($m["context_window"] ?? 128000)),
                     "max_output_tokens_configured" => $maxOutputConfigured,
+                    "capabilities" => $capabilities,
                     "reasoning_enabled" => !empty($m["reasoning_enabled"]),
                     "reasoning_levels" => $this->normalizeReasoningLevels($m["reasoning_levels"] ?? []),
                     "reasoning_default_level" => $this->normalizeReasoningDefaultLevel(
                         $m["reasoning_default_level"] ?? '',
                         $this->normalizeReasoningLevels($m["reasoning_levels"] ?? [])
                     ),
-                    "supports_images" => !empty($m["supports_images"]),
-                    "image_transport" => $this->normalizeImageTransport($m["image_transport"] ?? ''),
-                    "image_model" => trim((string)($m["image_model"] ?? ''))
+                    // Retain these normalized aliases for a rolling upgrade,
+                    // while `capabilities` is now the source of truth.
+                    "supports_images" => $capabilities['image_generation'],
+                    "image_transport" => $capabilities['image_generation']
+                        ? $this->normalizeImageTransport($m["image_transport"] ?? '')
+                        : '',
+                    "image_model" => $capabilities['image_generation']
+                        ? trim((string)($m["image_model"] ?? ''))
+                        : '',
+                    "voice_model" => $capabilities['voice_dictation']
+                        ? trim((string)($m["voice_model"] ?? ''))
+                        : ''
                 ];
                 if ($maxOutputConfigured && $hasMaxOutputTokens) {
                     $model['max_output_tokens'] = max(256, (int)$rawMaxOutputTokens);
@@ -109,6 +122,11 @@ class Save extends Action implements HttpPostActionInterface
             $provider->setIsActive($isActive);
 
             $this->providerRepository->save($provider);
+
+            // Capability flags are embedded in the public chat markup.
+            // Provider saves bypass Magento's normal system-config cache
+            // invalidation, so remove cached pages before reporting success.
+            $this->cacheManager->clean(['full_page', 'block_html']);
 
             // Dispatch event so SyncNodeConfig observer triggers node sync
             $this->eventManager->dispatch("admin_system_config_changed_section_afd_ai");
@@ -169,6 +187,54 @@ class Save extends Action implements HttpPostActionInterface
         $allowed = ['openai-images', 'openai-responses', 'gemini-generate-content'];
 
         return in_array($value, $allowed, true) ? $value : '';
+    }
+
+    /**
+     * @param array<string, mixed> $model
+     * @return array{image_generation: bool, video_generation: bool, voice_dictation: bool}
+     */
+    private function normalizeCapabilities(array $model): array
+    {
+        $source = is_array($model['capabilities'] ?? null) ? $model['capabilities'] : [];
+        $legacyImage = $model['supports_images'] ?? $model['supportsImages'] ?? null;
+        $legacyImageEnabled = $this->normalizeCapabilityFlag($legacyImage, false);
+
+        return [
+            // Legacy supports_images was a global switch, not an explicit
+            // per-model opt-out. New capability metadata is authoritative.
+            'image_generation' => $this->normalizeCapabilityFlag(
+                $source['image_generation'] ?? $source['create_edit_image'] ?? ($legacyImageEnabled ? true : null),
+                true
+            ),
+            'video_generation' => $this->normalizeCapabilityFlag(
+                $source['video_generation'] ?? $source['create_edit_video'] ?? null,
+                false
+            ),
+            'voice_dictation' => $this->normalizeCapabilityFlag(
+                $source['voice_dictation'] ?? $source['voice'] ?? null,
+                false
+            ),
+        ];
+    }
+
+    private function normalizeCapabilityFlag(mixed $value, bool $fallback): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_int($value) || is_float($value)) {
+            return (int)$value === 1;
+        }
+        if (is_string($value)) {
+            $normalized = strtolower(trim($value));
+            if (in_array($normalized, ['1', 'true', 'yes', 'on'], true)) {
+                return true;
+            }
+            if (in_array($normalized, ['0', 'false', 'no', 'off'], true)) {
+                return false;
+            }
+        }
+        return $fallback;
     }
 
     private function isConfiguredOptionalNumber(mixed $value): bool

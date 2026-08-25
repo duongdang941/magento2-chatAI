@@ -23,6 +23,7 @@ class ProviderConfigurationValidator
         'gemini-generate-content',
     ];
     private const REASONING_LEVELS = ['low', 'medium', 'high', 'xhigh'];
+    private const CAPABILITY_KEYS = ['image_generation', 'video_generation', 'voice_dictation'];
 
     /** @throws LocalizedException */
     public function validate(ProviderInterface $provider): void
@@ -150,6 +151,8 @@ class ProviderConfigurationValidator
                 }
             }
 
+            $this->validateCapabilities($model, $id);
+
             $transport = trim((string)($model['image_transport'] ?? ''));
             if (!in_array($transport, self::IMAGE_TRANSPORTS, true)) {
                 throw new LocalizedException(__('Model "%1" has an unsupported image API.', $id));
@@ -171,6 +174,31 @@ class ProviderConfigurationValidator
             $imageModel = trim((string)($model['image_model'] ?? ''));
             if ($imageModel !== '' && !preg_match('/^[A-Za-z0-9][A-Za-z0-9._:\/@+\-]{0,254}$/', $imageModel)) {
                 throw new LocalizedException(__('Model "%1" has an invalid image model ID.', $id));
+            }
+
+            $voiceModel = trim((string)($model['voice_model'] ?? ''));
+            if ($voiceModel !== '' && !preg_match('/^[A-Za-z0-9][A-Za-z0-9._:\/@+\-]{0,254}$/', $voiceModel)) {
+                throw new LocalizedException(__('Model "%1" has an invalid voice model ID.', $id));
+            }
+        }
+    }
+
+    /** @param array<string, mixed> $model */
+    private function validateCapabilities(array $model, string $modelId): void
+    {
+        if (!array_key_exists('capabilities', $model)) {
+            return;
+        }
+
+        $capabilities = $model['capabilities'];
+        if (!is_array($capabilities)) {
+            throw new LocalizedException(__('Model "%1" has invalid capabilities.', $modelId));
+        }
+
+        foreach ($capabilities as $name => $value) {
+            if (!in_array((string)$name, self::CAPABILITY_KEYS, true)
+                || !is_bool($value)) {
+                throw new LocalizedException(__('Model "%1" has invalid capabilities.', $modelId));
             }
         }
     }

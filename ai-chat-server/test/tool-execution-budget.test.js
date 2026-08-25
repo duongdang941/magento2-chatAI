@@ -46,6 +46,26 @@ test('blocks duplicate calls using one semantic operation key', () => {
     assert.equal(budget.executions, 1);
 });
 
+test('admits an SVG fallback as a new execution without creating a second visible image action', () => {
+    const budget = createToolExecutionBudget({
+        max_tool_executions: 10,
+        max_category_calls: 3,
+        block_duplicate_tool_calls: true
+    });
+    const nativeAttempt = { prompt: 'Một bức ảnh chú chó dễ thương' };
+    const svgFallback = {
+        ...nativeAttempt,
+        svg_content: '<svg viewBox="0 0 1 1"><circle cx=".5" cy=".5" r=".5" /></svg>'
+    };
+
+    assert.equal(budget.reserve('generateImage', nativeAttempt).allowed, true);
+    assert.equal(budget.reserve('generateImage', svgFallback).allowed, true);
+    assert.deepEqual(budget.reserve('generateImage', svgFallback), {
+        allowed: false,
+        reason: 'duplicate_tool_call'
+    });
+});
+
 test('limits category discovery independently from useful product tools', () => {
     const budget = createToolExecutionBudget({
         max_tool_executions: 10,

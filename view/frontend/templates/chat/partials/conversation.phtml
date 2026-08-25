@@ -628,33 +628,38 @@
                                                                 <span class="material-symbols-outlined">image_not_supported</span>
                                                                 <span x-text="part.error || 'The image could not be generated.'"></span>
                                                             </div>
-                                                            <figure x-show="part.status !== 'generating' && part.status !== 'error' && part.url"
-                                                                    class="afd-ai-chat__generated-image-result">
-                                                                <img :src="part.url"
-                                                                     :alt="part.alt || 'Generated image'"
-                                                                     class="afd-ai-chat__generated-image-img"
-                                                                     loading="lazy"
-                                                                     decoding="async"
-                                                                     @error="handleGeneratedImageError(part, $event)">
-                                                                <figcaption class="afd-ai-chat__generated-image-actions">
-                                                                    <button type="button"
-                                                                            class="afd-ai-chat__generated-image-action"
-                                                                            aria-label="Open image"
-                                                                            title="Open image"
-                                                                            @click.stop="openImageViewer([{ name: part.alt || 'Generated image', previewUrl: part.url }])">
-                                                                        <span class="material-symbols-outlined" aria-hidden="true">zoom_in</span>
-                                                                    </button>
-                                                                    <a class="afd-ai-chat__generated-image-action"
-                                                                       :href="part.url"
-                                                                       download
-                                                                       target="_blank"
-                                                                       rel="noopener noreferrer"
-                                                                       aria-label="Download image"
-                                                                       title="Download image">
-                                                                        <span class="material-symbols-outlined" aria-hidden="true">download</span>
-                                                                    </a>
-                                                                </figcaption>
-                                                            </figure>
+                                                            <!-- `x-show` only hides an image; it still loads an empty
+                                                                 `src` while generation is in progress and can emit a
+                                                                 false error before the real URL arrives. Mount it only
+                                                                 after a completed result has a URL. -->
+                                                            <template x-if="part.status !== 'generating' && part.status !== 'error' && part.url">
+                                                                <figure class="afd-ai-chat__generated-image-result">
+                                                                    <img :src="part.url"
+                                                                         :alt="part.alt || 'Generated image'"
+                                                                         class="afd-ai-chat__generated-image-img"
+                                                                         loading="lazy"
+                                                                         decoding="async"
+                                                                         @error="handleGeneratedImageError(part, $event)">
+                                                                    <figcaption class="afd-ai-chat__generated-image-actions">
+                                                                        <button type="button"
+                                                                                class="afd-ai-chat__generated-image-action"
+                                                                                aria-label="Open image"
+                                                                                title="Open image"
+                                                                                @click.stop="openImageViewer([{ name: part.alt || 'Generated image', previewUrl: part.url }])">
+                                                                            <span class="material-symbols-outlined" aria-hidden="true">zoom_in</span>
+                                                                        </button>
+                                                                        <a class="afd-ai-chat__generated-image-action"
+                                                                           :href="part.url"
+                                                                           download
+                                                                           target="_blank"
+                                                                           rel="noopener noreferrer"
+                                                                           aria-label="Download image"
+                                                                           title="Download image">
+                                                                            <span class="material-symbols-outlined" aria-hidden="true">download</span>
+                                                                        </a>
+                                                                    </figcaption>
+                                                                </figure>
+                                                            </template>
                                                         </section>
                                                     </template>
                                                 </template>

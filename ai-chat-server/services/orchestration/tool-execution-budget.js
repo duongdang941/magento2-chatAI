@@ -5,10 +5,10 @@ function clampInteger(value, fallback, minimum, maximum) {
 }
 
 function fingerprint(name, args) {
-    // Use the same server-owned semantic identity as the customer timeline.
-    // Presentation/language evidence and pagination must never turn one
-    // product operation into a second visible or executed action.
-    return createToolActivityContinuationKey({ toolName: name, args });
+    // The execution guard has a distinct identity from the customer timeline:
+    // a native image attempt and its SVG fallback are one visible operation,
+    // while remaining separate executions that must both be admitted.
+    return createToolExecutionFingerprint({ toolName: name, args });
 }
 
 /**
@@ -64,4 +64,4 @@ export function toolBudgetMessage(reason) {
             return 'The tool execution budget is exhausted. Finish the response from the verified evidence already returned.';
     }
 }
-import { createToolActivityContinuationKey } from './tool-activity.js';
+import { createToolExecutionFingerprint } from './tool-activity.js';

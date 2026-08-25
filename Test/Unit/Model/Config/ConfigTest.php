@@ -95,7 +95,7 @@ class ConfigTest extends TestCase
         self::assertSame(12, $config->getAgentConfig()['max_tool_rounds']);
         self::assertSame(18, $config->getAgentConfig()['max_tool_executions']);
         self::assertSame(1, $config->getAgentConfig()['max_category_calls']);
-        self::assertSame(8192, $config->getAgentConfig()['max_output_tokens']);
+        self::assertSame(9000, $config->getAgentConfig()['max_output_tokens']);
         self::assertSame(4, $config->getAgentConfig()['max_model_history_messages']);
         self::assertSame(512, $config->getAgentConfig()['max_history_tokens']);
         self::assertSame(24000, $config->getAgentConfig()['max_tool_context_tokens']);
@@ -178,6 +178,73 @@ class ConfigTest extends TestCase
         $config = $this->createConfig($scopeConfig, null, $repository);
         self::assertSame(['low', 'medium', 'high'], $config->getAvailableThoughtLevels());
         self::assertSame('high', $config->getThoughtLevel());
+    }
+
+    public function testUsesSelectedModelCapabilitiesAndOutputLimitInsteadOfGlobalMediaToggles(): void
+    {
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturnCallback(static function (string $path): string {
+            return match ($path) {
+                Config::XML_PATH_PROVIDER => 'custom-provider',
+                Config::XML_PATH_MODEL => 'media-capable-model',
+                Config::XML_PATH_MAX_OUTPUT_TOKENS => '2048',
+                default => '',
+            };
+        });
+
+        $provider = $this->createMock(ProviderInterface::class);
+        $provider->method('getModelsList')->willReturn([[
+            'id' => 'media-capable-model',
+            'max_output_tokens' => 128000,
+            'max_output_tokens_configured' => true,
+            'capabilities' => [
+                'image_generation' => true,
+                'video_generation' => false,
+                'voice_dictation' => true,
+            ],
+            'voice_model' => 'gpt-4o-mini-transcribe',
+        ]]);
+        $repository = $this->createMock(ProviderRepositoryInterface::class);
+        $repository->method('getByCode')->with('custom-provider')->willReturn($provider);
+
+        $config = $this->createConfig($scopeConfig, null, $repository);
+
+        self::assertSame([
+            'image_generation' => true,
+            'video_generation' => false,
+            'voice_dictation' => true,
+        ], $config->getSelectedModelCapabilities());
+        self::assertSame(128000, $config->getAgentConfig()['max_output_tokens']);
+        self::assertTrue($config->getImageGenerationConfig()['enabled']);
+        self::assertTrue($config->getVoiceConfig()['enabled']);
+        self::assertSame('gpt-4o-mini-transcribe', $config->getVoiceConfig()['transcription_model']);
+    }
+
+    public function testMigratesLegacyImageSwitchToTheNewImageOnDefault(): void
+    {
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturnCallback(static function (string $path): string {
+            return match ($path) {
+                Config::XML_PATH_PROVIDER => 'legacy-provider',
+                Config::XML_PATH_MODEL => 'legacy-model',
+                default => '',
+            };
+        });
+
+        $provider = $this->createMock(ProviderInterface::class);
+        $provider->method('getModelsList')->willReturn([[
+            'id' => 'legacy-model',
+            // This old field was backed by a global Admin toggle and did
+            // not represent an intentional per-model capability choice.
+            'supports_images' => false,
+        ]]);
+        $repository = $this->createMock(ProviderRepositoryInterface::class);
+        $repository->method('getByCode')->with('legacy-provider')->willReturn($provider);
+
+        $config = $this->createConfig($scopeConfig, null, $repository);
+
+        self::assertTrue($config->getSelectedModelCapabilities()['image_generation']);
+        self::assertFalse($config->getSelectedModelCapabilities()['voice_dictation']);
     }
 
     private function createConfig(

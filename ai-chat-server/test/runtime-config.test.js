@@ -67,7 +67,7 @@ test('normalizes Magento agent, traffic, capacity and image limits', () => {
         max_tool_executions: 18,
         max_category_calls: 1,
         block_duplicate_tool_calls: false,
-        max_output_tokens: 8192,
+        max_output_tokens: 9000,
         max_model_history_messages: 4,
         max_history_tokens: 512,
         max_tool_context_tokens: 24000,
@@ -249,7 +249,7 @@ test('keeps image capability on the selected model instead of guessing from the 
                 api_format: 'anthropic-messages',
                 models: [{
                     id: 'ag/gemini-3.6-flash-high',
-                    supports_images: false
+                    capabilities: { image_generation: false }
                 }]
             }
         }
@@ -277,7 +277,7 @@ test('treats a legacy provider-model 8192 default as no output limit', () => {
     assert.equal(config.models[0].max_output_tokens_configured, false);
 });
 
-test('uses Magento image transport configuration instead of model metadata', () => {
+test('uses selected-model image metadata instead of legacy Magento image configuration', () => {
     const config = normalizeConfig({
         provider: 'gemini-custom',
         model: 'gemini-image-capable',
@@ -297,7 +297,7 @@ test('uses Magento image transport configuration instead of model metadata', () 
         image_generation: { enabled: true, transport: '' }
     });
 
-    assert.equal(config.image_generation.transport, '');
+    assert.equal(config.image_generation.transport, 'gemini-generate-content');
 });
 
 test('syncs a Responses image-tool model without requiring a separate GPT Image model', () => {
@@ -320,4 +320,46 @@ test('syncs a Responses image-tool model without requiring a separate GPT Image 
 
     assert.equal(config.image_generation.transport, 'openai-responses');
     assert.equal(config.capabilities.image_generation.available, true);
+});
+
+test('makes selected-model media capabilities authoritative for runtime and output limits', () => {
+    const config = normalizeConfig({
+        provider: 'custom-openai',
+        model: 'model-with-capabilities',
+        image_generation: { enabled: false, transport: '' },
+        voice: { enabled: false, transcription_model: 'legacy-transcription-model' },
+        providers: {
+            'custom-openai': {
+                provider_code: 'custom-openai',
+                base_url: 'https://provider.example/v1',
+                api_key: 'provider-key',
+                api_format: 'openai-responses',
+                models: [{
+                    id: 'model-with-capabilities',
+                    max_output_tokens: 128000,
+                    max_output_tokens_configured: true,
+                    capabilities: {
+                        image_generation: true,
+                        video_generation: false,
+                        voice_dictation: true
+                    },
+                    voice_model: 'gpt-4o-mini-transcribe'
+                }]
+            }
+        }
+    });
+
+    assert.deepEqual(config.models[0].capabilities, {
+        image_generation: true,
+        video_generation: false,
+        voice_dictation: true
+    });
+    assert.equal(config.agent.max_output_tokens, 128000);
+    assert.equal(config.image_generation.enabled, true);
+    assert.equal(config.image_generation.transport, 'openai-responses');
+    assert.equal(config.voice.enabled, true);
+    assert.equal(config.voice.transcription_model, 'gpt-4o-mini-transcribe');
+    assert.equal(config.capabilities.image_generation.available, true);
+    assert.equal(config.capabilities.voice_dictation.available, true);
+    assert.equal(config.capabilities.video_generation.available, false);
 });

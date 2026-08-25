@@ -39,8 +39,14 @@ function geminiGenerateContentUrl(baseUrl, model) {
 }
 
 function providerSettings(config = {}) {
-    const provider = readString(config.provider, 'cockpit');
-    if (!['cockpit', 'openai', 'openrouter', '9router', 'gemini'].includes(provider)) {
+    const configuredProvider = readString(config.provider, 'cockpit');
+    const apiFormat = readString(config.api_format).toLowerCase();
+    const provider = ['cockpit', 'openai', 'openrouter', '9router', 'gemini'].includes(configuredProvider)
+        ? configuredProvider
+        : (apiFormat === 'openai-chat-completions' || apiFormat === 'openai-responses'
+            ? 'openai-compatible'
+            : configuredProvider);
+    if (!['cockpit', 'openai', 'openrouter', '9router', 'gemini', 'openai-compatible'].includes(provider)) {
         const error = new Error('Voice dictation is not supported by the selected AI provider.');
         error.code = 'VOICE_PROVIDER_UNSUPPORTED';
         throw error;
@@ -52,16 +58,16 @@ function providerSettings(config = {}) {
             ? 'OPENAI'
             : provider === 'openrouter'
                 ? 'OPENROUTER'
-                : provider === '9router' ? 'NINE_ROUTER' : 'GEMINI';
+                    : provider === '9router' ? 'NINE_ROUTER' : provider === 'gemini' ? 'GEMINI' : 'OPENAI';
     const defaultBaseUrl = provider === 'cockpit'
         ? 'http://127.0.0.1:49998/v1'
         : provider === 'openai'
             ? 'https://api.openai.com/v1'
             : provider === 'openrouter'
                 ? 'https://openrouter.ai/api/v1'
-                : provider === '9router'
+                    : provider === '9router'
                     ? 'https://raud4eq.9router.com/v1'
-                    : 'https://generativelanguage.googleapis.com/v1beta';
+                    : provider === 'gemini' ? 'https://generativelanguage.googleapis.com/v1beta' : '';
     const voice = config.voice && typeof config.voice === 'object' ? config.voice : {};
     const apiKey = readString(config.api_key, process.env[`${envPrefix}_API_KEY`] || '');
     const baseUrl = normalizeBaseUrl(

@@ -8,7 +8,7 @@
             transportState(),
             supportState(),
             windowState(),
-            attachmentState(),
+            attachmentState(config),
             dialogState(),
             historyState(config)
         );
@@ -167,9 +167,9 @@
         };
     }
 
-    function attachmentState() {
+    function attachmentState(config = {}) {
         return {
-            canUploadImages: true,
+            canUploadImages: config.imageEnabled === true,
             imageAttachments: [],
             isReadingAttachments: false,
             uploadError: '',

@@ -206,32 +206,37 @@ function geminiSchema(value) {
     }));
 }
 
-export function toolDefinitionsForProvider(provider) {
+export function toolDefinitionsForProvider(provider, capabilities = null) {
     const normalizedProvider = String(provider || '').toLowerCase();
     const policyProvider = ['cockpit', 'openrouter', '9router'].includes(normalizedProvider)
         ? 'openai'
         : normalizedProvider;
-    return TOOL_DEFINITIONS.filter((definition) => definition.policy.providers.includes(policyProvider));
+    const imageGenerationAvailable = capabilities === null
+        || capabilities?.image_generation?.available === true;
+    return TOOL_DEFINITIONS.filter((definition) => (
+        definition.policy.providers.includes(policyProvider)
+        && (definition.name !== 'generateImage' || imageGenerationAvailable)
+    ));
 }
 
-export function anthropicToolDefinitions() {
-    return TOOL_DEFINITIONS.map(({ name, description, parameters }) => ({
+export function anthropicToolDefinitions(provider = 'anthropic', capabilities = null) {
+    return toolDefinitionsForProvider(provider, capabilities).map(({ name, description, parameters }) => ({
         name,
         description,
         input_schema: parameters
     }));
 }
 
-export function openAiToolDefinitions(provider = 'openai') {
-    return toolDefinitionsForProvider(provider).map(({ name, description, parameters }) => ({
+export function openAiToolDefinitions(provider = 'openai', capabilities = null) {
+    return toolDefinitionsForProvider(provider, capabilities).map(({ name, description, parameters }) => ({
         type: 'function',
         function: { name, description, parameters }
     }));
 }
 
-export function geminiToolDefinitions() {
+export function geminiToolDefinitions(capabilities = null) {
     return [{
-        functionDeclarations: toolDefinitionsForProvider('gemini').map(({ name, description, parameters }) => ({
+        functionDeclarations: toolDefinitionsForProvider('gemini', capabilities).map(({ name, description, parameters }) => ({
             name,
             description,
             parameters: geminiSchema(parameters)

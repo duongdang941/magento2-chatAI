@@ -53,6 +53,46 @@ define([
             return configured ? String(raw) : '';
         }
 
+        function capabilityEnabled(value, fallback) {
+            if (value === true || value === 1 || value === '1' || value === 'true') return true;
+            if (value === false || value === 0 || value === '0' || value === 'false') return false;
+            return fallback;
+        }
+
+        function modelCapabilities(model) {
+            var source = model && typeof model === 'object' ? model : {};
+            var capabilities = source.capabilities && typeof source.capabilities === 'object'
+                ? source.capabilities
+                : {};
+            var legacyImage = source.supports_images !== undefined
+                ? source.supports_images
+                : source.supportsImages;
+            var legacyImageEnabled = capabilityEnabled(legacyImage, false);
+
+            return {
+                image_generation: capabilityEnabled(
+                    capabilities.image_generation !== undefined
+                        ? capabilities.image_generation
+                        : (capabilities.create_edit_image !== undefined
+                            ? capabilities.create_edit_image
+                            : (legacyImageEnabled ? true : undefined)),
+                    true
+                ),
+                video_generation: capabilityEnabled(
+                    capabilities.video_generation !== undefined
+                        ? capabilities.video_generation
+                        : capabilities.create_edit_video,
+                    false
+                ),
+                voice_dictation: capabilityEnabled(
+                    capabilities.voice_dictation !== undefined
+                        ? capabilities.voice_dictation
+                        : capabilities.voice,
+                    false
+                )
+            };
+        }
+
         function showNotice(message, type) {
             window.clearTimeout(noticeTimer);
             $providerNotice
@@ -89,13 +129,18 @@ define([
                 var formattedCtx = Number(ctx).toLocaleString();
                 var maxOutValue = getConfiguredMaxOutputTokens(m);
                 var maxOut = maxOutValue ? Number(maxOutValue).toLocaleString() : '';
-                var imageTransport = m.image_transport || '';
+                var capabilities = modelCapabilities(m);
+                var capabilityLabels = [];
+                if (capabilities.image_generation) capabilityLabels.push($t('Image'));
+                if (capabilities.video_generation) capabilityLabels.push($t('Video'));
+                if (capabilities.voice_dictation) capabilityLabels.push($t('Voice'));
 
                 var cardHtml = '<div class="zcode-model-item" data-idx="' + idx + '">' +
                     '<div class="zcode-model-info">' +
                         '<span class="zcode-model-name font-mono">' + escapeHtml(m.id) + '</span>' +
                         '<span class="zcode-model-meta">' + $t('Context window: ') + formattedCtx + '</span>' +
                         (maxOut ? '<span class="zcode-model-meta badge-dim">' + $t('Max output: ') + maxOut + '</span>' : '') +
+                        (capabilityLabels.length ? '<span class="zcode-model-meta badge-dim">' + escapeHtml(capabilityLabels.join(', ')) + '</span>' : '') +
                     '</div>' +
                     '<div class="zcode-model-actions">' +
                         '<button type="button" class="zcode-icon-btn btn-edit-model" data-idx="' + idx + '" title="' + $t('Edit') + '" aria-label="' + $t('Edit') + '">' + editIcon + '</button>' +
@@ -114,6 +159,9 @@ define([
                     'models[' + idx + '][max_output_tokens_configured]',
                     maxOutValue ? 1 : 0
                 );
+                appendHiddenInput('models[' + idx + '][capabilities][image_generation]', capabilities.image_generation ? 1 : 0);
+                appendHiddenInput('models[' + idx + '][capabilities][video_generation]', capabilities.video_generation ? 1 : 0);
+                appendHiddenInput('models[' + idx + '][capabilities][voice_dictation]', capabilities.voice_dictation ? 1 : 0);
                 if (m.reasoning_enabled) {
                     appendHiddenInput('models[' + idx + '][reasoning_enabled]', 1);
                     (Array.isArray(m.reasoning_levels) ? m.reasoning_levels : []).forEach(function (level) {
@@ -124,13 +172,9 @@ define([
                         m.reasoning_default_level || (Array.isArray(m.reasoning_levels) ? m.reasoning_levels[0] : '') || ''
                     );
                 }
-                if (m.supports_images) {
-                    appendHiddenInput('models[' + idx + '][supports_images]', 1);
-                    appendHiddenInput('models[' + idx + '][image_transport]', imageTransport);
-                    if (m.image_model) {
-                        appendHiddenInput('models[' + idx + '][image_model]', m.image_model);
-                    }
-                }
+                if (m.image_transport) appendHiddenInput('models[' + idx + '][image_transport]', m.image_transport);
+                if (m.image_model) appendHiddenInput('models[' + idx + '][image_model]', m.image_model);
+                if (m.voice_model) appendHiddenInput('models[' + idx + '][voice_model]', m.voice_model);
             });
         }
 
@@ -170,14 +214,19 @@ define([
                 $('#zcodeSubModelId').val(m.id);
                 $('#zcodeSubContextWindow').val(m.context_window || 200000);
                 $('#zcodeSubMaxOutputTokens').val(getConfiguredMaxOutputTokens(m));
+                var capabilities = modelCapabilities(m);
+                $('#zcodeSubCapabilityImage').prop('checked', capabilities.image_generation);
+                $('#zcodeSubCapabilityVideo').prop('checked', capabilities.video_generation);
+                $('#zcodeSubCapabilityVoice').prop('checked', capabilities.voice_dictation);
             } else {
                 $('#zcodeSubModalTitle').text($t('Add model'));
                 $('#zcodeSubModelId').val('');
                 $('#zcodeSubContextWindow').val(200000);
                 $('#zcodeSubMaxOutputTokens').val('');
+                $('#zcodeSubCapabilityImage').prop('checked', true);
+                $('#zcodeSubCapabilityVideo').prop('checked', false);
+                $('#zcodeSubCapabilityVoice').prop('checked', false);
             }
-            $('#zcodeAdvancedContent').hide();
-            $('#zcodeAdvancedChevron').removeClass('is-open');
             $modelOverlay.fadeIn(150);
         }
 
@@ -327,20 +376,11 @@ define([
 
         // Sub-Modal Actions
         $('#zcodeCloseModelBtn').on('click', closeModelSubModal);
+        $('#zcodeBtnCancelModel').on('click', closeModelSubModal);
         $modelOverlay.on('click', function (e) {
             if ($(e.target).is($modelOverlay)) {
                 closeModelSubModal();
             }
-        });
-
-        // Advanced section toggle (chevron)
-        $('#zcodeAdvancedToggle').on('click', function (e) {
-            e.preventDefault();
-            var $content = $('#zcodeAdvancedContent');
-            var $chevron = $('#zcodeAdvancedChevron');
-            $content.slideToggle(120, function () {
-                $chevron.toggleClass('is-open', $content.is(':visible'));
-            });
         });
 
         // Save Model Sub-Form
@@ -359,16 +399,22 @@ define([
                 context_window: ctx,
                 max_output_tokens: maxOut ? parseInt(maxOut, 10) : '',
                 max_output_tokens_configured: Boolean(maxOut),
+                capabilities: {
+                    image_generation: $('#zcodeSubCapabilityImage').is(':checked'),
+                    video_generation: $('#zcodeSubCapabilityVideo').is(':checked'),
+                    voice_dictation: $('#zcodeSubCapabilityVoice').is(':checked')
+                },
                 // Thought-level capability is consumed from Magento AI Config;
                 // preserve existing metadata for already-registered models.
                 reasoning_enabled: Boolean(previousModel.reasoning_enabled),
                 reasoning_levels: Array.isArray(previousModel.reasoning_levels) ? previousModel.reasoning_levels : [],
                 reasoning_default_level: previousModel.reasoning_default_level || '',
-                // Image capability is configured in AI Configuration; retain
-                // legacy model metadata while providers are migrated.
-                supports_images: Boolean(previousModel.supports_images),
+                // Keep transport/model metadata that was already associated
+                // with this model; capability visibility itself is owned by
+                // the checkboxes above.
                 image_transport: previousModel.image_transport || '',
-                image_model: previousModel.image_model || ''
+                image_model: previousModel.image_model || '',
+                voice_model: previousModel.voice_model || ''
             };
 
             if (editIdx >= 0 && editIdx < currentModels.length) {

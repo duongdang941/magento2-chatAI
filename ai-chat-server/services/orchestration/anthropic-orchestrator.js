@@ -7,6 +7,7 @@ import { createCustomerTurnBuffer } from '../conversation/customer-turn-buffer.j
 import { createResponseProgressPulse } from '../conversation/response-progress-pulse.js';
 import { guestOrderAccessInstruction } from '../customer/guest-order-access-guidance.js';
 import { anthropicToolDefinitions } from '../tools/tool-registry.js';
+import { getProviderCapabilities } from '../providers/provider-capabilities.js';
 import { buildAgentSystemInstruction } from './agent-system-guidance.js';
 import { pageContextInstruction } from '../catalog/page-context.js';
 import {
@@ -100,7 +101,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
     ].filter(Boolean).join('\n\n');
 
     const maxToolRounds = Math.max(1, Math.min(Number(agentConfig.max_tool_rounds) || MAX_CATALOG_TOOL_ROUNDS, 12));
-    const maxOutputTokens = Math.max(256, Math.min(Number(agentConfig.max_output_tokens) || 4096, 8192));
+    const maxOutputTokens = Math.max(256, Math.min(Number(agentConfig.max_output_tokens) || 4096, 1_000_000));
     const thinking = anthropicThinkingConfig(config.thought_level);
     const providerResponse = createProviderResponseEnvelope({
         provider: config.provider || 'anthropic',
@@ -121,7 +122,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         }
     ];
 
-    const tools = anthropicToolDefinitions();
+    const tools = anthropicToolDefinitions(config.provider || 'anthropic', getProviderCapabilities(config));
     const toolFlow = createProviderNeutralToolFlow({
         ws,
         customerToken,

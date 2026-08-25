@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
     createToolActivityId,
     createToolActivityContinuationKey,
+    createToolExecutionFingerprint,
     createToolActivityPresentation,
     emitToolActivity,
     hasCompleteToolActivityPresentation,
@@ -50,6 +51,26 @@ test('creates one opaque continuation key from the semantic tool operation, not 
     assert.equal(first, repeated);
     assert.notEqual(first, differentQuery);
     assert.notEqual(first, differentScope);
+});
+
+test('keeps an image SVG fallback in one visible action while preserving its separate execution', () => {
+    const nativeAttempt = {
+        prompt: 'Một bức ảnh chú chó dễ thương',
+        activityPresentation: { completedLabel: 'Đã hoàn thành tạo hình ảnh chú chó' }
+    };
+    const svgFallback = {
+        ...nativeAttempt,
+        svg_content: '<svg viewBox="0 0 1 1"><circle cx=".5" cy=".5" r=".5" /></svg>'
+    };
+
+    assert.equal(
+        createToolActivityContinuationKey({ toolName: 'generateImage', args: nativeAttempt }),
+        createToolActivityContinuationKey({ toolName: 'generateImage', args: svgFallback })
+    );
+    assert.notEqual(
+        createToolExecutionFingerprint({ toolName: 'generateImage', args: nativeAttempt }),
+        createToolExecutionFingerprint({ toolName: 'generateImage', args: svgFallback })
+    );
 });
 
 test('emits a customer-safe running and completed tool timeline event', () => {

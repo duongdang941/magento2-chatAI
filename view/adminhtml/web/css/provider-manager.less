@@ -426,32 +426,231 @@
     to { transform: rotate(360deg); }
 }
 
-.zcode-advanced-toggle-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    width: 100%;
-    padding: 8px 0;
+.zcode-model-capabilities {
+    margin: 0;
+    padding: 0;
     border: 0;
-    background: transparent;
-    color: #334155;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    text-align: left;
 
-    &:hover {
-        color: #0f172a;
+    &__help {
+        margin: -3px 0 10px;
+        color: #64748b;
+        font-size: 12px;
+        line-height: 1.45;
     }
 
-    .zcode-chevron {
+    &__list {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+    }
+}
+
+.zcode-capability-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    background: #f8fafc;
+    color: #1e293b;
+    cursor: pointer;
+    transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
+
+    &:hover {
+        border-color: #94a3b8;
+        background: #ffffff;
+    }
+
+    &:focus-within {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+    }
+
+    input[type="checkbox"] {
+        flex: 0 0 auto;
         width: 16px;
         height: 16px;
-        transition: transform 0.15s ease;
+        margin: 1px 0 0;
+        accent-color: #2563eb;
+        cursor: pointer;
+    }
 
-        &.is-open {
-            transform: rotate(90deg);
+    &__copy {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        gap: 2px;
+    }
+
+    strong {
+        font-size: 12px;
+        font-weight: 650;
+        line-height: 1.35;
+    }
+
+    small {
+        color: #64748b;
+        font-size: 11px;
+        line-height: 1.35;
+    }
+}
+
+// Match the compact Zcode model editor without changing the larger provider
+// form. The dark surface keeps the selected media capabilities distinct from
+// ordinary provider fields and makes the modal readable in Magento Admin.
+.zcode-model-dialog {
+    max-width: 560px;
+    background: #292929;
+    border: 1px solid #484848;
+    border-radius: 14px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+
+    .zcode-modal-header {
+        align-items: center;
+        padding: 18px;
+        border-bottom-color: #414141;
+    }
+
+    .zcode-modal-header .zcode-dialog-title {
+        margin: 0;
+        color: #e5e5e5;
+        font-size: 14px;
+        font-weight: 600;
+    }
+
+    .zcode-modal-close {
+        color: #a3a3a3;
+
+        &:hover {
+            color: #f5f5f5;
+            background-color: #3a3a3a;
         }
+    }
+
+    .zcode-modal-body {
+        padding: 18px;
+    }
+
+    .zcode-form-group {
+        margin-bottom: 14px;
+    }
+
+    .zcode-label {
+        color: #b8b8b8;
+        font-size: 14px;
+        font-weight: 500;
+    }
+
+    .zcode-input {
+        min-height: 32px;
+        padding: 6px 12px;
+        border-color: #4a4a4a;
+        border-radius: 8px;
+        background: #292929;
+        color: #e5e5e5;
+        font-size: 14px;
+
+        &::placeholder {
+            color: #777777;
+        }
+
+        &:focus {
+            border-color: #737373;
+            box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+        }
+    }
+
+    .zcode-model-capabilities {
+        margin-top: 2px;
+
+        &__help {
+            margin: -2px 0 10px;
+            color: #929292;
+        }
+
+        &__list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+    }
+
+    .zcode-capability-toggle {
+        align-items: center;
+        width: auto;
+        padding: 7px 10px;
+        border-color: #4a4a4a;
+        border-radius: 8px;
+        background: #292929;
+        color: #e5e5e5;
+
+        &:hover {
+            border-color: #6b6b6b;
+            background: #323232;
+        }
+
+        &:focus-within {
+            border-color: #a3a3a3;
+            box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+        }
+
+        input[type="checkbox"] {
+            width: 14px;
+            height: 14px;
+            margin: 0;
+            accent-color: #f5f5f5;
+        }
+
+        strong {
+            color: #e5e5e5;
+            font-size: 12px;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        small {
+            display: none;
+        }
+    }
+
+    .zcode-modal-footer {
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 14px 18px 16px;
+        border-top: 0;
+        background: #292929;
+    }
+
+    .zcode-btn-secondary {
+        min-height: 30px;
+        padding: 5px 10px;
+        border-color: #555555;
+        background: #292929;
+        color: #dedede;
+
+        &:hover {
+            border-color: #777777;
+            background: #353535;
+        }
+    }
+
+    #zcodeBtnSaveModel {
+        border-color: #f5f5f5;
+        background: #f5f5f5;
+        color: #1f1f1f;
+
+        &:hover {
+            border-color: #ffffff;
+            background: #ffffff;
+        }
+    }
+}
+
+@media (max-width: 620px) {
+    .zcode-model-capabilities__list {
+        grid-template-columns: 1fr;
     }
 }
 

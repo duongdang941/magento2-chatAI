@@ -13,6 +13,7 @@ import {
     guestOrderAccessInstruction
 } from '../customer/guest-order-access-guidance.js';
 import { openAiToolDefinitions } from '../tools/tool-registry.js';
+import { getProviderCapabilities } from '../providers/provider-capabilities.js';
 import { buildAgentSystemInstruction } from './agent-system-guidance.js';
 import { pageContextInstruction } from '../catalog/page-context.js';
 import {
@@ -39,8 +40,6 @@ const configuredProviderStreamTimeout = Number(process.env.AI_PROVIDER_STREAM_TI
 const PROVIDER_STREAM_TIMEOUT_MS = Number.isFinite(configuredProviderStreamTimeout)
     ? Math.max(15000, Math.min(Math.trunc(configuredProviderStreamTimeout), 300000))
     : 120000;
-const tools = openAiToolDefinitions();
-
 export const streamChatResponse = async (userMessage, ws, history = [], customerToken = null, config = {}, options = {}) => {
     const signal = options.signal || null;
     const isCancelled = () => signal?.aborted || (typeof options.isCancelled === 'function' && options.isCancelled());
@@ -48,6 +47,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
     const providerConfig = resolveProviderConfig(config);
     const { apiKey, model, candidates, label } = providerConfig;
     const useResponsesApi = config.api_format === 'openai-responses';
+    const tools = openAiToolDefinitions(provider, getProviderCapabilities(config));
     const thoughtLevel = normalizeThoughtLevel(config.thought_level);
     const providerResponse = createProviderResponseEnvelope({
         provider: config.provider || provider,
@@ -65,7 +65,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         shopperMessage: currentUserText
     });
     const maxToolRounds = Math.max(1, Math.min(Number(agentConfig.max_tool_rounds) || MAX_CATALOG_TOOL_ROUNDS, 12));
-    const maxOutputTokens = Math.max(256, Math.min(Number(agentConfig.max_output_tokens) || MAX_OUTPUT_TOKENS, 8192));
+    const maxOutputTokens = Math.max(256, Math.min(Number(agentConfig.max_output_tokens) || MAX_OUTPUT_TOKENS, 1_000_000));
     const providerStreamTimeoutMs = Math.max(
         10000,
         Math.min(Number(agentConfig.provider_stream_timeout_ms) || PROVIDER_STREAM_TIMEOUT_MS, 300000)

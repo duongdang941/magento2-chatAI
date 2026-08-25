@@ -133,62 +133,6 @@
                 </field>
             </group>
 
-            <group id="attachments" translate="label" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
-                <label>Images &amp; Attachments</label>
-                <comment>Image generation and attachment controls.</comment>
-                <group id="generation" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Image Generation</label>
-                    <comment>These settings control image requests after a provider image model has been configured.</comment>
-                    <field id="image_generation_enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
-                        <label>Enable Image Generation</label>
-                        <comment>Allow the selected AI provider to generate images.</comment>
-                        <config_path>afd_ai/general/image_generation_enabled</config_path>
-                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
-                        <depends>
-                            <field id="afd_ai/general/enabled">1</field>
-                        </depends>
-                    </field>
-                    <field id="image_transport" translate="label comment" type="select" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
-                        <label>Image API</label>
-                        <comment>Choose the image transport for the selected provider and model. Leave empty to use the safe SVG fallback.</comment>
-                        <config_path>afd_ai/image_generation/transport</config_path>
-                        <source_model>Afd\AI\Model\Config\Source\ImageTransport</source_model>
-                        <depends>
-                            <field id="afd_ai/general/enabled">1</field>
-                            <field id="image_generation_enabled">1</field>
-                        </depends>
-                    </field>
-                    <field id="image_model" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
-                        <label>Image Model</label>
-                        <comment>Optional provider image model. Leave empty when the selected Image API chooses its own model.</comment>
-                        <config_path>afd_ai/image_generation/model</config_path>
-                        <depends>
-                            <field id="afd_ai/general/enabled">1</field>
-                            <field id="image_generation_enabled">1</field>
-                        </depends>
-                    </field>
-                    <field id="image_size" translate="label" type="select" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
-                        <label>Generated Image Size</label>
-                        <config_path>afd_ai/general/cockpit_image_size</config_path>
-                        <source_model>Afd\AI\Model\Config\Source\ImageSize</source_model>
-                        <depends>
-                            <field id="afd_ai/general/enabled">1</field>
-                            <field id="image_generation_enabled">1</field>
-                        </depends>
-                    </field>
-                    <field id="image_timeout_ms" translate="label comment" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
-                        <label>Image Generation Timeout (Milliseconds)</label>
-                        <comment>Allowed range: 30000–300000.</comment>
-                        <config_path>afd_ai/image_generation/timeout_ms</config_path>
-                        <validate>validate-number validate-greater-than-zero</validate>
-                        <depends>
-                            <field id="afd_ai/general/enabled">1</field>
-                            <field id="image_generation_enabled">1</field>
-                        </depends>
-                    </field>
-                </group>
-            </group>
-
             <group id="rate_limiting" translate="label" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
                 <label>Traffic Guardrails</label>
                 <field id="messages_per_minute" translate="label comment" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">

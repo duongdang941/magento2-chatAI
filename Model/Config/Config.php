@@ -26,9 +26,6 @@ class Config
     public const XML_PATH_MAGENTO_SECURE_BASE_URL = 'web/secure/base_url';
     public const XML_PATH_MAGENTO_UNSECURE_BASE_URL = 'web/unsecure/base_url';
 
-    public const XML_PATH_IMAGE_GENERATION_ENABLED = 'afd_ai/general/image_generation_enabled';
-    public const XML_PATH_IMAGE_TRANSPORT = 'afd_ai/image_generation/transport';
-    public const XML_PATH_IMAGE_MODEL = 'afd_ai/image_generation/model';
     public const XML_PATH_IMAGE_TIMEOUT_MS = 'afd_ai/image_generation/timeout_ms';
     public const XML_PATH_IMAGE_CUSTOMER_PER_HOUR = 'afd_ai/image_generation/customer_per_hour';
     public const XML_PATH_IMAGE_CUSTOMER_PER_DAY = 'afd_ai/image_generation/customer_per_day';
@@ -75,7 +72,6 @@ class Config
     public const XML_PATH_AGENT_STREAM_TIMEOUT_MS = self::XML_PATH_PROVIDER_STREAM_TIMEOUT_MS;
     public const XML_PATH_GEMINI_MODEL = self::XML_PATH_MODEL;
     public const XML_PATH_GEMINI_GROUNDING_MODEL = 'afd_ai/gemini/grounding_model';
-    public const XML_PATH_VOICE_GEMINI_MODEL = 'afd_ai/voice/gemini_model';
     public const XML_PATH_CAPACITY_QUEUE_DEPTH = self::XML_PATH_QUEUE_DEPTH;
     public const XML_PATH_CAPACITY_MODEL_LEASE_MS = self::XML_PATH_MODEL_LEASE_MS;
     public const XML_PATH_ATTACHMENT_MAX_IMAGE_BYTES = 'afd_ai/attachments/max_image_bytes';
@@ -86,12 +82,10 @@ class Config
     public const XML_PATH_ATTACHMENT_VISION_CONCURRENCY = 'afd_ai/attachments/vision_concurrency';
     public const XML_PATH_ATTACHMENT_MAX_OWNER_STORAGE_BYTES = 'afd_ai/attachments/max_owner_storage_bytes';
 
-    public const XML_PATH_VOICE_ENABLED = 'afd_ai/voice/enabled';
     public const XML_PATH_VOICE_LIVE_ENABLED = 'afd_ai/voice/live_enabled';
     public const XML_PATH_VOICE_LIVE_MODEL = 'afd_ai/voice/live_model';
     public const XML_PATH_VOICE_LIVE_MAX_SESSIONS_PER_MINUTE = 'afd_ai/voice/live_max_sessions_per_minute';
     public const XML_PATH_VOICE_LIVE_MAX_DURATION_SECONDS = 'afd_ai/voice/live_max_duration_seconds';
-    public const XML_PATH_VOICE_TRANSCRIPTION_MODEL = 'afd_ai/voice/transcription_model';
     public const XML_PATH_VOICE_MAX_DURATION_SECONDS = 'afd_ai/voice/max_duration_seconds';
     public const XML_PATH_VOICE_MAX_AUDIO_BYTES = 'afd_ai/voice/max_audio_bytes';
     public const XML_PATH_VOICE_REQUESTS_PER_MINUTE = 'afd_ai/voice/requests_per_minute';
@@ -233,6 +227,38 @@ class Config
         return [];
     }
 
+    /**
+     * Model capabilities are the single source of truth for customer-facing
+     * media controls. Legacy fields are read only to make existing provider
+     * rows safe until they are saved once through the new model editor.
+     *
+     * @return array{image_generation: bool, video_generation: bool, voice_dictation: bool}
+     */
+    public function getSelectedModelCapabilities(?int $storeId = null): array
+    {
+        $model = $this->getSelectedModelMetadata($storeId);
+        $capabilities = is_array($model['capabilities'] ?? null) ? $model['capabilities'] : [];
+        $legacyImageEnabled = $this->modelCapabilityFlag(
+            $model['supports_images'] ?? $model['supportsImages'] ?? null,
+            false
+        );
+
+        return [
+            'image_generation' => $this->modelCapabilityFlag(
+                $capabilities['image_generation'] ?? $capabilities['create_edit_image'] ?? ($legacyImageEnabled ? true : null),
+                true
+            ),
+            'video_generation' => $this->modelCapabilityFlag(
+                $capabilities['video_generation'] ?? $capabilities['create_edit_video'] ?? null,
+                false
+            ),
+            'voice_dictation' => $this->modelCapabilityFlag(
+                $capabilities['voice_dictation'] ?? $capabilities['voice'] ?? null,
+                false
+            ),
+        ];
+    }
+
     /** @return array<int, string> */
     public function getAvailableThoughtLevels(?int $storeId = null): array
     {
@@ -291,6 +317,40 @@ class Config
             }
         }
         return false;
+    }
+
+    private function modelCapabilityFlag(mixed $value, bool $fallback): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_int($value) || is_float($value)) {
+            return (int)$value === 1;
+        }
+        if (is_string($value)) {
+            $normalized = strtolower(trim($value));
+            if (in_array($normalized, ['1', 'true', 'yes', 'on'], true)) {
+                return true;
+            }
+            if (in_array($normalized, ['0', 'false', 'no', 'off'], true)) {
+                return false;
+            }
+        }
+        return $fallback;
+    }
+
+    private function getSelectedModelMaxOutputTokens(?int $storeId = null): ?int
+    {
+        $model = $this->getSelectedModelMetadata($storeId);
+        $configured = array_key_exists('max_output_tokens_configured', $model)
+            ? $this->modelCapabilityFlag($model['max_output_tokens_configured'], false)
+            : isset($model['max_output_tokens']) && trim((string)$model['max_output_tokens']) !== '';
+        if (!$configured || !isset($model['max_output_tokens'])) {
+            return null;
+        }
+
+        $value = (int)$model['max_output_tokens'];
+        return $value >= 256 && $value <= 1000000 ? $value : null;
     }
 
     public function getGroundingModel(?int $storeId = null): string
@@ -438,12 +498,13 @@ class Config
 
     public function getAgentConfig(?int $storeId = null): array
     {
+        $modelMaxOutputTokens = $this->getSelectedModelMaxOutputTokens($storeId);
         return [
             'max_tool_rounds' => max(1, min(12, (int)$this->scopeConfig->getValue(self::XML_PATH_MAX_TOOL_ROUNDS, ScopeInterface::SCOPE_STORE, $storeId))),
             'max_tool_executions' => max(1, min(30, (int)$this->scopeConfig->getValue(self::XML_PATH_MAX_TOOL_EXECUTIONS, ScopeInterface::SCOPE_STORE, $storeId))),
             'max_category_calls' => max(1, min(10, (int)$this->scopeConfig->getValue(self::XML_PATH_MAX_CATEGORY_CALLS, ScopeInterface::SCOPE_STORE, $storeId))),
             'block_duplicate_tool_calls' => $this->scopeConfig->isSetFlag(self::XML_PATH_BLOCK_DUPLICATE_TOOL_CALLS, ScopeInterface::SCOPE_STORE, $storeId),
-            'max_output_tokens' => max(256, min(8192, (int)$this->scopeConfig->getValue(self::XML_PATH_MAX_OUTPUT_TOKENS, ScopeInterface::SCOPE_STORE, $storeId))),
+            'max_output_tokens' => $modelMaxOutputTokens ?? max(256, min(1000000, (int)$this->scopeConfig->getValue(self::XML_PATH_MAX_OUTPUT_TOKENS, ScopeInterface::SCOPE_STORE, $storeId))),
             'max_model_history_messages' => max(4, min(40, (int)$this->scopeConfig->getValue(self::XML_PATH_MAX_MODEL_HISTORY_MESSAGES, ScopeInterface::SCOPE_STORE, $storeId))),
             'max_history_tokens' => max(512, min(64000, (int)$this->scopeConfig->getValue(self::XML_PATH_MAX_HISTORY_TOKENS, ScopeInterface::SCOPE_STORE, $storeId))),
             'max_tool_context_tokens' => max(256, min(24000, (int)$this->scopeConfig->getValue(self::XML_PATH_MAX_TOOL_CONTEXT_TOKENS, ScopeInterface::SCOPE_STORE, $storeId))),
@@ -453,10 +514,12 @@ class Config
 
     public function getImageGenerationConfig(?int $storeId = null): array
     {
+        $model = $this->getSelectedModelMetadata($storeId);
+        $capabilities = $this->getSelectedModelCapabilities($storeId);
         return [
-            'enabled' => $this->scopeConfig->isSetFlag(self::XML_PATH_IMAGE_GENERATION_ENABLED, ScopeInterface::SCOPE_STORE, $storeId),
-            'transport' => trim((string)$this->scopeConfig->getValue(self::XML_PATH_IMAGE_TRANSPORT, ScopeInterface::SCOPE_STORE, $storeId)),
-            'model' => trim((string)$this->scopeConfig->getValue(self::XML_PATH_IMAGE_MODEL, ScopeInterface::SCOPE_STORE, $storeId)),
+            'enabled' => $capabilities['image_generation'],
+            'transport' => trim((string)($model['image_transport'] ?? '')),
+            'model' => trim((string)($model['image_model'] ?? '')),
             'timeout_ms' => max(30000, min(300000, (int)$this->scopeConfig->getValue(self::XML_PATH_IMAGE_TIMEOUT_MS, ScopeInterface::SCOPE_STORE, $storeId))),
             'customer_per_hour' => (int)$this->scopeConfig->getValue(self::XML_PATH_IMAGE_CUSTOMER_PER_HOUR, ScopeInterface::SCOPE_STORE, $storeId),
             'customer_per_day' => (int)$this->scopeConfig->getValue(self::XML_PATH_IMAGE_CUSTOMER_PER_DAY, ScopeInterface::SCOPE_STORE, $storeId),
@@ -521,9 +584,11 @@ class Config
     public function getVoiceConfig(?int $storeId = null): array
     {
         $provider = $this->getProviderCode($storeId);
+        $model = $this->getSelectedModelMetadata($storeId);
+        $capabilities = $this->getSelectedModelCapabilities($storeId);
         return [
-            'enabled' => $this->scopeConfig->isSetFlag(self::XML_PATH_VOICE_ENABLED, ScopeInterface::SCOPE_STORE, $storeId),
-            'transcription_model' => $this->getVoiceTranscriptionModel($storeId),
+            'enabled' => $capabilities['voice_dictation'],
+            'transcription_model' => trim((string)($model['voice_model'] ?? '')),
             'max_duration_seconds' => (int)$this->scopeConfig->getValue(self::XML_PATH_VOICE_MAX_DURATION_SECONDS, ScopeInterface::SCOPE_STORE, $storeId),
             'max_audio_bytes' => (int)$this->scopeConfig->getValue(self::XML_PATH_VOICE_MAX_AUDIO_BYTES, ScopeInterface::SCOPE_STORE, $storeId),
             'requests_per_minute' => (int)$this->scopeConfig->getValue(self::XML_PATH_VOICE_REQUESTS_PER_MINUTE, ScopeInterface::SCOPE_STORE, $storeId),
@@ -533,7 +598,7 @@ class Config
                 // Live Voice additionally requires the per-store live_enabled
                 // kill switch so OpenAI Realtime stays off until it is enabled.
                 'enabled' => $provider === 'openai'
-                    && $this->scopeConfig->isSetFlag(self::XML_PATH_VOICE_ENABLED, ScopeInterface::SCOPE_STORE, $storeId)
+                    && $capabilities['voice_dictation']
                     && $this->scopeConfig->isSetFlag(self::XML_PATH_VOICE_LIVE_ENABLED, ScopeInterface::SCOPE_STORE, $storeId),
                 'api_key' => $provider === 'openai'
                     ? trim((string)$this->scopeConfig->getValue('afd_ai/voice/live_api_key', ScopeInterface::SCOPE_STORE, $storeId))
@@ -603,24 +668,6 @@ class Config
         // Single canonical reader for the coupon-sharing toggle so admin saves,
         // defaults, and CommerceTool enforcement all resolve afd_ai/features/expose_coupon_codes.
         return $this->isCouponSharingAllowed($storeId);
-    }
-
-    private function getVoiceTranscriptionModel(?int $storeId = null): string
-    {
-        $configured = trim((string)$this->scopeConfig->getValue(
-            self::XML_PATH_VOICE_TRANSCRIPTION_MODEL,
-            ScopeInterface::SCOPE_STORE,
-            $storeId
-        ));
-        if ($configured !== '') {
-            return $configured;
-        }
-
-        return trim((string)$this->scopeConfig->getValue(
-            self::XML_PATH_VOICE_GEMINI_MODEL,
-            ScopeInterface::SCOPE_STORE,
-            $storeId
-        ));
     }
 
     /** @return array<int, string> */

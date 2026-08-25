@@ -130,6 +130,55 @@ test('keeps an unavailable provider capability non-blocking for normal chat', as
     assert.match(buildFallbackMessage(), /AI response could not be completed/i);
 });
 
+test('does not mark an image SVG fallback as completed before an image exists', async () => {
+    const frames = [];
+    const flow = createProviderNeutralToolFlow({
+        provider: '9router',
+        ws: { send: frame => frames.push(JSON.parse(frame)) },
+        currentUserMessage: { text: 'Tạo hình ảnh chú chó.' },
+        config: {
+            provider: '9router',
+            api_key: 'test-key',
+            api_format: 'openai-chat-completions',
+            model: 'chat-only',
+            models: [{ id: 'chat-only', capabilities: { image_generation: true } }],
+            image_generation: { enabled: true }
+        }
+    });
+    const presentation = {
+        language: 'vi',
+        runningLabel: 'Đang tạo hình ảnh chú chó',
+        completedLabel: 'Đã hoàn thành tạo hình ảnh chú chó',
+        failedLabel: 'Không thể tạo hình ảnh chú chó',
+        runningSummary: 'Đang xử lý trong {duration}',
+        completedSummary: 'Đã xử lý trong {duration}'
+    };
+
+    const result = await flow.execute({
+        id: 'native-image-attempt',
+        name: 'generateImage',
+        args: { prompt: 'Một chú chó dễ thương', activityPresentation: presentation }
+    });
+
+    assert.equal(result.outcome.content.status, 'svg_fallback_required');
+    assert.deepEqual(
+        frames.filter(frame => frame.type === 'tool_activity').map(frame => [frame.state, frame.label]),
+        [['running', 'Đang tạo hình ảnh chú chó']]
+    );
+
+    // A provider that fails to perform the invisible SVG retry must not leave
+    // a success label behind. A successful retry reuses this action key and
+    // replaces the deferred outcome before this terminal flush.
+    assert.equal(flow.completePendingActivity(), true);
+    assert.deepEqual(
+        frames.filter(frame => frame.type === 'tool_activity').map(frame => [frame.state, frame.label]),
+        [
+            ['running', 'Đang tạo hình ảnh chú chó'],
+            ['failed', 'Không thể tạo hình ảnh chú chó']
+        ]
+    );
+});
+
 test('uses model-localized activity labels without passing presentation metadata to commerce', async () => {
     const frames = [];
     const flow = createProviderNeutralToolFlow({

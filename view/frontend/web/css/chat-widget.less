@@ -84,4 +84,16 @@
         .afd-ai-chat__live-voice-btn { order: 4; }
         .afd-ai-chat__send-btn { order: 5; }
     }
+
+    // The Alpine transcript items are children of `messages-content`, rather
+    // than of the scrolling element itself. Keep this final rule here because
+    // Magento's local LESS cache can otherwise publish an older partial and
+    // make a new shopper message touch a stopped-response row.
+    .afd-ai-chat__messages-content > div + div {
+        margin-top: 1.05rem;
+    }
+
+    .afd-ai-chat[data-ui-density="compact"] .afd-ai-chat__messages-content > div + div {
+        margin-top: 0.7rem;
+    }
 }

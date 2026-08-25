@@ -162,24 +162,46 @@
                         <input type="number" class="zcode-input" id="zcodeSubContextWindow" value="200000" placeholder="200000" required>
                     </div>
 
-                    <!-- Collapsible Advanced Section -->
-                    <div class="zcode-advanced-section">
-                        <button type="button" class="zcode-advanced-toggle-btn" id="zcodeAdvancedToggle">
-                            <svg class="zcode-chevron" id="zcodeAdvancedChevron" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="m9 18 6-6-6-6"/>
-                            </svg>
-                            <span><?= $escaper->escapeHtml(__('Advanced')) ?></span>
-                        </button>
-                        <div class="zcode-advanced-content" id="zcodeAdvancedContent" style="display:none;">
-                            <div class="zcode-form-group" style="margin-top: 10px;">
-                                <label class="zcode-label" for="zcodeSubMaxOutputTokens"><?= $escaper->escapeHtml(__('Max output tokens')) ?></label>
-                                <input type="number" class="zcode-input" id="zcodeSubMaxOutputTokens" placeholder="">
-                            </div>
-                        </div>
+                    <div class="zcode-form-group">
+                        <label class="zcode-label" for="zcodeSubMaxOutputTokens"><?= $escaper->escapeHtml(__('Max output tokens')) ?></label>
+                        <input type="number" class="zcode-input" id="zcodeSubMaxOutputTokens" placeholder="">
                     </div>
+
+                    <fieldset class="zcode-model-capabilities">
+                        <legend class="zcode-label"><?= $escaper->escapeHtml(__('Model capabilities')) ?></legend>
+                        <p class="zcode-model-capabilities__help">
+                            <?= $escaper->escapeHtml(__('Only enabled capabilities are shown to shoppers and allowed by the gateway for this model.')) ?>
+                        </p>
+                        <div class="zcode-model-capabilities__list">
+                            <label class="zcode-capability-toggle" for="zcodeSubCapabilityImage">
+                                <input type="checkbox" id="zcodeSubCapabilityImage" checked>
+                                <span class="zcode-capability-toggle__copy">
+                                    <strong><?= $escaper->escapeHtml(__('Create / Edit Image')) ?></strong>
+                                    <small><?= $escaper->escapeHtml(__('Allow image attachments and image generation.')) ?></small>
+                                </span>
+                            </label>
+                            <label class="zcode-capability-toggle" for="zcodeSubCapabilityVideo">
+                                <input type="checkbox" id="zcodeSubCapabilityVideo">
+                                <span class="zcode-capability-toggle__copy">
+                                    <strong><?= $escaper->escapeHtml(__('Create / Edit Video')) ?></strong>
+                                    <small><?= $escaper->escapeHtml(__('Reserved for a configured video generator.')) ?></small>
+                                </span>
+                            </label>
+                            <label class="zcode-capability-toggle" for="zcodeSubCapabilityVoice">
+                                <input type="checkbox" id="zcodeSubCapabilityVoice">
+                                <span class="zcode-capability-toggle__copy">
+                                    <strong><?= $escaper->escapeHtml(__('Voice')) ?></strong>
+                                    <small><?= $escaper->escapeHtml(__('Allow shoppers to dictate a message.')) ?></small>
+                                </span>
+                            </label>
+                        </div>
+                    </fieldset>
                 </div>
 
                 <div class="zcode-modal-footer">
+                    <button type="button" class="zcode-btn zcode-btn-secondary" id="zcodeBtnCancelModel">
+                        <?= $escaper->escapeHtml(__('Cancel')) ?>
+                    </button>
                     <button type="submit" class="zcode-btn zcode-btn-secondary" id="zcodeBtnSaveModel"><?= $escaper->escapeHtml(__('Save')) ?></button>
                 </div>
             </form>

@@ -370,7 +370,13 @@ export function createProviderNeutralToolFlow({
             emitCustomerToolEvents({ ws, name: toolName, content, options });
             const contentStatus = String(content?.status || '').toLowerCase();
             const blockingToolFailure = isBlockingToolFailure(content);
-            const activityState = blockingToolFailure || ['unavailable', 'rate_limited', 'busy'].includes(contentStatus)
+            // The first phase of SVG fallback has not produced an image. Hold
+            // its failed state until the turn ends so a same-operation retry
+            // can replace it with the real result without ever displaying a
+            // false "completed" action to the shopper.
+            const deferredImageFallback = toolName === 'generateImage'
+                && contentStatus === 'svg_fallback_required';
+            const activityState = blockingToolFailure || deferredImageFallback || ['unavailable', 'rate_limited', 'busy'].includes(contentStatus)
                 ? 'failed'
                 : 'completed';
             const completedPresentation = createToolActivityPresentation({
@@ -379,7 +385,8 @@ export function createProviderNeutralToolFlow({
                 knownCategoryName: knownCategoryNameForArgs(verifiedCategoryNames, normalizedArgs),
                 state: activityState
             });
-            if (activityState === 'completed' && (publishedActivity || completedPresentation.label)) {
+            if ((activityState === 'completed' || deferredImageFallback)
+                && (publishedActivity || completedPresentation.label)) {
                 pendingCompletedActivity = {
                     activityId,
                     continuationKey,
@@ -465,6 +472,13 @@ async function executeTool({
 }) {
     if (name === 'generateImage') {
         const capabilities = getProviderCapabilities(config);
+        if (!capabilities.image_generation.available) {
+            return {
+                status: 'blocked',
+                reason: capabilities.image_generation.reason || 'image_generation_disabled',
+                message: 'Image generation is not enabled for the selected model.'
+            };
+        }
         const hasSvgFallback = typeof args.svg_content === 'string' && args.svg_content.trim() !== '';
         if (!capabilities.image_generation.supported && !hasSvgFallback) {
             const modelUnsupported = capabilities.image_generation.reason === 'model_image_generation_unsupported';

@@ -83,6 +83,13 @@ class ChatWidget extends Template
         return (int)($voice['live']['max_duration_seconds'] ?? 600);
     }
 
+    /** Image input follows the selected model capability, never a global toggle. */
+    public function isImageInputEnabled(): bool
+    {
+        $capabilities = $this->aiConfig->getSelectedModelCapabilities();
+        return (bool)($capabilities['image_generation'] ?? false);
+    }
+
     /** Browser-side preflight limits; no provider or service credential is exposed. */
     public function getAttachmentLimits(): array
     {

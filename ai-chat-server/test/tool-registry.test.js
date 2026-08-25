@@ -45,3 +45,11 @@ test('marks destructive and verified tools explicitly', () => {
     assert.equal(toolPolicy('getGuestOrders').requiresVerification, true);
     assert.equal(toolPolicy('getCustomerAddresses').requiresCustomer, true);
 });
+
+test('does not expose image generation to a model whose image capability is off', () => {
+    const tools = openAiToolDefinitions('openai', {
+        image_generation: { available: false }
+    });
+    assert.equal(tools.some((tool) => tool.function.name === 'generateImage'), false);
+    assert.equal(tools.some((tool) => tool.function.name === 'searchProducts'), true);
+});

@@ -54,6 +54,21 @@ function capability(supported, configured, unavailableReason) {
     });
 }
 
+function selectedModelAllowsImageGeneration(config = {}) {
+    const models = Array.isArray(config.models) ? config.models : [];
+    const selected = models.find((model) => text(model?.id) === text(config.model));
+    if (!selected) return true;
+
+    const capabilities = selected.capabilities && typeof selected.capabilities === 'object'
+        ? selected.capabilities
+        : {};
+    const declared = capabilities.image_generation ?? capabilities.create_edit_image;
+    // Older rows stored supports_images from a global switch. It is not an
+    // explicit per-model decision, therefore only the new contract can opt
+    // the model out of Image.
+    return declared === undefined ? true : enabled(declared, true);
+}
+
 export function normalizeProvider(provider) {
     const normalized = text(provider).toLowerCase();
     return normalized || 'custom';
@@ -96,11 +111,38 @@ export function getProviderCapabilities(config = {}) {
         hasApiKey,
         providerSupported ? 'provider_api_key_missing' : 'provider_unsupported'
     );
-    const imageEnabled = enabled(image.enabled, true);
+    const selectedModelAllowsImages = selectedModelAllowsImageGeneration(config);
+    const imageEnabled = enabled(image.enabled, true) && selectedModelAllowsImages;
     const imageTransport = resolveImageTransport(config);
     const imageModelReady = imageTransport === 'openai-responses' || text(image.model) !== '';
     const voiceEnabled = enabled(voice.enabled, true);
     const liveEnabled = enabled(liveVoice.enabled, false);
+
+    const nativeImageApiSupported = Boolean(profile?.imageGeneration) && imageTransport !== '';
+    // A checked model capability is also usable without a native image API:
+    // the existing generateImage flow requests a safe, self-contained SVG
+    // from the chat model.  Do not hide the feature merely because a custom
+    // provider only exposes its chat endpoint.
+    const imageGenerationAvailable = Boolean(profile?.imageGeneration)
+        && imageEnabled
+        && hasApiKey
+        && (!imageTransport || imageModelReady);
+    const imageGenerationReason = !profile?.imageGeneration
+        ? 'provider_image_generation_unsupported'
+        : !selectedModelAllowsImages
+            ? 'model_image_generation_unsupported'
+            : !imageEnabled
+                ? 'image_generation_disabled'
+                : !hasApiKey
+                    ? 'provider_api_key_missing'
+                    : imageTransport && !imageModelReady
+                        ? 'image_model_missing'
+                        : '';
+    const imageGeneration = Object.freeze({
+        supported: nativeImageApiSupported,
+        available: imageGenerationAvailable,
+        reason: imageGenerationAvailable ? '' : imageGenerationReason
+    });
 
     return Object.freeze({
         contract_version: 1,
@@ -109,21 +151,12 @@ export function getProviderCapabilities(config = {}) {
         chat,
         streaming: capability(providerSupported, hasApiKey, chat.reason),
         commerce_tools: capability(providerSupported, hasApiKey, chat.reason),
-        image_generation: capability(
-            Boolean(profile?.imageGeneration) && imageTransport !== '',
-            Boolean(profile?.imageGeneration) && imageTransport !== '' && imageEnabled && hasApiKey && imageModelReady,
-            !profile?.imageGeneration
-                ? 'provider_image_generation_unsupported'
-                : !imageTransport
-                    ? 'model_image_generation_unsupported'
-                : !imageEnabled
-                    ? 'image_generation_disabled'
-                : !hasApiKey
-                    ? 'provider_api_key_missing'
-                    : !imageModelReady
-                        ? 'image_model_missing'
-                    : 'image_model_missing'
-        ),
+        image_generation: imageGeneration,
+        // The model editor already records the future-facing video flag, but
+        // there is no video transport/tool implementation yet. Never expose a
+        // non-functional customer control merely because a model was prepared
+        // for that later capability.
+        video_generation: capability(false, false, 'video_generation_not_implemented'),
         voice_dictation: capability(
             Boolean(profile?.voiceDictation),
             voiceEnabled && hasApiKey && text(voice.transcription_model) !== '',

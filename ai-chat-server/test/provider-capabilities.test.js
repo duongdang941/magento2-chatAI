@@ -22,6 +22,8 @@ test('reports only the configured Gemini capabilities without exposing credentia
     assert.equal(capabilities.voice_dictation.available, true);
     assert.equal(capabilities.native_web_grounding.available, true);
     assert.equal(capabilities.live_voice.supported, false);
+    assert.equal(capabilities.video_generation.available, false);
+    assert.equal(capabilities.video_generation.reason, 'video_generation_not_implemented');
     assert.equal(JSON.stringify(capabilities).includes('secret-that-must-not-be-in-the-result'), false);
 });
 
@@ -80,11 +82,32 @@ test('does not advertise images for a custom chat-only provider model', () => {
         api_format: 'anthropic-messages',
         api_key: 'provider-key',
         model: 'ag/gemini-3.6-flash-high',
-        models: [{ id: 'ag/gemini-3.6-flash-high', supports_images: false }],
+        models: [{
+            id: 'ag/gemini-3.6-flash-high',
+            capabilities: { image_generation: false }
+        }],
         image_generation: { enabled: true, model: 'gemini-3.1-flash-image' }
     });
 
     assert.equal(capabilities.image_generation.supported, false);
     assert.equal(capabilities.image_generation.available, false);
     assert.equal(capabilities.image_generation.reason, 'model_image_generation_unsupported');
+});
+
+test('keeps checked image capability available through the safe SVG fallback when a custom model has no Image API', () => {
+    const capabilities = getProviderCapabilities({
+        provider: 'custom-openai',
+        api_format: 'openai-chat-completions',
+        api_key: 'provider-key',
+        model: 'chat-only-image-model',
+        models: [{
+            id: 'chat-only-image-model',
+            capabilities: { image_generation: true }
+        }],
+        image_generation: { enabled: true }
+    });
+
+    assert.equal(capabilities.image_generation.supported, false);
+    assert.equal(capabilities.image_generation.available, true);
+    assert.equal(capabilities.image_generation.reason, '');
 });

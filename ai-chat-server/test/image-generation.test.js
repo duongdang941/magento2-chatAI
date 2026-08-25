@@ -95,7 +95,10 @@ test('refuses an Anthropic-compatible tunnel unless the selected model declares 
         base_url: 'https://provider.example/v1',
         api_format: 'anthropic-messages',
         model: 'ag/gemini-3.6-flash-high',
-        models: [{ id: 'ag/gemini-3.6-flash-high', supports_images: false }],
+        models: [{
+            id: 'ag/gemini-3.6-flash-high',
+            capabilities: { image_generation: false }
+        }],
         image_generation: { enabled: true }
 }), /does not have a configured image-generation API/);
 });
@@ -152,7 +155,10 @@ test('creates a safe SVG fallback with a chat-only model and emits the normal im
             config: {
                 provider: 'gemini-tunnel',
                 api_key: 'chat-key',
-                models: [{ id: 'ag/gemini-3.6-flash-high', supports_images: false }],
+                models: [{
+                    id: 'ag/gemini-3.6-flash-high',
+                    capabilities: { image_generation: false }
+                }],
                 model: 'ag/gemini-3.6-flash-high',
                 image_generation: { enabled: true, minimum_display_ms: 0 }
             },
