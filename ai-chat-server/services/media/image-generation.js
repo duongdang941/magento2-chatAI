@@ -5,8 +5,6 @@ import { getProviderCapabilities } from '../providers/provider-capabilities.js';
 import { imageTransportLabel, resolveImageTransport } from './image-transport.js';
 import { sanitizeGeneratedSvg } from './svg-generation.js';
 
-const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
-const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image';
 const DEFAULT_IMAGE_SIZE = '1024x1024';
 const DEFAULT_IMAGE_QUALITY = 'medium';
 const DEFAULT_MAX_IMAGE_BYTES = 12 * 1024 * 1024;
@@ -408,3 +406,5 @@ function extractResponsesImage(payload) {
     const image = output.find((item) => item?.type === 'image_generation_call' && item?.result);
     return image ? { b64_json: image.result, revised_prompt: image.revised_prompt || '' } : null;
 }
+const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
+const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image';

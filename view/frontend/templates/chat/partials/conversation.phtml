@@ -152,20 +152,13 @@
                                                                     <div class="afd-ai-chat__reasoning-timeline">
                                                                         <template x-for="(event, eventIndex) in reasoningTimeline(part)" :key="event.id || (event.type + '-' + eventIndex)">
                                                                             <div class="afd-ai-chat__reasoning-timeline-item">
-                                                                                <template x-if="isProviderReasoningStep(event)">
-                                                                                    <div class="afd-ai-chat__reasoning-step-message"
-                                                                                         x-html="renderStreamingMarkdown(event.content)"></div>
-                                                                                </template>
-                                                                                <template x-if="event.type === 'activity'">
+                                                                                <template x-if="event.type === 'activity' && toolActivityLabel(event)">
                                                                                     <div class="afd-ai-chat__tool-activity"
                                                                                          :class="'afd-ai-chat__tool-activity--' + event.state">
                                                                                         <span class="material-symbols-outlined afd-ai-chat__tool-activity-icon" aria-hidden="true" x-text="toolActivityIcon(event)"></span>
                                                                                         <span class="afd-ai-chat__tool-activity-label"
                                                                                               :class="{ 'afd-ai-chat__shimmer-text': event.isCurrentAction === true && isReasoningLive(part, index) }"
                                                                                               x-text="toolActivityLabel(event)"></span>
-                                                                                        <span class="afd-ai-chat__tool-activity-timer"
-                                                                                              x-show="activityDurationLabel(event)"
-                                                                                              x-text="activityDurationLabel(event)"></span>
                                                                                         <span class="material-symbols-outlined afd-ai-chat__tool-activity-state" x-show="event.state === 'failed'" aria-hidden="true">error</span>
                                                                                     </div>
                                                                                 </template>
@@ -941,9 +934,7 @@
                              are mounted in the assistant bubble immediately. -->
                         <div x-show="isLoading
                             && !isHistoryLoading
-                            && currentAiMessageIndex === -1
-                            && (!thinkingEvents || !thinkingEvents.some(event => event && event.type === 'activity'))
-                            && toolActivities.length === 0"
+                            && currentAiMessageIndex === -1"
                              class="afd-ai-chat__msg-ai afd-ai-chat__msg-ai--thinking"
                              x-transition.opacity.duration.150ms>
                             <div class="afd-ai-chat__msg-content">
@@ -960,7 +951,7 @@
                                     <div class="afd-ai-chat__thinking-live-timeline" x-show="(thinkingEvents && thinkingEvents.some(event => event && event.type === 'activity')) || toolActivities.length > 0">
                                         <template x-for="event in (thinkingEvents || []).filter(event => event && event.type === 'activity')" :key="event.id">
                                             <div class="afd-ai-chat__thinking-timeline-item">
-                                                <template x-if="event.type === 'activity'">
+                                                <template x-if="event.type === 'activity' && toolActivityLabel(event)">
                                                     <div class="afd-ai-chat__tool-activity"
                                                          :class="'afd-ai-chat__tool-activity--' + event.state">
                                                         <span class="material-symbols-outlined afd-ai-chat__tool-activity-icon"
@@ -969,9 +960,6 @@
                                                         <span class="afd-ai-chat__tool-activity-label"
                                                               :class="{ 'afd-ai-chat__shimmer-text': event.isCurrentAction === true && isLoading }"
                                                               x-text="toolActivityLabel(event)"></span>
-                                                        <span class="afd-ai-chat__tool-activity-timer"
-                                                              x-show="activityDurationLabel(event)"
-                                                              x-text="activityDurationLabel(event)"></span>
                                                         <span class="material-symbols-outlined afd-ai-chat__tool-activity-state"
                                                               x-show="event.state === 'failed'"
                                                               aria-hidden="true">error</span>

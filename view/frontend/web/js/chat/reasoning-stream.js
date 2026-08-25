@@ -66,12 +66,10 @@
             },
 
             isProviderReasoningStep(event) {
-                const source = String(event?.source || '');
-                const isRestoredProviderStep = source === ''
-                    && String(event?.id || '').startsWith('provider-reasoning-')
-                    && String(event?.content || '').trim() !== '';
-                return event?.type === 'step'
-                    && (source === 'provider_reasoning' || isRestoredProviderStep);
+                // Provider chain-of-thought is never a storefront event. Older
+                // persisted messages may still contain it, so filtering here
+                // prevents a history reload from exposing it again.
+                return false;
             },
 
             isVisibleReasoningEvent(event) {
@@ -80,24 +78,8 @@
             },
 
             appendProviderReasoningDelta(data) {
-                if (data?.visibility !== 'public') return;
-                const delta = String(data.delta ?? data.content ?? '');
-                if (!delta) return;
-                if (!Array.isArray(this.thinkingEvents)) this.thinkingEvents = [];
-
-                const stepId = String(data.step_id || 'default').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80) || 'default';
-                const id = `provider-reasoning-${stepId}`;
-                const index = this.thinkingEvents.findIndex(event => event?.id === id);
-                const previous = index === -1 ? null : this.thinkingEvents[index];
-                const next = {
-                    id,
-                    type: 'step',
-                    source: 'provider_reasoning',
-                    content: `${String(previous?.content || '')}${delta}`.slice(0, 16000),
-                    state: 'running'
-                };
-                if (index === -1) this.thinkingEvents.push(next);
-                else this.thinkingEvents.splice(index, 1, next);
+                // Intentionally ignored. Verified tool actions below provide
+                // the concise Codex-style progress that a shopper can trust.
             },
 
             discardProviderReasoningStep(data) {
@@ -110,8 +92,7 @@
 
             syncLiveReasoningPart() {
                 const events = (Array.isArray(this.thinkingEvents) ? this.thinkingEvents : [])
-                    .filter(event => event?.type === 'activity'
-                        || this.isVisibleReasoningEvent(event));
+                    .filter(event => event?.type === 'activity');
                 const activities = Array.isArray(this.toolActivities) ? this.toolActivities : [];
                 const hasReasoning = events.length > 0 || activities.length > 0;
                 let message = this.currentAiMessageIndex >= 0
@@ -205,7 +186,11 @@
             reasoningTitle(part, index = null) {
                 if (!part) return this.t('thought_process');
                 if (part.elapsedMs != null) {
-                    return this.t('thought_for', { 1: this.formatElapsedMs(part.elapsedMs, { underOneSecond: 'zero' }) });
+                    const elapsed = this.formatElapsedMs(part.elapsedMs);
+                    // A zero-second duration is timing noise, not useful work.
+                    return elapsed
+                        ? this.t('thought_for', { 1: elapsed })
+                        : (this.reasoningSummary(part) || this.t('thought_process'));
                 }
                 if (this.isReasoningLive(part, index)) {
                     return this.t('thinking');
@@ -234,47 +219,29 @@
             },
 
             reasoningSteps(part) {
-                if (!part) return [];
-                const events = Array.isArray(part.events) ? part.events : [];
-                return events.filter(event => this.isProviderReasoningStep(event));
+                return [];
             },
 
             reasoningTimeline(part) {
                 if (!part) return [];
                 const events = Array.isArray(part.events) ? part.events : [];
-                if (events.length > 0) {
-                    return events.filter(event => event?.type === 'activity'
-                        || this.isVisibleReasoningEvent(event));
-                }
-                const steps = (Array.isArray(part.steps) ? part.steps : [])
-                    .filter(step => this.isProviderReasoningStep(step))
-                    .map(step => ({ ...step, type: 'step' }));
+                if (events.length > 0) return events.filter(event => event?.type === 'activity');
                 const activities = (Array.isArray(part.activities) ? part.activities : [])
                     .map(activity => ({ ...activity, type: 'activity' }));
-                return [...steps, ...activities];
-            },
-
-            activityElapsedMs(activity) {
-                if (!activity || activity.state === 'running') {
-                    const startedAt = Number(activity?.startedAt) || 0;
-                    if (!startedAt) return null;
-                    return Math.max(0, (activity.state === 'running' ? this.streamNow : Date.now()) - startedAt);
-                }
-                const startedAt = Number(activity.startedAt) || 0;
-                const completedAt = Number(activity.completedAt) || 0;
-                if (!startedAt || !completedAt || completedAt < startedAt) return null;
-                return completedAt - startedAt;
+                return activities;
             },
 
             activityDurationLabel(activity) {
-                if (!activity || activity.state !== 'running') return '';
-                const elapsed = this.activityElapsedMs(activity);
-                if (elapsed === null) return '';
-                return this.formatElapsedMs(elapsed);
+                // The action itself explains the work. A live duration adds
+                // visual noise and makes a delayed Magento request look like
+                // a broken customer-facing status.
+                return '';
             },
 
             activitySummaryLabel(part) {
                 const activities = this.reasoningActivities(part);
+                const latest = activities.slice(-1)[0];
+                if (latest) return this.toolActivityLabel(latest);
                 const count = activities.length;
                 if (count <= 1) return this.t('actions_checked_1');
                 return this.t('actions_checked', { 1: count });
@@ -292,8 +259,43 @@
             },
 
             workedForLabel(message) {
-                const elapsedMs = Number(message?.workedForMs) || 0;
-                return this.t('worked_for', { 1: this.formatElapsedMs(elapsedMs, { underOneSecond: 'zero' }) });
+                const elapsed = this.formatElapsedMs(Math.max(
+                    0,
+                    Number(message?.workedForMs) || 0,
+                    Number(message?.worked_for_ms) || 0
+                ));
+                return elapsed ? this.t('worked_for', { 1: elapsed }) : '';
+            },
+
+            turnWorkSummary(part) {
+                const activities = this.reasoningActivities(part);
+                const latest = activities.slice(-1)[0];
+                const summary = String(latest?.turn_summary || '').replace(/\s+/g, ' ').trim();
+                // The gateway validates this model-provided template and
+                // binds it to the shopper language. The browser only expands
+                // the duration token; it never supplies a hard-coded language
+                // for a current, localized action.
+                return summary.length >= 12
+                    && summary.length <= 120
+                    && (summary.match(/\{duration\}/g) || []).length === 1
+                    && !/[<>`]/.test(summary)
+                    && !/(?:https?:\/\/|www\.)/i.test(summary)
+                    ? summary
+                    : '';
+            },
+
+            turnWorkLabel(part, elapsedMs = 0, isLive = false) {
+                const elapsed = this.formatElapsedMs(elapsedMs);
+                // This row represents the whole assistant turn, never one
+                // individual tool action. The action labels belong exclusively
+                // in the expanded timeline below it.
+                const localizedSummary = this.turnWorkSummary(part);
+                if (elapsed && localizedSummary) {
+                    return localizedSummary.replace('{duration}', elapsed);
+                }
+                return elapsed
+                    ? this.t(isLive ? 'working_for' : 'worked_for', { 1: elapsed })
+                    : this.t(isLive ? 'working' : 'actions_checked_1');
             },
 
             turnDividerLabel(msg, index = null) {
@@ -302,11 +304,22 @@
                     && index !== null
                     && index === this.currentAiMessageIndex;
                 if (isLiveTurn) {
+                    const liveReasoning = this.currentLiveReasoningPart();
                     const startedAt = Number(this.responseStartedAt) || 0;
                     if (!startedAt) return '';
-                    const elapsedMs = Math.max(0, this.streamNow - startedAt);
-                    if (elapsedMs < 1000) return this.t('working');
-                    return this.t('working_for', { 1: this.formatElapsedMs(elapsedMs) });
+                    const now = Number(this.streamNow) || Date.now();
+                    return this.turnWorkLabel(liveReasoning, Math.max(0, now - startedAt), true);
+                }
+                const reasoning = (Array.isArray(msg.parts) ? msg.parts : [])
+                    .find(part => part?.type === 'reasoning');
+                if (reasoning) {
+                    const elapsedMs = Math.max(
+                        0,
+                        Number(msg.workedForMs) || 0,
+                        Number(msg.worked_for_ms) || 0,
+                        Number(reasoning.elapsedMs) || 0
+                    );
+                    return this.turnWorkLabel(reasoning, elapsedMs, false);
                 }
                 return this.workedForLabel(msg);
             },

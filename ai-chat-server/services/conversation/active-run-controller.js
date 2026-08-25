@@ -26,15 +26,18 @@ export function createActiveRunController({ isSocketOpen }) {
         ws.send(JSON.stringify({
             type: 'cancelled',
             request_id: run.requestId,
-            ...interruptedResponseMetadata(run.startedAt)
+            ...interruptedResponseMetadata(run.startedAt, Date.now(), run.interruptionReason)
         }));
     }
 
-    function cancelActiveRun(ws, requestId = null) {
+    function cancelActiveRun(ws, requestId = null, interruptionReason = 'user_stop') {
         const run = activeRuns.get(ws);
         if (!run || (requestId && run.requestId !== requestId)) return false;
 
         run.cancelled = true;
+        run.interruptionReason = interruptionReason === 'connection_lost'
+            ? 'connection_lost'
+            : 'user_stop';
         if (!run.controller.signal.aborted) run.controller.abort();
         notifyCancelled(ws, run);
         return true;
@@ -47,6 +50,7 @@ export function createActiveRunController({ isSocketOpen }) {
             controller: new AbortController(),
             cancelled: false,
             cancelNotified: false,
+            interruptionReason: '',
             startedAt: Date.now()
         };
         activeRuns.set(ws, run);

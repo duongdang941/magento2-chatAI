@@ -434,18 +434,33 @@
         return String(text || '').replace(/\[([^\]]+)\]\s+\((https?:\/\/[^\s)]+)\)/g, '[$1]($2)');
     }
 
+    // Fail-closed rendering: when no HTML sanitizer is available (or the
+    // sanitizer itself fails), never emit parser output. The escaped source
+    // keeps every character visible as unformatted text instead.
+    function escapedPlainTextFallback(text) {
+        return escapeHtml(String(text || '')).replace(/\r?\n/g, '<br>');
+    }
+
+    function isDomPurifyAvailable() {
+        const purify = getDomPurify();
+        return !!(purify && typeof purify.sanitize === 'function');
+    }
+
     function sanitizeHtml(rawText) {
         try {
             const customerText = sanitizeCustomerResponseText(rawText);
             const normalizedText = normalizeMalformedMarkdownLinks(customerText);
             let html = renderMarkdownWithParser(normalizedText);
-            const purify = getDomPurify();
-            if (purify && typeof purify.sanitize === 'function') {
-                try {
-                    html = purify.sanitize(html, {
-                        ADD_ATTR: ['data-code-copy', 'data-code-language']
-                    });
-                } catch (e) { }
+            if (!isDomPurifyAvailable()) {
+                return escapedPlainTextFallback(normalizedText);
+            }
+            try {
+                html = getDomPurify().sanitize(html, {
+                    ADD_ATTR: ['data-code-copy', 'data-code-language']
+                });
+            } catch (e) {
+                console.error('[AFD-AI-CHAT] HTML sanitization failed; rendering plain text instead.', e);
+                return escapedPlainTextFallback(normalizedText);
             }
             return enhanceMarkdownCodeBlocks(enhanceMarkdownLinks(enhanceBareTextLinks(html)));
         } catch (error) {
@@ -542,10 +557,12 @@
         let html;
         try {
             const customerText = sanitizeCustomerResponseText(source);
-            html = renderMarkdownWithParser(normalizeMarkdownWhitespace(customerText));
-            const purify = getDomPurify();
-            if (purify && typeof purify.sanitize === 'function') {
-                html = purify.sanitize(html, {
+            const cleanText = normalizeMarkdownWhitespace(customerText);
+            html = renderMarkdownWithParser(cleanText);
+            if (!isDomPurifyAvailable()) {
+                html = escapedPlainTextFallback(cleanText);
+            } else {
+                html = getDomPurify().sanitize(html, {
                     ADD_ATTR: ['data-code-copy', 'data-code-language']
                 });
             }

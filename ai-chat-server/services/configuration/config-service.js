@@ -27,51 +27,6 @@ const TENANT_ID_PATTERN = /^[a-f0-9]{64}$/i;
 let cachedConfig = null;
 const STORE_CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
-function defaultModelForProvider(provider) {
-    switch (provider) {
-        case 'openai':
-            return 'gpt-4o-mini';
-        case 'openrouter':
-            return 'google/gemini-flash-1.5';
-        case '9router':
-            return 'cx/gpt-5.5';
-        case 'cockpit':
-            return process.env.COCKPIT_MODEL || 'gpt-5.6-luna';
-        case 'gemini':
-        default:
-            return 'gemini-3.1-flash-lite';
-    }
-}
-
-function configuredBaseUrlForProvider(provider, configuredBaseUrl = '') {
-    switch (provider) {
-        case '9router':
-            return configuredBaseUrl || process.env.NINE_ROUTER_BASE_URL || 'https://raud4eq.9router.com/v1';
-        case 'cockpit':
-            return configuredBaseUrl || process.env.COCKPIT_BASE_URL || 'http://127.0.0.1:49998/v1';
-        case 'gemini':
-            return configuredBaseUrl || process.env.GEMINI_ENDPOINT || '';
-        default:
-            return configuredBaseUrl || '';
-    }
-}
-
-function getProviderApiKey(provider) {
-    switch (provider) {
-        case 'openai':
-            return process.env.OPENAI_API_KEY || '';
-        case 'openrouter':
-            return process.env.OPENROUTER_API_KEY || '';
-        case '9router':
-            return process.env.NINE_ROUTER_API_KEY || '';
-        case 'cockpit':
-            return process.env.COCKPIT_API_KEY || '';
-        case 'gemini':
-        default:
-            return process.env.GEMINI_API_KEY || '';
-    }
-}
-
 function readString(value, fallback = '') {
     return typeof value === 'string' ? value.trim() : fallback;
 }
@@ -339,14 +294,13 @@ function resolveThoughtLevel(value, models, selectedModel) {
 
 export function normalizeConfig(config = {}) {
     const providers = normalizeProviderRegistry(config.providers);
-    const requestedProvider = readString(config.provider, process.env.AI_PROVIDER || 'custom');
-    const provider = requestedProvider || 'custom';
+    const provider = readString(config.provider);
     const selectedProvider = providers[provider] || null;
     const selectedConfig = selectedProvider ? { ...config, ...selectedProvider, provider } : config;
-    const configuredApiKey = readString(selectedConfig.api_key) || getProviderApiKey(provider);
+    const configuredApiKey = readString(selectedConfig.api_key);
 
-    const model = readString(selectedConfig.model, selectedProvider?.models?.[0]?.id || defaultModelForProvider(provider));
-    const models = selectedProvider?.models || [];
+    const models = selectedProvider?.models || normalizeProviderModels(selectedConfig.models);
+    const model = readString(selectedConfig.model, models[0]?.id || '');
     const thoughtLevel = resolveThoughtLevel(selectedConfig.thought_level, models, model);
     const selectedModel = models.find((entry) => entry?.id === model) || null;
     const normalized = {
@@ -361,10 +315,8 @@ export function normalizeConfig(config = {}) {
         models,
         thought_level: thoughtLevel,
         providers,
-        base_url: configuredBaseUrlForProvider(provider, readString(selectedConfig.base_url)),
-        grounding_model: provider === 'gemini'
-            ? readString(selectedConfig.grounding_model, process.env.GEMINI_MODEL_GROUNDING || model)
-            : '',
+        base_url: readString(selectedConfig.base_url).replace(/\/+$/, ''),
+        grounding_model: readString(selectedConfig.grounding_model),
         // Magento is the source of truth for the storefront URL.  The
         // environment value remains only as a backwards-compatible local
         // bootstrap when no Admin snapshot has been synchronized yet.
@@ -372,7 +324,7 @@ export function normalizeConfig(config = {}) {
         agent: normalizeAgent(selectedConfig.agent),
         image_generation: normalizeImageGeneration(selectedConfig.image_generation, provider, selectedModel, {
             api_format: readString(selectedConfig.api_format, selectedProvider?.api_format || ''),
-            base_url: configuredBaseUrlForProvider(provider, readString(selectedConfig.base_url)),
+            base_url: readString(selectedConfig.base_url).replace(/\/+$/, ''),
             models,
             model
         }),

@@ -6,7 +6,6 @@ const CONFIG_SYNC_TTL_MS = 5 * 60 * 1000;
 const HEALTH_CACHE_TTL_MS = 5000;
 const SUPPORT_EVENT_TTL_MS = 5 * 60 * 1000;
 const GATEWAY_PUBLIC_PREFIX = '/ai-gateway';
-const BUILTIN_PROVIDER_CODES = new Set(['openai', 'openrouter', '9router', 'cockpit', 'gemini']);
 
 function normalizedRequestPath(req) {
     const rawPath = String(req.originalUrl || req.url || req.path || '/');
@@ -60,7 +59,7 @@ export function validateSyncProviderPayload(payload) {
         ? defaultConfig.providers
         : {};
     const entry = registry[syncCode];
-    if (!entry && !BUILTIN_PROVIDER_CODES.has(syncCode)) {
+    if (!entry) {
         const error = new Error('The synchronized provider is not present in the Magento provider registry.');
         error.status = 409;
         error.code = 'CONFIG_PROVIDER_NOT_REGISTERED';

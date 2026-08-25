@@ -40,10 +40,10 @@ class Get extends Action implements HttpGetActionInterface
                     "name" => $provider->getName(),
                     "provider_code" => $provider->getProviderCode(),
                     "base_url" => $provider->getBaseUrl(),
-                    // Never return a reusable provider credential to browser
-                    // JavaScript. An empty value means "keep the stored key"
-                    // when the administrator saves the edit form.
-                    "api_key" => "",
+                    // Provider management is an explicitly authorized Admin
+                    // surface. Return the stored key here so an administrator
+                    // can review and edit it in the provider modal.
+                    "api_key" => $decryptedKey,
                     "api_key_configured" => $decryptedKey !== '',
                     "api_format" => $provider->getApiFormat(),
                     "models" => $this->jsonSafeValue($provider->getModelsList()),

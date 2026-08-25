@@ -116,4 +116,43 @@ class ChatMessagePayloadTest extends TestCase
         self::assertSame('provider_reasoning', $decoded['parts'][0]['events'][0]['source']);
         self::assertSame('**Analyzing** the request.', $decoded['parts'][0]['events'][0]['content']);
     }
+
+    public function testReasoningPresentationAndTotalDurationSurviveHistoryPayloadRoundTrip(): void
+    {
+        $storeManager = $this->createMock(StoreManagerInterface::class);
+        $payload = new ChatMessagePayload(
+            new ProductPayloadNormalizer(
+                $this->createMock(ProductRendererInterface::class),
+                $this->createMock(UrlFinderInterface::class),
+                $storeManager
+            ),
+            new OrderAddressNormalizer(),
+            $storeManager
+        );
+
+        $encoded = $payload->encodeAssistantParts([[
+            'type' => 'reasoning',
+            'events' => [[
+                'id' => 'catalog-search',
+                'type' => 'activity',
+                'tool' => 'searchProducts',
+                'state' => 'completed',
+                'label' => 'Đã tìm kiếm sản phẩm trong danh mục Textilien',
+                'language' => 'fr-CA',
+                'turn_summary' => 'Traitement terminé en {duration}'
+            ]]
+        ]], ['worked_for_ms' => 12345]);
+        $decoded = $payload->decodeStoredMessage('assistant', $encoded, 'message-5');
+
+        self::assertSame(12345, $decoded['worked_for_ms']);
+        self::assertSame(
+            'Đã tìm kiếm sản phẩm trong danh mục Textilien',
+            $decoded['parts'][0]['activities'][0]['label']
+        );
+        self::assertSame('fr-CA', $decoded['parts'][0]['activities'][0]['language']);
+        self::assertSame(
+            'Traitement terminé en {duration}',
+            $decoded['parts'][0]['activities'][0]['turn_summary']
+        );
+    }
 }

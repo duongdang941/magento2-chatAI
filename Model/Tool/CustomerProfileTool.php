@@ -8,6 +8,7 @@ use Magento\Authorization\Model\UserContextInterface;
 use Magento\Customer\Api\CustomerRepositoryInterface;
 use Magento\Customer\Model\Session as CustomerSession;
 use Magento\Sales\Model\ResourceModel\Order\CollectionFactory as OrderCollectionFactory;
+use Psr\Log\LoggerInterface;
 
 /** Returns customer-scoped data only for the authenticated Magento customer. */
 class CustomerProfileTool
@@ -17,19 +18,22 @@ class CustomerProfileTool
     private OrderCollectionFactory $orderCollectionFactory;
     private UserContextInterface $userContext;
     private CustomerRepositoryInterface $customerRepository;
+    private LoggerInterface $logger;
 
     public function __construct(
         ToolResponseFactory $toolResponseFactory,
         CustomerSession $customerSession,
         OrderCollectionFactory $orderCollectionFactory,
         UserContextInterface $userContext,
-        CustomerRepositoryInterface $customerRepository
+        CustomerRepositoryInterface $customerRepository,
+        LoggerInterface $logger
     ) {
         $this->toolResponseFactory = $toolResponseFactory;
         $this->customerSession = $customerSession;
         $this->orderCollectionFactory = $orderCollectionFactory;
         $this->userContext = $userContext;
         $this->customerRepository = $customerRepository;
+        $this->logger = $logger;
     }
 
 
@@ -85,9 +89,10 @@ class CustomerProfileTool
                 ];
             }
         } catch (\Exception $e) {
+            $this->logger->error('Afd AI could not load customer information.', ['exception' => $e]);
             $result = [
                 'status' => 'ERROR',
-                'message' => $e->getMessage()
+                'message' => __('Your customer information could not be loaded right now. Please try again later.')->render()
             ];
         }
 
@@ -134,9 +139,10 @@ class CustomerProfileTool
                 ];
             }
         } catch (\Exception $e) {
+            $this->logger->error('Afd AI could not load recent orders.', ['exception' => $e]);
             $result = [
                 'status' => 'ERROR',
-                'message' => $e->getMessage()
+                'message' => __('Your recent orders could not be loaded right now. Please try again later.')->render()
             ];
         }
 
@@ -182,9 +188,10 @@ class CustomerProfileTool
                 ];
             }
         } catch (\Exception $e) {
+            $this->logger->error('Afd AI could not load customer addresses.', ['exception' => $e]);
             $result = [
                 'status' => 'ERROR',
-                'message' => $e->getMessage()
+                'message' => __('Your addresses could not be loaded right now. Please try again later.')->render()
             ];
         }
 

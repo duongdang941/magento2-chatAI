@@ -62,6 +62,48 @@ test('normalizes stored structured responses without leaking internal text', () 
     assert.equal(normalized.parts[0].id, '9-0');
 });
 
+test('preserves a zero-token interrupted assistant row for reload recovery', () => {
+    const stored = codec.buildAssistantStoragePayload([], {
+        interrupted: true,
+        stopped_after_seconds: 0,
+        interruption_reason: 'connection_lost'
+    });
+    const payload = JSON.parse(stored);
+    assert.deepEqual(payload.parts, []);
+    assert.equal(payload.text, '');
+    assert.equal(payload.interruption_reason, 'connection_lost');
+
+    const restored = codec.normalizeStoredAssistantMessage({
+        entity_id: 31,
+        role: 'assistant',
+        content: stored
+    });
+    assert.equal(restored.interrupted, true);
+    assert.equal(restored.interruption_reason, 'connection_lost');
+    assert.equal(restored.content, '');
+    assert.deepEqual(restored.parts, []);
+});
+
+test('keeps a zero-token interrupted guest response in session history for recovery', () => {
+    const restored = codec.guestHistoryMessagesFromClient([{
+        role: 'assistant',
+        content: '',
+        interrupted: true,
+        stopped_after_seconds: 0,
+        interruption_reason: 'connection_lost',
+        parts: []
+    }]);
+
+    assert.deepEqual(restored, [{
+        role: 'assistant',
+        content: '',
+        interrupted: true,
+        stopped_after_seconds: 0,
+        interruption_reason: 'connection_lost',
+        parts: []
+    }]);
+});
+
 test('preserves safe message and feedback metadata required by the storefront', () => {
     const normalized = codec.normalizeStoredAssistantMessage({
         entity_id: 27,
@@ -127,7 +169,11 @@ test('persists customer-safe tool progress and activity for the completed-turn t
         {
             type: 'reasoning',
             events: [
-                { id: 'availability', type: 'activity', tool: 'getProductAvailability', state: 'completed', result_count: 1 },
+                {
+                    id: 'availability', type: 'activity', tool: 'getProductAvailability', state: 'completed', result_count: 1,
+                    label: 'Disponibilidad del producto comprobada', language: 'es-MX',
+                    turn_summary: 'Trabajo completado en {duration}'
+                },
                 {
                     id: 'progress-availability',
                     type: 'step',
@@ -138,7 +184,9 @@ test('persists customer-safe tool progress and activity for the completed-turn t
             ]
         },
         { type: 'text', raw: 'There are 35 items available.' }
-    ]));
+    ], { worked_for_ms: 12_345 }));
+
+    assert.equal(stored.worked_for_ms, 12_345);
 
     const reasoning = stored.parts.find((part) => part.type === 'reasoning');
     assert.equal(reasoning.events.length, 2);
@@ -147,7 +195,10 @@ test('persists customer-safe tool progress and activity for the completed-turn t
         type: 'activity',
         tool: 'getProductAvailability',
         state: 'completed',
-        result_count: 1
+        result_count: 1,
+        label: 'Disponibilidad del producto comprobada',
+        language: 'es-MX',
+        turn_summary: 'Trabajo completado en {duration}'
     });
     assert.deepEqual(reasoning.steps[0], {
         id: 'progress-availability',
@@ -164,6 +215,10 @@ test('persists customer-safe tool progress and activity for the completed-turn t
     });
     assert.equal(restored.parts[0].type, 'reasoning');
     assert.equal(restored.parts[0].activities[0].tool, 'getProductAvailability');
+    assert.equal(restored.parts[0].activities[0].label, 'Disponibilidad del producto comprobada');
+    assert.equal(restored.parts[0].activities[0].language, 'es-MX');
+    assert.equal(restored.parts[0].activities[0].turn_summary, 'Trabajo completado en {duration}');
+    assert.equal(restored.workedForMs, 12_345);
     assert.equal(restored.parts[0].steps[0].source, 'tool_progress');
 });
 

@@ -284,7 +284,25 @@ class ProductAvailabilityTool
         $actual = mb_strtolower(trim($actual));
         $requested = mb_strtolower(trim($requested));
 
-        return $actual !== '' && $requested !== '' && ($actual === $requested || str_contains($actual, $requested));
+        if ($actual === '' || $requested === '') {
+            return false;
+        }
+
+        if ($actual === $requested) {
+            return true;
+        }
+
+        // A short requested label must match exactly: 's' would otherwise
+        // also match 'xs' and 'm' would match 'medium'. Longer labels may
+        // appear inside a composed value, but only on a word boundary so
+        // 'red' still matches 'dark red' without matching 'bordered'.
+        if (mb_strlen($requested) < 3) {
+            return false;
+        }
+
+        $pattern = '~(?<!\w)' . preg_quote($requested, '~') . '(?!\w)~u';
+
+        return preg_match($pattern, $actual) === 1;
     }
 
     /** @return array<string, string> */

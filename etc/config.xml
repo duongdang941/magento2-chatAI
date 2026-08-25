@@ -36,6 +36,7 @@
             </image_generation>
             <features>
                 <candidate_memory_enabled>1</candidate_memory_enabled>
+                <expose_coupon_codes>0</expose_coupon_codes>
                 <product_advisor_enabled>0</product_advisor_enabled>
                 <proactive_suggestions_enabled>0</proactive_suggestions_enabled>
                 <analytics_attribution_enabled>0</analytics_attribution_enabled>
@@ -91,6 +92,8 @@
             <privacy>
                 <conversation_retention_days>90</conversation_retention_days>
                 <resolved_case_retention_days>365</resolved_case_retention_days>
+                <analytics_event_retention_days>180</analytics_event_retention_days>
+                <guardrail_audit_retention_days>365</guardrail_audit_retention_days>
             </privacy>
         </afd_ai>
     </default>

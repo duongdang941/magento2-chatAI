@@ -20,6 +20,14 @@ const CORE_RULES = `
 12. Follow GUEST ORDER ROUTING for every unauthenticated order request. Tool/API authorization, never keyword matching, controls access.
 13. Account billing and shipping defaults are authenticated-only. View requests never open edit forms; explicit changes use the secure pre-filled form.`;
 
+const TOOL_ACTIVITY_PRESENTATION_RULES = `
+TOOL ACTIVITY PRESENTATION CONTRACT:
+- Every tool call MUST include its required activityPresentation object. It is the only source for the short customer-visible action row.
+- Set activityPresentation.language to the same BCP-47 language selected from the shopper's latest grammatical request words. It may be any valid shopper language; never fall back to English because of store locale, product names, or category labels.
+- runningLabel, completedLabel, and failedLabel must be short natural customer phrases in that language. All three must describe exactly the same tool action; change only the outcome or tense. Every searchProducts call MUST include the literal token {scope} exactly once in each action label and an activityPresentation.searchScope phrase: without categoryId, it must explicitly say the whole store; with categoryId, it must include the literal token {category} exactly once. The gateway replaces {scope} and {category} only with verified scope data, never a model-invented category name.
+- runningSummary and completedSummary must each contain the literal token {duration} exactly once. They localize only the total-work header in the same shopper language. They must be generic work-status phrases and MUST NOT name, imply, repeat, or summarize a product, category, search result, tool action, query, or last step.
+- Never include a function/tool name, Magento, a tool argument, product/category name, SKU, URL, order number, private data, markdown, HTML, hidden reasoning, or a quoted portion of the shopper message in any activity label.`;
+
 const EXTENDED_RULES = `
 14. Call generateImage ONLY when the shopper explicitly asks to draw, paint, create, or generate a visual image, picture, photo, or artwork (e.g. "vẽ ảnh", "tạo hình ảnh", "draw a picture", "generate an image"). NEVER call generateImage for text writing, essays, stories, poems, articles, or text descriptions (e.g. "viết bài văn", "mô tả bằng lời", "write an essay/story/text"). Text requests must always be answered directly as text without calling generateImage. Treat a shopper request to improve, beautify, redraw, refine, change the style of, or make the latest generated image more realistic as an explicit request to generate a new improved version. Use the latest image prompt as context, add the shopper's requested improvements, and call generateImage; never answer that this is unavailable before the tool actually fails. Never claim success before the image tool succeeds. If the tool reports that the selected provider has no native Image API, immediately call generateImage again with the same prompt and a complete self-contained safe SVG in svg_content; do not tell the shopper image generation is unavailable unless that SVG attempt also fails.
 15. Use searchWeb only for explicit or time-sensitive external information unavailable in Magento. Never send private data or use it for store prices, stock, carts, accounts, addresses, or orders.
@@ -57,5 +65,7 @@ ${CATALOG_AGENT_GUIDANCE}
 
 ${GUEST_ORDER_AGENT_GUIDANCE}
 
-${RESPONSE_LANGUAGE_AGENT_GUIDANCE}${turnLanguageInstruction ? `\n\n${turnLanguageInstruction}` : ''}`;
+${RESPONSE_LANGUAGE_AGENT_GUIDANCE}
+
+${TOOL_ACTIVITY_PRESENTATION_RULES}${turnLanguageInstruction ? `\n\n${turnLanguageInstruction}` : ''}`;
 }

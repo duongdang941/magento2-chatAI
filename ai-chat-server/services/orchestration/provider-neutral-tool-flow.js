@@ -18,7 +18,14 @@ import { searchWebWithAi } from '../media/native-web-search.js';
 import { getProviderCapabilities } from '../providers/provider-capabilities.js';
 import { authorizeCommerceTool } from '../policy/commerce-guardrail.js';
 import { executeRegisteredMagentoTool } from '../tools/magento-tool-executor.js';
-import { createToolActivityId, emitToolActivity } from './tool-activity.js';
+import {
+    createToolActivityId,
+    createToolActivityContinuationKey,
+    createToolActivityPresentation,
+    emitToolActivity,
+    hasCompleteToolActivityPresentation,
+    withoutToolActivityPresentation
+} from './tool-activity.js';
 import { reduceToolResultForModel } from './tool-context-reducer.js';
 import { createToolExecutionBudget, toolBudgetMessage } from './tool-execution-budget.js';
 
@@ -60,15 +67,36 @@ export function createProviderNeutralToolFlow({
     const catalogRetrievalPolicy = createCatalogRetrievalPolicy({ shopperMessage });
     const catalogQueryContinuity = createCatalogQueryContinuity();
     const toolBudget = createToolExecutionBudget(agentConfig);
+    // Category names become customer-visible only after Magento has returned
+    // them for this turn. Model arguments never supply display names.
+    const verifiedCategoryNames = new Map();
+    // A category-page name in the signed WebSocket ticket is equally
+    // authoritative Magento data, so it can identify the initial search
+    // before the model needs a separate taxonomy lookup.
+    rememberSignedPageCategoryName(verifiedCategoryNames, options.pageContext);
     const state = {
         catalogIdentityResolved: false,
         hasVisibleImages: false,
         hasVisibleProducts: false,
+        catalogSearchAttempted: false,
         lastToolOutcome: null,
         pendingProductPresentation: null,
         terminalCatalog: false,
         productPageRequiredCart: null,
         toolErrorMessage: ''
+    };
+    // A tool has returned data, but the model may still use that evidence to
+    // choose the next action. Keep its customer-visible row running until a
+    // following action actually starts, or until the assistant turn ends.
+    let pendingCompletedActivity = null;
+
+    const completePendingActivity = ({ exceptContinuationKey = '' } = {}) => {
+        const pending = pendingCompletedActivity;
+        if (!pending) return false;
+        if (exceptContinuationKey && pending.continuationKey === exceptContinuationKey) return false;
+        pendingCompletedActivity = null;
+        emitToolActivity(ws, pending);
+        return true;
     };
 
     const getState = () => Object.freeze({ ...state });
@@ -113,6 +141,7 @@ export function createProviderNeutralToolFlow({
         shouldForceProductSearch: () => catalogRetrievalPolicy.shouldForceProductSearch(),
         getState,
         reconcile,
+        completePendingActivity,
 
         async execute({ id = '', name = '', args = {} } = {}) {
             const saveResult = (result) => {
@@ -120,9 +149,10 @@ export function createProviderNeutralToolFlow({
                 return result;
             };
             const toolName = String(name || '');
+            const rawArgs = args && typeof args === 'object' ? args : {};
             const normalizedArgs = catalogQueryContinuity.normalize(
                 toolName,
-                args && typeof args === 'object' ? args : {}
+                withoutToolActivityPresentation(rawArgs)
             );
             catalogRetrievalPolicy.observeToolCall(toolName);
 
@@ -184,6 +214,33 @@ export function createProviderNeutralToolFlow({
                 }));
             }
 
+            // The model declares why it is asking for taxonomy. A product
+            // request follows one canonical, language-neutral sequence: try a
+            // direct product search first, then resolve a verified category
+            // only when that search needs narrowing. A genuine taxonomy
+            // question remains free to list categories immediately. Missing
+            // purpose is treated as product discovery so an older provider
+            // cannot bypass the stable visible ordering.
+            if (toolName === 'listCategories'
+                && String(normalizedArgs.lookupPurpose || '') !== 'taxonomy_question'
+                && !state.catalogSearchAttempted) {
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: normalizedArgs,
+                    content: {
+                        status: 'blocked',
+                        reason: 'catalog_product_search_required',
+                        instruction: 'For a request to find or show products, call searchProducts first with a concise shopper-intent query. Use listCategories with lookupPurpose=product_discovery only afterwards if that search needs a verified category scope.'
+                    },
+                    blocked: true,
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
+            }
+
             // An authoritative exact-identity miss is already sufficient
             // evidence. Do not let the gateway invent a broader search; the
             // model receives the miss context and writes the customer reply.
@@ -195,6 +252,34 @@ export function createProviderNeutralToolFlow({
                         status: 'blocked',
                         reason: 'terminal_catalog_miss',
                         instruction: 'The exact requested catalogue identity was not found as an active product. Answer from the previous search result; do not search again or substitute another product unless the shopper explicitly asks for alternatives.'
+                    },
+                    blocked: true,
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
+            }
+
+            const knownCategoryName = knownCategoryNameForArgs(verifiedCategoryNames, normalizedArgs);
+            // A product result without its localized progress contract causes
+            // exactly the broken state where cards arrive but the timeline
+            // falls back to an unrelated storefront-language "Worked for".
+            // Reject it before budget/admission so the model can repeat the
+            // same query with the required customer-safe metadata.
+            if (toolName === 'searchProducts' && !hasCompleteToolActivityPresentation({
+                toolName,
+                args: rawArgs,
+                knownCategoryName
+            })) {
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: normalizedArgs,
+                    content: {
+                        status: 'blocked',
+                        reason: 'activity_presentation_required',
+                        instruction: 'Repeat this exact searchProducts call with a complete activityPresentation in the shopper language: language, runningLabel, completedLabel, failedLabel, runningSummary, completedSummary, and searchScope. Do not omit or replace the customer activity metadata.'
                     },
                     blocked: true,
                     state,
@@ -225,11 +310,40 @@ export function createProviderNeutralToolFlow({
                 }));
             }
 
+            if (toolName === 'searchProducts') state.catalogSearchAttempted = true;
+
             // Arguments can include personal data. Operational logs retain only
             // a bounded tool name regardless of the selected provider.
             logger.debug('tool-flow', 'Executing storefront tool', { tool: toolName.slice(0, 80) });
             const activityId = createToolActivityId(id, toolName);
-            emitToolActivity(ws, { activityId, toolName, state: 'running' });
+            // This opaque key represents the underlying operation rather than
+            // its model-written label. Repeated execution of the same
+            // operation continues one visible "running" row; a different
+            // operation closes the preceding row.
+            const continuationKey = createToolActivityContinuationKey({
+                toolName,
+                args: normalizedArgs
+            });
+            const activityPresentation = createToolActivityPresentation({
+                toolName,
+                args: rawArgs,
+                knownCategoryName,
+                state: 'running'
+            });
+            const publishedActivity = Boolean(activityPresentation.label);
+            // The previous action becomes complete exactly when this new
+            // action starts. This avoids claiming a search is finished while
+            // the model is still deciding what to do with its data.
+            completePendingActivity({ exceptContinuationKey: continuationKey });
+            if (publishedActivity) {
+                emitToolActivity(ws, {
+                    activityId,
+                    continuationKey,
+                    toolName,
+                    state: 'running',
+                    presentation: activityPresentation
+                });
+            }
 
             let content;
             try {
@@ -250,19 +364,40 @@ export function createProviderNeutralToolFlow({
                 content = { status: 'error', error: error?.message || 'Tool execution failed.' };
             }
 
+            rememberVerifiedCategoryNames(verifiedCategoryNames, toolName, content);
             rememberProductPageRequiredCart(state, toolName, content);
 
             emitCustomerToolEvents({ ws, name: toolName, content, options });
             const contentStatus = String(content?.status || '').toLowerCase();
             const blockingToolFailure = isBlockingToolFailure(content);
-            emitToolActivity(ws, {
-                activityId,
+            const activityState = blockingToolFailure || ['unavailable', 'rate_limited', 'busy'].includes(contentStatus)
+                ? 'failed'
+                : 'completed';
+            const completedPresentation = createToolActivityPresentation({
                 toolName,
-                state: blockingToolFailure || ['unavailable', 'rate_limited', 'busy'].includes(contentStatus)
-                    ? 'failed'
-                    : 'completed',
-                result: content
+                args: rawArgs,
+                knownCategoryName: knownCategoryNameForArgs(verifiedCategoryNames, normalizedArgs),
+                state: activityState
             });
+            if (activityState === 'completed' && (publishedActivity || completedPresentation.label)) {
+                pendingCompletedActivity = {
+                    activityId,
+                    continuationKey,
+                    toolName,
+                    state: activityState,
+                    result: content,
+                    presentation: completedPresentation
+                };
+            } else if (publishedActivity || completedPresentation.label) {
+                emitToolActivity(ws, {
+                    activityId,
+                    continuationKey,
+                    toolName,
+                    state: activityState,
+                    result: content,
+                    presentation: completedPresentation
+                });
+            }
 
             return saveResult(registerResult({
                 name: toolName,
@@ -277,6 +412,42 @@ export function createProviderNeutralToolFlow({
             }));
         }
     });
+}
+
+function knownCategoryNameForArgs(categoryNames, args = {}) {
+    const categoryId = Math.max(0, Math.trunc(Number(args?.categoryId || args?.category_id) || 0));
+    return categoryId > 0 ? String(categoryNames?.get(categoryId) || '') : '';
+}
+
+function rememberSignedPageCategoryName(categoryNames, pageContext) {
+    if (!(categoryNames instanceof Map) || !pageContext || typeof pageContext !== 'object') return;
+    if (String(pageContext.type || '') !== 'category') return;
+    const id = Math.max(0, Math.trunc(Number(pageContext.category_id || pageContext.categoryId) || 0));
+    const name = boundedCategoryName(pageContext.name);
+    if (id > 0 && name) categoryNames.set(id, name);
+}
+
+function rememberVerifiedCategoryNames(categoryNames, toolName, content) {
+    if (!(categoryNames instanceof Map) || !content || typeof content !== 'object') return;
+
+    if (toolName === 'listCategories' && Array.isArray(content.data)) {
+        content.data.slice(0, 250).forEach((category) => {
+            const id = Math.max(0, Math.trunc(Number(category?.id) || 0));
+            const name = boundedCategoryName(category?.name);
+            if (id > 0 && name) categoryNames.set(id, name);
+        });
+    }
+
+    const scope = content.scope && typeof content.scope === 'object'
+        ? content.scope
+        : (content.meta?.scope && typeof content.meta.scope === 'object' ? content.meta.scope : null);
+    const id = Math.max(0, Math.trunc(Number(scope?.category_id || scope?.categoryId) || 0));
+    const name = boundedCategoryName(scope?.category_name || scope?.categoryName);
+    if (id > 0 && name) categoryNames.set(id, name);
+}
+
+function boundedCategoryName(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 120);
 }
 
 async function executeTool({
@@ -530,10 +701,18 @@ function presentToolResult({ name, args, content, shopperMessage, options }) {
                 : (scope.unavailable_query_match
                 ? 'A close catalogue identity exists but is disabled. Stop retrieval. Do not browse a similar-sounding category and do not substitute another product. State that no currently available exact match was found.'
                 : (items.length > 0
-                    ? `Only mention products returned in this page. direct_addable is Magento-validated: state that a product can be added immediately only when it is true. For a purchase request, any item with direct_addable=false, requires_variant_selection=true, or non-empty variant_options must be configured on its returned product URL: do not collect, list, or validate option choices in chat and do not call addToCart. A default_add_qty above 1 must be stated as the minimum directly addable quantity, with qty_increment when relevant. When this search used directAddOnly, every returned product meets that requirement. ${catalogCoverageInstruction(pagination)} Do not invent products from later pages.`
+                    ? `Only mention products returned in this page. This non-empty final grid is the complete allowed product set for this shopper response: do not add, suggest, recommend, compare to, or name any other product, category, or alternative. direct_addable is Magento-validated: state that a product can be added immediately only when it is true. For a purchase request, any item with direct_addable=false, requires_variant_selection=true, or non-empty variant_options must be configured on its returned product URL: do not collect, list, or validate option choices in chat and do not call addToCart. A default_add_qty above 1 must be stated as the minimum directly addable quantity, with qty_increment when relevant. When this search used directAddOnly, every returned product meets that requirement. ${catalogCoverageInstruction(pagination)} Do not invent products from later pages.`
                     : 'No products matched this retrieval. Before concluding there is no match, inspect categories or retry a meaningfully different query/category when that can resolve the request.'))
         };
     } else if (name === 'listCategories') {
+        if (contentStatus === 'blocked' && String(content?.reason || '') === 'catalog_product_search_required') {
+            modelContext = {
+                status: 'blocked',
+                reason: 'catalog_product_search_required',
+                instruction: String(content?.instruction || '')
+            };
+            return { productPresentation, visibleImage, modelContext };
+        }
         const categories = Array.isArray(content?.data) ? content.data : [];
         modelContext = {
             categories: categories

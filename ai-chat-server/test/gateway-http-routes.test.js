@@ -82,11 +82,14 @@ test('requires the synchronized provider to match the Magento-selected provider'
         }),
         (error) => error.code === 'CONFIG_PROVIDER_MISMATCH' && error.status === 409
     );
-    assert.doesNotThrow(() => validateSyncProviderPayload({
-        ...base,
-        sync_provider: { provider_code: 'gemini' },
-        config: { default: { provider: 'gemini', providers: {} } }
-    }));
+    assert.throws(
+        () => validateSyncProviderPayload({
+            ...base,
+            sync_provider: { provider_code: 'gemini' },
+            config: { default: { provider: 'gemini', providers: {} } }
+        }),
+        (error) => error.code === 'CONFIG_PROVIDER_NOT_REGISTERED' && error.status === 409
+    );
     assert.throws(
         () => validateSyncProviderPayload({
             ...base,

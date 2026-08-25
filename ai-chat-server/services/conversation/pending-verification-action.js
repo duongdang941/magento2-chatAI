@@ -71,3 +71,11 @@ export function consumePendingVerificationAction(client, purpose, options = {}) 
 export function clearPendingVerificationAction(client) {
     if (client) client.pendingVerificationAction = null;
 }
+
+/** Non-consuming readiness check used before throttling the resumed turn. */
+export function hasPendingVerificationAction(client, purpose, options = {}) {
+    const pending = client?.pendingVerificationAction;
+    if (!pending) return false;
+    const now = Number(options.now) || Date.now();
+    return pending.expiresAt > now && pending.purpose === normalizePurpose(purpose);
+}

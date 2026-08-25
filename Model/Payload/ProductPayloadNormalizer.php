@@ -24,13 +24,17 @@ class ProductPayloadNormalizer
     /**
      * Normalize legacy gateway output to one shopper-facing result set.
      *
+     * Every part keeps its original authoring position: a products part is
+     * appended as encountered and only a pagination continuation of the most
+     * recent products part is folded into that part's payload.
+     *
      * @param array<int, array<string, mixed>> $parts
      * @return array<int, array<string, mixed>>
      */
     public function mergeSequentialProductParts(array $parts): array
     {
         $mergedParts = [];
-        $productPart = null;
+        $openProductPartIndex = null;
 
         foreach ($parts as $part) {
             $payload = $part['type'] === 'products' && is_array($part['payload'] ?? null)
@@ -41,28 +45,22 @@ class ProductPayloadNormalizer
                 continue;
             }
 
-            if ($productPart === null) {
-                $productPart = $part;
+            $currentPayload = $openProductPartIndex !== null
+                && is_array($mergedParts[$openProductPartIndex]['payload'] ?? null)
+                ? $mergedParts[$openProductPartIndex]['payload']
+                : null;
+            if ($currentPayload !== null && $this->isNextProductPage($currentPayload, $payload)) {
+                $combinedPayload = $this->mergeProductPayloadPages($currentPayload, $payload);
+                $renderedHtml = $this->renderProductPayload($combinedPayload);
+                $mergedParts[$openProductPartIndex]['payload'] = $combinedPayload;
+                if ($renderedHtml !== '') {
+                    $mergedParts[$openProductPartIndex]['html'] = $renderedHtml;
+                }
                 continue;
             }
 
-            $currentPayload = is_array($productPart['payload'] ?? null)
-                ? $productPart['payload']
-                : [];
-            if ($this->isNextProductPage($currentPayload, $payload)) {
-                $combinedPayload = $this->mergeProductPayloadPages($currentPayload, $payload);
-                $renderedHtml = $this->renderProductPayload($combinedPayload);
-                $productPart['payload'] = $combinedPayload;
-                if ($renderedHtml !== '') {
-                    $productPart['html'] = $renderedHtml;
-                }
-            } else {
-                $productPart = $part;
-            }
-        }
-
-        if ($productPart !== null) {
-            $mergedParts[] = $productPart;
+            $mergedParts[] = $part;
+            $openProductPartIndex = count($mergedParts) - 1;
         }
 
         return $mergedParts;

@@ -182,11 +182,11 @@ test('normalizes Magento-owned Gemini grounding and rollout flags into a capabil
     assert.equal(config.capabilities.image_generation.available, true);
 });
 
-test('falls back to the gateway provider secret when copied Magento ciphertext is unusable', () => {
+test('does not source an unregistered provider key from a gateway environment variable', () => {
     const previous = process.env.GEMINI_API_KEY;
     process.env.GEMINI_API_KEY = 'gateway-gemini-key';
     try {
-        assert.equal(normalizeConfig({ provider: 'gemini', api_key: '' }).api_key, 'gateway-gemini-key');
+        assert.equal(normalizeConfig({ provider: 'gemini', api_key: '' }).api_key, '');
     } finally {
         if (previous === undefined) delete process.env.GEMINI_API_KEY;
         else process.env.GEMINI_API_KEY = previous;

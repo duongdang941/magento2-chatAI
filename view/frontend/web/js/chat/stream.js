@@ -628,6 +628,36 @@ const {
                 }
             },
 
+            hasAssistantResponseForRequest(requestId = this.activeRequestId) {
+                const normalizedRequestId = String(requestId || '');
+                return (Array.isArray(this.messages) ? this.messages : []).some((message) => {
+                    if (message?.role !== 'assistant' || message.deleted === true) return false;
+                    if (normalizedRequestId && String(message.request_id || '') !== normalizedRequestId) return false;
+                    return Array.isArray(message.parts) && message.parts.some((part) => {
+                        if (part?.type === 'text') {
+                            return part.streaming === true
+                                || String(part.raw || part.html || '').trim().length > 0;
+                        }
+                        if (part?.type === 'products') {
+                            return Boolean(part.payload || String(part.html || '').trim());
+                        }
+                        if (part?.type === 'guest_order_access' || part?.type === 'order_address_form') return true;
+                        return part?.type === 'image' && Boolean(part.url);
+                    });
+                });
+            },
+
+            releaseEmptyTurnAnchor(requestId = this.pinnedTurnRequestId) {
+                const normalizedRequestId = String(requestId || '');
+                if (!this.isTurnStartPinned || !this.pinnedTurnRequestId) return false;
+                if (normalizedRequestId && this.pinnedTurnRequestId !== normalizedRequestId) return false;
+                if (this.hasAssistantResponseForRequest(normalizedRequestId)) return false;
+
+                this.isTurnStartPinned = false;
+                this.pinnedTurnRequestId = '';
+                return true;
+            },
+
             armResponseWatchdog() {
                 this.clearResponseWatchdog();
                 if (!this.isLoading || !this.activeRequestId) return;
@@ -646,6 +676,7 @@ const {
             handleActiveRequestDisconnect() {
                 if (!this.isLoading || !this.activeRequestId) return;
 
+                const disconnectedRequestId = this.activeRequestId;
                 this.clearResponseWatchdog();
                 this.finalizeStreamingMarkdown();
                 this.isLoading = false;
@@ -656,14 +687,16 @@ const {
                 this.pendingGuestOrderAccessParts = [];
                 this.activeRequestId = null;
                 this.responseStartedAt = 0;
+                this.releaseEmptyTurnAnchor(disconnectedRequestId);
                 this.setTransportNotice(
                     'response-interrupted',
                     'Response interrupted',
                     'The secure chat connection was interrupted. Please retry your message.'
                 );
+                this.$nextTick(() => this.scrollToBottom());
             },
 
-            recordInterruptedResponse(stoppedAfterSeconds = null) {
+            recordInterruptedResponse(stoppedAfterSeconds = null, interruptionReason = '') {
                 const elapsed = stoppedAfterSeconds === null
                     ? Math.max(0, Math.floor((Date.now() - (this.responseStartedAt || Date.now())) / 1000))
                     : Math.max(0, Math.floor(Number(stoppedAfterSeconds) || 0));
@@ -679,6 +712,9 @@ const {
 
                 this.finalizeStreamingMarkdown();
                 message.interrupted = true;
+                message.interruptionReason = interruptionReason === 'connection_lost'
+                    ? 'connection_lost'
+                    : '';
                 message.stoppedAfterSeconds = elapsed;
                 this.scheduleGuestSessionSnapshot();
                 this.scheduleCrossTabConversationSync(this.activeConversationId, 80);
@@ -687,6 +723,12 @@ const {
 
             stoppedResponseLabel(message) {
                 const seconds = Math.max(0, Number(message?.stoppedAfterSeconds) || 0);
+                if (message?.interruptionReason === 'connection_lost') {
+                    if (typeof this.t === 'function') {
+                        return this.t('connection_interrupted_after', { 1: seconds });
+                    }
+                    return `Connection interrupted after ${seconds}s`;
+                }
                 if (typeof this.t === 'function') {
                     return this.t('you_stopped_after', { 1: seconds });
                 }
@@ -706,7 +748,18 @@ const {
                 if (lastAssistantIndex < 0) return;
 
                 const targetMessage = this.messages[lastAssistantIndex];
+                const hasVisibleAssistantOutput = (Array.isArray(targetMessage.parts) ? targetMessage.parts : [])
+                    .some((part) => (part?.type === 'text' && String(part.raw || part.text || '').trim() !== '')
+                        || (part?.type === 'image' && String(part.url || '').trim() !== ''));
+                // A refresh can interrupt the provider before its first token.
+                // Retrying from the saved shopper message replaces that empty
+                // branch atomically, avoiding a blank interrupted row followed
+                // by a second persisted assistant response after reload.
+                if (!hasVisibleAssistantOutput) {
+                    return this.retryFromMessage(lastAssistantIndex);
+                }
                 targetMessage.interrupted = false;
+                targetMessage.interruptionReason = '';
                 targetMessage.stoppedAfterSeconds = null;
 
                 this.currentAiMessageIndex = lastAssistantIndex;
@@ -999,17 +1052,49 @@ const {
                     this.scheduleGuestSessionSnapshot(900);
 
                 } else if (data.type === 'tool_activity') {
-                    const activityId = String(data.activity_id || 'tool-' + Date.now() + '-' + Math.random());
+                    // A server action id identifies one real tool execution.
+                    // `display_key` is descriptive only: using it as the DOM
+                    // key replaced an earlier store search with a later one
+                    // that happened to have the same scope. Keep every action
+                    // in chronological order and update only its own running
+                    // → completed frame.
+                    const activityId = String(data.activity_id || data.display_key || 'tool-' + Date.now() + '-' + Math.random());
+                    // The gateway supplies an opaque semantic key for a
+                    // continuous operation. It is intentionally unrelated to
+                    // the model-written customer label: wording can change by
+                    // language or provider without making this a new action.
+                    const incomingContinuationKey = String(data.continuation_key || '').trim();
+                    const continuationKey = /^activity-[a-f0-9]{24}$/.test(incomingContinuationKey)
+                        ? incomingContinuationKey
+                        : `legacy-${activityId}`;
                     const nextState = ['running', 'completed', 'failed'].includes(data.state) ? data.state : 'running';
                     const now = Date.now();
+                    const currentActivityForKey = (activities) => {
+                        if (!Array.isArray(activities)) return null;
+                        for (let index = activities.length - 1; index >= 0; index -= 1) {
+                            const activity = activities[index];
+                            if (activity?.type === 'activity'
+                                && activity.isCurrentAction === true
+                                && activity.continuationKey === continuationKey) {
+                                return activity;
+                            }
+                        }
+                        return null;
+                    };
+                    const continuedActivity = currentActivityForKey(this.thinkingEvents)
+                        || currentActivityForKey(this.toolActivities);
+                    // A repeated underlying operation updates its existing
+                    // row. A return to the same operation after another one
+                    // has started is deliberately a new chronological row.
+                    const renderedActivityId = continuedActivity?.id || activityId;
                     // Some gateway/provider combinations publish the next
                     // tool's `running` frame before explicitly closing the
                     // previous one. The UI is a serial work timeline: once a
                     // new action starts, freeze every older running row so it
                     // stops shimmering and its elapsed time no longer ticks.
-                    if (nextState === 'running') {
+                    if (nextState === 'running' && !continuedActivity) {
                         const completePreviousActivity = (activity) => {
-                            if (activity?.type !== 'activity' || activity.id === activityId) {
+                            if (activity?.type !== 'activity' || activity.id === renderedActivityId) {
                                 return activity;
                             }
                             // State can be completed before the assistant turn
@@ -1034,19 +1119,39 @@ const {
                         }
                     }
                     const existingEvent = Array.isArray(this.thinkingEvents)
-                        ? this.thinkingEvents.find(item => item.type === 'activity' && item.id === activityId)
+                        ? this.thinkingEvents.find(item => item.type === 'activity' && item.id === renderedActivityId)
                         : null;
+                    const isRestartedAction = nextState === 'running'
+                        && existingEvent
+                        && existingEvent.state !== 'running'
+                        && !continuedActivity;
+                    const incomingLanguage = String(data.language || '').trim();
+                    const language = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$/.test(incomingLanguage)
+                        ? incomingLanguage.slice(0, 35)
+                        : String(existingEvent?.language || '');
+                    const incomingTurnSummary = String(data.turn_summary || '').replace(/\s+/g, ' ').trim();
+                    const turnSummary = incomingTurnSummary.length >= 12
+                        && incomingTurnSummary.length <= 120
+                        && (incomingTurnSummary.match(/\{duration\}/g) || []).length === 1
+                        && !/[<>`]/.test(incomingTurnSummary)
+                        && !/(?:https?:\/\/|www\.)/i.test(incomingTurnSummary)
+                        ? incomingTurnSummary
+                        : String(existingEvent?.turn_summary || '');
                     const nextActivity = {
-                        id: activityId,
+                        id: renderedActivityId,
                         type: 'activity',
+                        continuationKey,
                         tool: String(data.tool || ''),
                         state: nextState,
                         result_count: Number.isFinite(Number(data.result_count)) ? Number(data.result_count) : null,
+                        label: String(data.label || existingEvent?.label || '').trim().slice(0, 240),
+                        language,
+                        ...(turnSummary ? { turn_summary: turnSummary } : {}),
                         // Client-side timestamps drive the Codex-style
                         // "… for Ns" labels; the protocol carries states only.
-                        startedAt: Number(existingEvent?.startedAt) || now,
+                        startedAt: isRestartedAction ? now : (Number(existingEvent?.startedAt) || now),
                         completedAt: nextState === 'running'
-                            ? (Number(existingEvent?.completedAt) || null)
+                            ? null
                             : (Number(existingEvent?.completedAt) || now),
                         // The current action keeps shimmering until a newer
                         // action starts or the whole assistant turn completes.
@@ -1055,26 +1160,23 @@ const {
                             : existingEvent?.isCurrentAction !== false
                     };
                     this.markReasoningResumed?.();
+                    const upsertActivity = (activities) => {
+                        const index = activities.findIndex(activity => activity?.type === 'activity' && activity.id === renderedActivityId);
+                        if (index === -1) {
+                            activities.push(nextActivity);
+                            return;
+                        }
+                        const merged = { ...activities[index], ...nextActivity };
+                        activities.splice(index, 1);
+                        // A genuine restarted action has the same server id
+                        // but a new run; move that one chronological row.
+                        if (isRestartedAction) activities.push(merged);
+                        else activities.splice(index, 0, merged);
+                    };
                     if (!Array.isArray(this.thinkingEvents)) this.thinkingEvents = [];
-                    const eventIndex = this.thinkingEvents.findIndex(item => item.type === 'activity' && item.id === activityId);
-                    if (eventIndex === -1) {
-                        this.thinkingEvents.push(nextActivity);
-                    } else {
-                        this.thinkingEvents.splice(eventIndex, 1, {
-                            ...this.thinkingEvents[eventIndex],
-                            ...nextActivity
-                        });
-                    }
-
-                    const activityIndex = this.toolActivities.findIndex(activity => activity.id === activityId);
-                    if (activityIndex === -1) {
-                        this.toolActivities.push(nextActivity);
-                    } else {
-                        this.toolActivities.splice(activityIndex, 1, {
-                            ...this.toolActivities[activityIndex],
-                            ...nextActivity
-                        });
-                    }
+                    if (!Array.isArray(this.toolActivities)) this.toolActivities = [];
+                    upsertActivity(this.thinkingEvents);
+                    upsertActivity(this.toolActivities);
 
                     this.syncLiveReasoningPart?.();
 
@@ -1346,6 +1448,7 @@ const {
                     // Admission control rejects this turn before an adapter can
                     // emit `done`. Treat it as a terminal event so the composer
                     // immediately returns from Stop to Send.
+                    const busyRequestId = String(data.request_id || this.activeRequestId || '');
                     this.collapseReasoningForAnswer?.();
                     this.finalizeStreamingMarkdown();
                     this.isLoading = false;
@@ -1357,6 +1460,7 @@ const {
                     this.pendingOrderAddressFormParts = [];
                     this.pendingGuestOrderAccessParts = [];
                     this.clearResponseWatchdog();
+                    this.releaseEmptyTurnAnchor(busyRequestId);
                     this.setTransportNotice?.(
                         'ai-service-busy',
                         'AI service is busy',
@@ -1370,6 +1474,7 @@ const {
 
                 } else if (data.type === 'done') {
                     const completedRequestId = String(data.request_id || this.activeRequestId || '');
+                    const completedWithAssistantResponse = this.hasAssistantResponseForRequest(completedRequestId);
                     // Codex closes a turn with a "Worked for Ns" marker; the
                     // elapsed time must be captured before the turn state
                     // resets below.
@@ -1404,6 +1509,14 @@ const {
                     if (data.request_id) {
                         delete this.cancelledRequestIds[data.request_id];
                     }
+                    if (!completedWithAssistantResponse) {
+                        this.releaseEmptyTurnAnchor(completedRequestId);
+                        this.setTransportNotice?.(
+                            'empty-ai-response',
+                            'AI response unavailable',
+                            'The AI service ended without a response. Please try again.'
+                        );
+                    }
                     this.scheduleGuestSessionSnapshot();
                     this.$nextTick(() => {
                         // `scrollToBottom()` owns all follow-up placement. It
@@ -1422,7 +1535,7 @@ const {
 
                 } else if (data.type === 'cancelled') {
                     this.collapseReasoningForAnswer?.();
-                    this.recordInterruptedResponse(data.stopped_after_seconds);
+                    this.recordInterruptedResponse(data.stopped_after_seconds, data.interruption_reason);
                     this.isLoading = false;
                     this.statusMessage = '';
                     this.currentAiMessageIndex = -1;

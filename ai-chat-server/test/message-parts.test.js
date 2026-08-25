@@ -14,7 +14,7 @@ import {
 
 const RED_PIXEL_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR42mP8z8BQDwAFgwJ/lC0AAAAASUVORK5CYII=';
 
-test('records public provider reasoning and verified action activity', () => {
+test('persists only verified, compact customer action activity', () => {
     const parts = [];
 
     recordOutboundAssistantPart(parts, {
@@ -32,41 +32,96 @@ test('records public provider reasoning and verified action activity', () => {
     recordOutboundAssistantPart(parts, {
         type: 'tool_activity',
         activity_id: 'catalog-1',
+        display_key: 'catalog-search',
         tool: 'searchProducts',
         state: 'completed',
-        result_count: 2
+        result_count: 2,
+        label: 'Búsqueda de productos completada',
+        language: 'es-MX',
+        turn_summary: 'Búsqueda completada en {duration}'
     });
 
     assert.deepEqual(parts, [{
         type: 'reasoning',
         events: [{
-            id: 'provider-reasoning-draft',
-            type: 'step',
-            source: 'provider_reasoning',
-            content: 'Examining the catalogue.',
-            state: 'completed'
-        }, {
             id: 'catalog-1',
             type: 'activity',
             tool: 'searchProducts',
             state: 'completed',
-            result_count: 2
+            result_count: 2,
+            label: 'Búsqueda de productos completada',
+            language: 'es-MX',
+            turn_summary: 'Búsqueda completada en {duration}'
         }],
-        steps: [{
-            id: 'provider-reasoning-draft',
-            type: 'step',
-            source: 'provider_reasoning',
-            content: 'Examining the catalogue.',
-            state: 'completed'
-        }],
+        steps: [],
         activities: [{
             id: 'catalog-1',
             type: 'activity',
             tool: 'searchProducts',
             state: 'completed',
-            result_count: 2
+            result_count: 2,
+            label: 'Búsqueda de productos completada',
+            language: 'es-MX',
+            turn_summary: 'Búsqueda completada en {duration}'
         }]
     }]);
+});
+
+test('persists consecutive executions with the same opaque continuation key as one action', () => {
+    const parts = [];
+    const continuationKey = 'activity-0123456789abcdef01234567';
+
+    recordOutboundAssistantPart(parts, {
+        type: 'tool_activity',
+        activity_id: 'search-1',
+        continuation_key: continuationKey,
+        tool: 'searchProducts',
+        state: 'running',
+        label: 'First wording'
+    });
+    recordOutboundAssistantPart(parts, {
+        type: 'tool_activity',
+        activity_id: 'search-2',
+        continuation_key: continuationKey,
+        tool: 'searchProducts',
+        state: 'running',
+        label: 'Second wording'
+    });
+    recordOutboundAssistantPart(parts, {
+        type: 'tool_activity',
+        activity_id: 'search-2',
+        continuation_key: continuationKey,
+        tool: 'searchProducts',
+        state: 'completed',
+        label: 'Finished wording'
+    });
+    recordOutboundAssistantPart(parts, {
+        type: 'tool_activity',
+        activity_id: 'categories-1',
+        continuation_key: 'activity-abcdef0123456789abcdef01',
+        tool: 'listCategories',
+        state: 'running',
+        label: 'Another operation'
+    });
+
+    const activities = parts[0].events;
+    assert.deepEqual(
+        activities.map(({ id, state, label, continuation_key }) => ({ id, state, label, continuation_key })),
+        [
+            {
+                id: 'search-1',
+                state: 'completed',
+                label: 'Finished wording',
+                continuation_key: continuationKey
+            },
+            {
+                id: 'categories-1',
+                state: 'running',
+                label: 'Another operation',
+                continuation_key: 'activity-abcdef0123456789abcdef01'
+            }
+        ]
+    );
 });
 
 test('buildUserMessageDescriptor keeps uploaded image parts for the model', () => {

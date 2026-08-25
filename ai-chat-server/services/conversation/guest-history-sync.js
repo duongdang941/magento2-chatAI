@@ -84,14 +84,22 @@ export function createGuestHistorySync({
 
     function guestAssistantHistoryMessage(parts, metadata = {}) {
         const providerMetadata = normalizeProviderResponseMetadata(metadata.provider_meta);
+        const workedForMs = Math.max(0, Math.min(
+            24 * 60 * 60 * 1000,
+            Math.floor(Number(metadata.worked_for_ms ?? metadata.workedForMs) || 0)
+        ));
         return {
             role: 'assistant',
             content: extractTextFromParts(parts),
             parts,
+            ...(workedForMs > 0 ? { workedForMs } : {}),
             ...(providerMetadata ? { provider_meta: providerMetadata } : {}),
             ...(metadata.interrupted === true ? {
                 interrupted: true,
-                stopped_after_seconds: Math.max(0, Math.floor(Number(metadata.stopped_after_seconds) || 0))
+                stopped_after_seconds: Math.max(0, Math.floor(Number(metadata.stopped_after_seconds) || 0)),
+                ...(metadata.interruption_reason === 'connection_lost'
+                    ? { interruption_reason: 'connection_lost' }
+                    : {})
             } : {})
         };
     }

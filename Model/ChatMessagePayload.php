@@ -10,6 +10,7 @@ use Magento\Store\Model\StoreManagerInterface;
 
 class ChatMessagePayload
 {
+    private const MAX_WORKED_FOR_MS = 86400000;
 
     public function __construct(
         private readonly ProductPayloadNormalizer $productNormalizer,
@@ -114,6 +115,10 @@ class ChatMessagePayload
             $payload['interrupted'] = true;
             $payload['stopped_after_seconds'] = max(0, (int)($metadata['stopped_after_seconds'] ?? 0));
         }
+        $workedForMs = $this->normalizeWorkedForMs($metadata['worked_for_ms'] ?? $metadata['workedForMs'] ?? 0);
+        if ($workedForMs > 0) {
+            $payload['worked_for_ms'] = $workedForMs;
+        }
         if (($metadata['source'] ?? '') === 'support_agent') {
             $payload['source'] = 'support_agent';
             $payload['sender_label'] = mb_substr(trim((string)($metadata['sender_label'] ?? 'Support team')), 0, 80);
@@ -127,7 +132,7 @@ class ChatMessagePayload
     }
 
     /**
-     * @return array{content:string,parts:array<int,array<string,mixed>>,interrupted:bool,stopped_after_seconds:int|null}
+     * @return array{content:string,parts:array<int,array<string,mixed>>,interrupted:bool,stopped_after_seconds:int|null,worked_for_ms:int}
      */
     public function decodeStoredMessage(string $role, string $content, string $messageId = ''): array
     {
@@ -141,6 +146,7 @@ class ChatMessagePayload
             ]],
             'interrupted' => false,
             'stopped_after_seconds' => null,
+            'worked_for_ms' => 0,
             'source' => '',
             'sender_label' => '',
             'admin_id' => 0
@@ -156,6 +162,7 @@ class ChatMessagePayload
         }
 
         $parts = [];
+        $workedForMs = $this->normalizeWorkedForMs($decoded['worked_for_ms'] ?? $decoded['workedForMs'] ?? 0);
 
         foreach ($decoded['parts'] as $index => $part) {
             if (!is_array($part)) {
@@ -256,6 +263,7 @@ class ChatMessagePayload
                 'stopped_after_seconds' => ($decoded['interrupted'] ?? false) === true
                     ? max(0, (int)($decoded['stopped_after_seconds'] ?? 0))
                     : null,
+                'worked_for_ms' => $workedForMs,
                 'source' => '',
                 'sender_label' => '',
                 'admin_id' => 0
@@ -284,6 +292,7 @@ class ChatMessagePayload
             'stopped_after_seconds' => $interrupted
                 ? max(0, (int)($decoded['stopped_after_seconds'] ?? 0))
                 : null,
+            'worked_for_ms' => $workedForMs,
             'source' => ($decoded['source'] ?? '') === 'support_agent' ? 'support_agent' : '',
             'sender_label' => ($decoded['source'] ?? '') === 'support_agent'
                 ? mb_substr(trim((string)($decoded['sender_label'] ?? 'Support team')), 0, 80)
@@ -451,6 +460,30 @@ class ChatMessagePayload
                 if ($resultCount !== false && $resultCount >= 0) {
                     $normalized['result_count'] = min(10000, $resultCount);
                 }
+                $label = mb_substr(
+                    trim((string)(preg_replace('/\s+/', ' ', (string)($event['label'] ?? '')) ?? '')),
+                    0,
+                    240
+                );
+                if ($label !== '') {
+                    $normalized['label'] = $label;
+                }
+                $language = trim((string)($event['language'] ?? ''));
+                if (preg_match('/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$/', $language) === 1) {
+                    $normalized['language'] = $language;
+                }
+                $turnSummary = mb_substr(
+                    trim((string)(preg_replace('/\s+/', ' ', (string)($event['turn_summary'] ?? '')) ?? '')),
+                    0,
+                    120
+                );
+                if (mb_strlen($turnSummary) >= 12
+                    && substr_count($turnSummary, '{duration}') === 1
+                    && preg_match('/[<>`]/', $turnSummary) !== 1
+                    && preg_match('/(?:https?:\/\/|www\.)/i', $turnSummary) !== 1
+                ) {
+                    $normalized['turn_summary'] = $turnSummary;
+                }
                 $events[] = $normalized;
                 continue;
             }
@@ -475,6 +508,11 @@ class ChatMessagePayload
             'steps' => array_values(array_filter($events, static fn (array $event): bool => $event['type'] === 'step')),
             'activities' => array_values(array_filter($events, static fn (array $event): bool => $event['type'] === 'activity')),
         ];
+    }
+
+    private function normalizeWorkedForMs(mixed $value): int
+    {
+        return min(self::MAX_WORKED_FOR_MS, max(0, (int)$value));
     }
 
 

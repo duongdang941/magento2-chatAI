@@ -18,17 +18,73 @@ const objectSchema = (properties = {}, required = []) => ({
     ...(required.length > 0 ? { required } : {})
 });
 
-const tool = (name, description, parameters, policy = {}) => Object.freeze({
-    name,
-    description,
-    parameters,
-    policy: Object.freeze({
-        risk: policy.risk || 'read',
-        requiresCustomer: policy.requiresCustomer === true,
-        requiresVerification: policy.requiresVerification === true,
-        providers: Object.freeze(policy.providers || ['openai', 'gemini'])
-    })
-});
+// Customer-facing action copy is supplied by the model in the shopper's own
+// language. The tool contract remains semantic and works for every locale;
+// the gateway never owns a finite translation table for these labels.
+const activityPresentationSchema = Object.freeze(objectSchema({
+    language: {
+        type: 'string',
+        description: 'BCP-47 tag for all labels. It must match the shopper request language.'
+    },
+    runningLabel: {
+        type: 'string',
+        description: 'Short shopper-safe phrase shown while this action is still running. Use in-progress phrasing that stays true for the entire duration (an equivalent of "Looking up products…"). Never completion phrasing such as "finished", "completed", "done", or an equivalent. Do not include tool names, arguments, product/category names, identifiers, URLs, personal data, markup, or internal details.'
+    },
+    completedLabel: {
+        type: 'string',
+        description: 'Short shopper-safe phrase shown only after this same action completes. Use completion phrasing (an equivalent of "Finished looking up products"). It must describe the same action as runningLabel and must not include tool names, arguments, product/category names, identifiers, URLs, personal data, markup, or internal details.'
+    },
+    failedLabel: {
+        type: 'string',
+        description: 'Short shopper-safe phrase shown only if this same action cannot complete. Use failure phrasing (an equivalent of "Could not look up products"). It must describe the same action as runningLabel and must not include tool names, arguments, product/category names, identifiers, URLs, personal data, markup, or internal details.'
+    },
+    runningSummary: {
+        type: 'string',
+        description: 'Short live-turn summary template in language, containing the literal token {duration} exactly once, for example an equivalent of "Working for {duration}". Use in-progress phrasing; never completion phrasing such as "finished" or "done". Do not include tool names, data, markup, or URLs.'
+    },
+    completedSummary: {
+        type: 'string',
+        description: 'Short completed-turn summary template in language, containing the literal token {duration} exactly once, for example an equivalent of "Worked for {duration}". Use completion phrasing. Do not include tool names, data, markup, or URLs.'
+    }
+}, ['language', 'runningLabel', 'completedLabel', 'failedLabel', 'runningSummary', 'completedSummary']));
+
+// Product search needs one extra model-localized phrase to identify the
+// verified search scope. The gateway materializes `{category}` later, after
+// Magento has supplied the actual category name; it never trusts a name from
+// the model call.
+const productSearchActivityPresentationSchema = Object.freeze(objectSchema({
+    ...activityPresentationSchema.properties,
+    searchScope: {
+        type: 'string',
+        description: 'Required short shopper-language phrase stating where this product search runs. When categoryId is absent, explicitly say the whole store (for example an equivalent of "in the store"). When categoryId is present, use the literal token {category} exactly once (for example an equivalent of "in category {category}"). Do not invent or write a category name yourself.'
+    }
+}, [...activityPresentationSchema.required, 'searchScope']));
+
+function withActivityPresentation(parameters = {}, presentationSchema = activityPresentationSchema) {
+    return Object.freeze({
+        ...parameters,
+        properties: {
+            ...(parameters.properties || {}),
+            activityPresentation: presentationSchema
+        },
+        required: [...new Set([...(parameters.required || []), 'activityPresentation'])]
+    });
+}
+
+const tool = (name, description, parameters, policy = {}) => {
+    const { presentationSchema = activityPresentationSchema, ...toolPolicy } = policy;
+    return Object.freeze({
+        name,
+        description,
+        parameters: withActivityPresentation(parameters, presentationSchema),
+        policy: Object.freeze({
+            risk: toolPolicy.risk || 'read',
+            requiresCustomer: toolPolicy.requiresCustomer === true,
+            requiresVerification: toolPolicy.requiresVerification === true,
+            providers: Object.freeze(toolPolicy.providers || ['openai', 'gemini'])
+        })
+    });
+};
 
 export const TOOL_DEFINITIONS = Object.freeze([
     tool('searchProducts', 'Search real Magento products before answering catalogue questions.', objectSchema({
@@ -46,7 +102,9 @@ export const TOOL_DEFINITIONS = Object.freeze([
         excludedTerms: { type: 'array', items: { type: 'string' } },
         responseLanguage: { type: 'string' },
         responseLanguageEvidence: { type: 'array', items: { type: 'string' } }
-    }, ['query', 'exactIdentity', 'responseLanguage', 'responseLanguageEvidence'])),
+    }, ['query', 'exactIdentity', 'responseLanguage', 'responseLanguageEvidence']), {
+        presentationSchema: productSearchActivityPresentationSchema
+    }),
     tool('compareProducts', 'Compare two returned Magento products by exact SKU.', objectSchema({
         sku1: { type: 'string' },
         sku2: { type: 'string' }
@@ -56,9 +114,14 @@ export const TOOL_DEFINITIONS = Object.freeze([
         selectedOptions: { type: 'object', additionalProperties: { type: 'string' } }
     }, ['sku'])),
     tool('listCategories', 'Inspect the real Magento category taxonomy.', objectSchema({
+        lookupPurpose: {
+            type: 'string',
+            enum: ['product_discovery', 'taxonomy_question'],
+            description: 'product_discovery when taxonomy is needed to find/show products; taxonomy_question only when the shopper explicitly asks about the category structure itself.'
+        },
         responseLanguage: { type: 'string' },
         responseLanguageEvidence: { type: 'array', items: { type: 'string' } }
-    }, ['responseLanguage', 'responseLanguageEvidence'])),
+    }, ['lookupPurpose', 'responseLanguage', 'responseLanguageEvidence'])),
     tool('addToCart', 'Add a verified product selection using Magento quantity rules to checkout or explicit Quote Cart.', objectSchema({
         sku: { type: 'string' },
         qty: { type: 'integer' },

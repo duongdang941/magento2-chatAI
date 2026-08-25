@@ -58,6 +58,24 @@ class LiveVoiceProviderConfigTest extends TestCase
         self::assertTrue($config->getVoiceConfig()['live']['enabled']);
     }
 
+    public function testLiveEnabledKillSwitchDisablesLiveVoiceForOpenAi(): void
+    {
+        $scopeConfig = $this->createMock(ScopeConfigInterface::class);
+        $scopeConfig->method('getValue')->willReturnCallback(
+            static fn (string $path): string => $path === Config::XML_PATH_PROVIDER ? 'openai' : ''
+        );
+        $scopeConfig->method('isSetFlag')->willReturnCallback(
+            static fn (string $path): bool => $path !== Config::XML_PATH_VOICE_LIVE_ENABLED
+        );
+
+        $config = $this->createConfig($scopeConfig);
+
+        self::assertFalse($config->getVoiceConfig()['live']['enabled']);
+        // Unset limits fall back to the gateway's bounded floors.
+        self::assertSame(1, $config->getVoiceConfig()['live']['max_sessions_per_minute']);
+        self::assertSame(30, $config->getVoiceConfig()['live']['max_duration_seconds']);
+    }
+
     private function createConfig(ScopeConfigInterface $scopeConfig): Config
     {
         return new Config(

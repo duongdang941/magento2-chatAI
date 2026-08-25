@@ -6,15 +6,13 @@ namespace Afd\AI\Model\Privacy;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Store\Model\ScopeInterface;
-use Magento\Store\Model\StoreManagerInterface;
 
 class RetentionCleaner
 {
     public function __construct(
         private readonly ScopeConfigInterface $scopeConfig,
         private readonly ConversationDataEraser $conversationDataEraser,
-        private readonly ResourceConnection $resource,
-        private readonly StoreManagerInterface $storeManager
+        private readonly ResourceConnection $resource
     ) {
     }
 
@@ -25,13 +23,11 @@ class RetentionCleaner
         $connection = $this->resource->getConnection();
         $deleted = ['conversations' => 0, 'messages' => 0];
         $deletedCases = 0;
-        foreach ($this->storeManager->getStores(true) as $store) {
-            if (!(bool)$store->isActive()) {
-                continue;
-            }
-
-            $storeId = (int)$store->getId();
-            $websiteId = (int)$store->getWebsiteId();
+        // Enumerating live store views would let rows of deleted store views
+        // age out never, so drive cleanup by the scopes actually present.
+        foreach ($this->existingStoreScopes() as $scope) {
+            $storeId = $scope['store_id'];
+            $websiteId = $scope['website_id'];
             $conversationDays = $this->retentionDays('afd_ai/privacy/conversation_retention_days', 90, 730, $storeId);
             $caseDays = $this->retentionDays('afd_ai/privacy/resolved_case_retention_days', 365, 2555, $storeId);
             $expired = $this->conversationDataEraser->eraseExpired(
@@ -56,6 +52,32 @@ class RetentionCleaner
             'messages' => $deleted['messages'],
             'resolved_cases' => $deletedCases,
         ];
+    }
+
+    /** @return array<int, array{store_id:int,website_id:int}> */
+    private function existingStoreScopes(): array
+    {
+        $connection = $this->resource->getConnection();
+        $scopes = [];
+        foreach (['afd_ai_conversation', 'afd_ai_support_case'] as $table) {
+            $tableName = $this->resource->getTableName($table);
+            if (!$connection->isTableExists($tableName)) {
+                continue;
+            }
+            foreach ($connection->fetchAll(
+                $connection->select()
+                    ->from($tableName, ['store_id', 'website_id'])
+                    ->distinct(true)
+            ) as $row) {
+                $key = (int)$row['store_id'] . ':' . (int)$row['website_id'];
+                $scopes[$key] = [
+                    'store_id' => (int)$row['store_id'],
+                    'website_id' => (int)$row['website_id'],
+                ];
+            }
+        }
+
+        return array_values($scopes);
     }
 
     private function retentionDays(string $path, int $fallback, int $maximum, int $storeId): int

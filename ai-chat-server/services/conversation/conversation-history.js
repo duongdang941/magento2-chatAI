@@ -5,6 +5,32 @@ import { contextBytes, fitHistoryToBudget, truncateUtf8Middle } from '../orchest
 import { normalizeProviderResponseMetadata } from '../orchestration/provider-response-envelope.js';
 
 const CATALOG_CONTEXT_MARKER = '[CATALOG_CONTEXT:';
+const MAX_STORED_WORKED_FOR_MS = 24 * 60 * 60 * 1000;
+
+function normalizeWorkedForMs(value) {
+    return Math.max(0, Math.min(
+        MAX_STORED_WORKED_FOR_MS,
+        Math.floor(Number(value) || 0)
+    ));
+}
+
+function normalizeActivityLanguage(value) {
+    const language = String(value || '').trim();
+    return /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$/.test(language)
+        ? language.slice(0, 35)
+        : '';
+}
+
+function normalizeActivityTurnSummary(value) {
+    const summary = String(value || '').replace(/\s+/g, ' ').trim();
+    return summary.length >= 12
+        && summary.length <= 120
+        && (summary.match(/\{duration\}/g) || []).length === 1
+        && !/[<>`]/.test(summary)
+        && !/(?:https?:\/\/|www\.)/i.test(summary)
+        ? summary
+        : '';
+}
 
 export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } = {}) {
     function extractTextFromParts(parts) {
@@ -26,6 +52,10 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
 
     function normalizeGuestHistoryMessage(message) {
         const role = message?.role === 'user' ? 'user' : 'assistant';
+        const interrupted = message?.interrupted === true;
+        const interruptionReason = String(message?.interruption_reason || '') === 'connection_lost'
+            ? 'connection_lost'
+            : '';
         const sourceParts = Array.isArray(message?.parts) ? message.parts : [];
         const rawText = sourceParts.length > 0
             ? sourceParts.map((part) => part?.text || part?.raw || '').filter(Boolean).join('\n\n')
@@ -57,6 +87,17 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
             .map((part) => normalizeOrderAddressFormPart(part))
             .filter(Boolean);
 
+        if (!text && role === 'assistant' && interrupted) {
+            return {
+                role: 'assistant',
+                content: '',
+                interrupted: true,
+                stopped_after_seconds: Math.max(0, Math.floor(Number(message?.stopped_after_seconds) || 0)),
+                ...(interruptionReason ? { interruption_reason: interruptionReason } : {}),
+                parts: []
+            };
+        }
+
         if (!text && (role === 'user' || (
             imageParts.length === 0
             && guestOrderAccessParts.length === 0
@@ -70,6 +111,11 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
         return {
             role: 'assistant',
             content: text,
+            ...(interrupted ? {
+                interrupted: true,
+                stopped_after_seconds: Math.max(0, Math.floor(Number(message?.stopped_after_seconds) || 0)),
+                ...(interruptionReason ? { interruption_reason: interruptionReason } : {})
+            } : {}),
             parts: [
                 ...(text ? [{ type: 'text', raw: text }] : []),
                 ...imageParts,
@@ -83,6 +129,13 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
         let message = sourceMessage;
         let interrupted = message?.interrupted === true;
         let stoppedAfterSeconds = Math.max(0, Math.floor(Number(message?.stopped_after_seconds) || 0));
+        let interruptionReason = String(message?.interruption_reason || '') === 'connection_lost'
+            ? 'connection_lost'
+            : '';
+        let workedForMs = Math.max(
+            normalizeWorkedForMs(message?.workedForMs),
+            normalizeWorkedForMs(message?.worked_for_ms)
+        );
 
         if (message.role !== 'user' && !Array.isArray(message.parts) && typeof message.content === 'string') {
             try {
@@ -93,9 +146,21 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
                         0,
                         Math.floor(Number(storedPayload.stopped_after_seconds) || 0)
                     );
+                    interruptionReason = String(storedPayload.interruption_reason || '') === 'connection_lost'
+                        ? 'connection_lost'
+                        : '';
+                    workedForMs = Math.max(
+                        normalizeWorkedForMs(storedPayload.workedForMs),
+                        normalizeWorkedForMs(storedPayload.worked_for_ms)
+                    );
                     message = {
                         ...message,
-                        content: storedPayload.text || message.content,
+                        // An interrupted request can have no assistant token
+                        // yet. Preserve its intentionally blank text rather
+                        // than falling back to the serialized JSON payload.
+                        content: Object.prototype.hasOwnProperty.call(storedPayload, 'text')
+                            ? String(storedPayload.text || '')
+                            : message.content,
                         parts: storedPayload.parts,
                         source: storedPayload.source === 'support_agent' ? 'support_agent' : '',
                         sender_label: storedPayload.source === 'support_agent'
@@ -105,7 +170,9 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
                             ? { provider_meta: normalizeProviderResponseMetadata(storedPayload.provider_meta) }
                             : {}),
                         interrupted,
-                        stopped_after_seconds: stoppedAfterSeconds
+                        stopped_after_seconds: stoppedAfterSeconds,
+                        interruption_reason: interruptionReason,
+                        workedForMs
                     };
                 }
             } catch {
@@ -116,6 +183,19 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
         if (message.role === 'user') return normalizeStoredUserMessage(message);
 
         const metadata = normalizeStoredMessageMetadata(message);
+
+        if (interrupted && Array.isArray(message.parts) && message.parts.length === 0) {
+            return {
+                ...metadata,
+                role: 'assistant',
+                content: '',
+                interrupted: true,
+                stopped_after_seconds: stoppedAfterSeconds,
+                ...(interruptionReason ? { interruption_reason: interruptionReason } : {}),
+                workedForMs,
+                parts: []
+            };
+        }
 
         if (Array.isArray(message.parts) && message.parts.length > 0) {
             return {
@@ -128,8 +208,10 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
                     : '',
                 ...(interrupted ? {
                     interrupted: true,
-                    stopped_after_seconds: stoppedAfterSeconds
+                    stopped_after_seconds: stoppedAfterSeconds,
+                    ...(interruptionReason ? { interruption_reason: interruptionReason } : {})
                 } : {}),
+                workedForMs,
                 parts: message.parts.map((part, index) => normalizeStoredPart(part, message, index))
             };
         }
@@ -141,7 +223,8 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
             content,
             ...(interrupted ? {
                 interrupted: true,
-                stopped_after_seconds: stoppedAfterSeconds
+                stopped_after_seconds: stoppedAfterSeconds,
+                ...(interruptionReason ? { interruption_reason: interruptionReason } : {})
             } : {}),
             parts: [{ id: `${message.entity_id}-0`, type: 'text', raw: content, html: content }]
         };
@@ -321,10 +404,13 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
     }
 
     function buildAssistantStoragePayload(parts, metadata = {}) {
-        const normalizedParts = coalesceProductParts(parts
+        const normalizedParts = coalesceProductParts((Array.isArray(parts) ? parts : [])
             .map((part) => normalizeStoragePart(part))
             .filter(Boolean));
-        if (normalizedParts.length === 0) return '';
+        // Keep an empty interrupted assistant row durable. Without it, a page
+        // reload before the first streamed token leaves the saved shopper turn
+        // with no visible recovery control after history hydration.
+        if (normalizedParts.length === 0 && metadata.interrupted !== true) return '';
 
         const payload = {
             version: 1,
@@ -332,12 +418,17 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
             text: extractTextFromParts(normalizedParts),
             parts: normalizedParts
         };
+        const workedForMs = normalizeWorkedForMs(metadata.worked_for_ms ?? metadata.workedForMs);
+        if (workedForMs > 0) payload.worked_for_ms = workedForMs;
         if (metadata.interrupted === true) {
             payload.interrupted = true;
             payload.stopped_after_seconds = Math.max(
                 0,
                 Math.floor(Number(metadata.stopped_after_seconds) || 0)
             );
+            if (metadata.interruption_reason === 'connection_lost') {
+                payload.interruption_reason = 'connection_lost';
+            }
         }
         const providerMeta = normalizeProviderResponseMetadata(metadata.provider_meta);
         if (providerMeta) payload.provider_meta = providerMeta;
@@ -416,6 +507,9 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
                 const tool = String(source.tool || '').replace(/[^A-Za-z0-9_]/g, '').slice(0, 80);
                 if (!tool) continue;
                 const resultCount = Number(source.result_count);
+                const label = String(source.label || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+                const language = normalizeActivityLanguage(source.language);
+                const turnSummary = normalizeActivityTurnSummary(source.turn_summary);
                 events.push({
                     id,
                     type,
@@ -425,20 +519,10 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
                         : 'completed',
                     ...(Number.isFinite(resultCount) && resultCount >= 0
                         ? { result_count: Math.min(10000, Math.floor(resultCount)) }
-                        : {})
-                });
-                continue;
-            }
-
-            if (source.source === 'provider_reasoning') {
-                const content = sanitizeCustomerResponse(source.content || '').slice(0, 16000);
-                if (!content) continue;
-                events.push({
-                    id,
-                    type,
-                    source: 'provider_reasoning',
-                    content,
-                    state: 'completed'
+                        : {}),
+                    ...(label ? { label } : {}),
+                    ...(language ? { language } : {}),
+                    ...(turnSummary ? { turn_summary: turnSummary } : {})
                 });
                 continue;
             }

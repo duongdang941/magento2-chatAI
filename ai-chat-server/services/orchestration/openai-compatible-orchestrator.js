@@ -16,6 +16,10 @@ import { openAiToolDefinitions } from '../tools/tool-registry.js';
 import { buildAgentSystemInstruction } from './agent-system-guidance.js';
 import { pageContextInstruction } from '../catalog/page-context.js';
 import {
+    FINAL_SYNTHESIS_INSTRUCTION,
+    isFinalSynthesisTurn
+} from './tool-rounds.js';
+import {
     buildFallbackMessage,
     createProviderNeutralToolFlow,
     isBlockingToolFailure
@@ -27,15 +31,6 @@ import {
     mergeProviderUsage
 } from './provider-response-envelope.js';
 
-const DEFAULT_BASE_URL = 'https://raud4eq.9router.com/v1';
-const DEFAULT_FALLBACK_BASE_URL = 'https://aud4eq.tailabefe9.ts.net/v1';
-const DEFAULT_MODEL = 'cx/gpt-5.5';
-const DEFAULT_COCKPIT_BASE_URL = 'http://127.0.0.1:49998/v1';
-const DEFAULT_COCKPIT_MODEL = 'gpt-5.6-luna';
-const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
-const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini';
-const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
-const DEFAULT_OPENROUTER_MODEL = 'google/gemini-2.0-flash-001';
 const configuredMaxOutputTokens = Number(process.env.AI_MAX_OUTPUT_TOKENS || 1536);
 const MAX_OUTPUT_TOKENS = Number.isFinite(configuredMaxOutputTokens)
     ? Math.max(256, Math.min(Math.trunc(configuredMaxOutputTokens), 4096))
@@ -49,8 +44,8 @@ const tools = openAiToolDefinitions();
 export const streamChatResponse = async (userMessage, ws, history = [], customerToken = null, config = {}, options = {}) => {
     const signal = options.signal || null;
     const isCancelled = () => signal?.aborted || (typeof options.isCancelled === 'function' && options.isCancelled());
-    const provider = getOpenAiCompatibleProvider(config.provider);
-    const providerConfig = resolveProviderConfig(provider, config);
+    const provider = String(config.provider || 'custom');
+    const providerConfig = resolveProviderConfig(config);
     const { apiKey, model, candidates, label } = providerConfig;
     const useResponsesApi = config.api_format === 'openai-responses';
     const thoughtLevel = normalizeThoughtLevel(config.thought_level);
@@ -76,10 +71,10 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         Math.min(Number(agentConfig.provider_stream_timeout_ms) || PROVIDER_STREAM_TIMEOUT_MS, 300000)
     );
 
-    if (!apiKey) {
+    if (!apiKey || !model || candidates.length === 0) {
         ws.send(JSON.stringify({
             type: 'error',
-            content: `${label} API key is missing. Configure the selected provider in Magento Admin or the gateway environment.`
+            content: `${label} is incomplete. Configure its API key, base URL, and model in Magento Admin.`
         }));
         return { cancelled: false };
     }
@@ -137,12 +132,21 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
     let lastToolOutcome = null;
     let toolErrorMessage = '';
     let pendingProductPresentation = null;
+    // Declared at function scope: the terminal done frame reports it after the
+    // iteration loop has exited, so a loop-scoped binding would throw
+    // ReferenceError exactly when the turn succeeds.
+    let finishReason = '';
     const progressPulse = createResponseProgressPulse({ ws, isCancelled });
 
     try {
         progressPulse.start();
-        for (let iteration = 0; iteration < maxToolRounds; iteration += 1) {
+        // A provider turn that uses the final permitted tool batch still
+        // needs one following turn to turn verified tool output into shopper
+        // prose. That final turn deliberately receives no tool definitions.
+        for (let iteration = 0; iteration <= maxToolRounds; iteration += 1) {
             if (isCancelled()) return { cancelled: true };
+
+            const finalSynthesisOnly = isFinalSynthesisTurn(iteration, maxToolRounds);
 
             const assistantMessage = {
                 role: 'assistant',
@@ -154,27 +158,35 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 emit: content => ws.send(JSON.stringify({ type: 'chunk', content })),
                 isCancelled
             });
-            const thinkingEmitter = createSmoothChunkEmitter({
-                emit: delta => ws.send(JSON.stringify({
-                    type: 'thinking_delta',
-                    step_id: `reasoning-${iteration}`,
-                    delta,
-                    visibility: 'public'
-                })),
-                isCancelled,
-                intervalMs: 18,
-                minChars: 1,
-                maxChars: 24
-            });
-            let finishReason = '';
             for (let providerAttempt = 0; providerAttempt < 2; providerAttempt += 1) {
                 const streamRequest = createProviderStreamSignal(signal, providerStreamTimeoutMs);
                 try {
                     const endpoint = useResponsesApi ? `${baseUrl}/responses` : `${baseUrl}/chat/completions`;
-                    const requestMessages = useResponsesApi ? buildResponsesInput(messages) : messages;
+                    const messagesForRequest = finalSynthesisOnly
+                        ? [{
+                            ...messages[0],
+                            content: `${messages[0].content}\n\n${FINAL_SYNTHESIS_INSTRUCTION}`
+                        }, ...messages.slice(1)]
+                        : messages;
+                    const requestMessages = useResponsesApi ? buildResponsesInput(messagesForRequest) : messagesForRequest;
                     const requestTools = useResponsesApi
                         ? tools.map(({ function: definition }) => ({ type: 'function', ...definition }))
                         : tools;
+                    const toolSelection = finalSynthesisOnly
+                        ? {}
+                        : useResponsesApi
+                            ? {
+                                tools: requestTools,
+                                tool_choice: toolFlow.shouldForceProductSearch()
+                                    ? { type: 'function', name: 'searchProducts' }
+                                    : 'auto'
+                            }
+                            : {
+                                tools: requestTools,
+                                tool_choice: toolFlow.shouldForceProductSearch()
+                                    ? { type: 'function', function: { name: 'searchProducts' } }
+                                    : 'auto'
+                            };
                     const response = await fetch(endpoint, {
                         method: 'POST',
                         headers: {
@@ -188,10 +200,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                             stream: true,
                             max_output_tokens: maxOutputTokens,
                             ...(thoughtLevel ? { reasoning: { effort: thoughtLevel, summary: 'auto' } } : {}),
-                            tools: requestTools,
-                            tool_choice: toolFlow.shouldForceProductSearch()
-                                ? { type: 'function', name: 'searchProducts' }
-                                : 'auto'
+                            ...toolSelection
                         } : {
                             model,
                             messages: requestMessages,
@@ -199,10 +208,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                             max_tokens: maxOutputTokens,
                             stream_options: { include_usage: true },
                             ...(thoughtLevel ? { reasoning_effort: thoughtLevel } : {}),
-                            tools: requestTools,
-                            tool_choice: toolFlow.shouldForceProductSearch()
-                                ? { type: 'function', function: { name: 'searchProducts' } }
-                                : 'auto'
+                            ...toolSelection
                         }),
                         signal: streamRequest.signal
                     });
@@ -217,7 +223,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                                 if (delta.content) assistantMessage.content += delta.content;
                                 if (typeof delta.reasoning === 'string' && delta.reasoning.length > 0) {
                                     assistantMessage.reasoning += delta.reasoning;
-                                    thinkingEmitter.push(delta.reasoning);
                                 }
                                 if (delta.tool_calls) collectToolCalls(assistantMessage.tool_calls, delta.tool_calls);
                                 if (delta.finish_reason) finishReason = delta.finish_reason;
@@ -234,11 +239,9 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
 
                             if (typeof delta.reasoning_content === 'string' && delta.reasoning_content.length > 0) {
                                 assistantMessage.reasoning += delta.reasoning_content;
-                                thinkingEmitter.push(delta.reasoning_content);
                             }
                             if (typeof delta.reasoning === 'string' && delta.reasoning.length > 0) {
                                 assistantMessage.reasoning += delta.reasoning;
-                                thinkingEmitter.push(delta.reasoning);
                             }
 
                             if (typeof delta.content === 'string' && delta.content.length > 0) {
@@ -248,7 +251,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                         isCancelled
                         });
                     if (parsedStream.cancelled) return { cancelled: true };
-                    await thinkingEmitter.drain();
                     finishReason = parsedStream.finishReason || finishReason;
                     mergeProviderUsage(providerResponse, parsedStream.usage);
                     addProviderCitations(providerResponse, parsedStream.citations);
@@ -274,7 +276,11 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
 
             if (isCancelled()) return { cancelled: true };
 
-            const toolCalls = assistantMessage.tool_calls.filter((toolCall) => toolCall?.function?.name);
+            const rawToolCalls = assistantMessage.tool_calls.filter((toolCall) => toolCall?.function?.name);
+            const toolCalls = finalSynthesisOnly ? [] : rawToolCalls;
+            if (finalSynthesisOnly && rawToolCalls.length > 0) {
+                logger.warn('chat', 'Provider ignored the tool-free final synthesis turn.');
+            }
             if (assistantMessage.content || toolCalls.length > 0) {
                 messages.push({
                     role: 'assistant',
@@ -332,6 +338,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             if (stopAfterToolBatch) break;
 
             if (toolErrorMessage) {
+                toolFlow.completePendingActivity();
                 ws.send(JSON.stringify({
                     type: 'error',
                     content: `Magento tool failed: ${toolErrorMessage}`
@@ -355,6 +362,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
 
         // Retrieval is internal model evidence. Publish exactly one final
         // product result after the customer-facing prose has completed.
+        toolFlow.completePendingActivity();
         emitProductPresentation(ws, pendingProductPresentation);
         ws.send(JSON.stringify({
             type: 'done',
@@ -367,6 +375,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         }
 
         console.error(`[${label} Adapter]`, summarizeError(error));
+        toolFlow.completePendingActivity();
         ws.send(JSON.stringify({ type: 'error', content: formatProviderError(error, label) }));
         return { cancelled: false, error };
     } finally {
@@ -375,7 +384,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
 };
 
 function normalizeBaseUrl(baseUrl) {
-    return String(baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, '');
+    return String(baseUrl || '').trim().replace(/\/+$/, '');
 }
 
 function normalizeThoughtLevel(value) {
@@ -383,97 +392,26 @@ function normalizeThoughtLevel(value) {
     return ['low', 'medium', 'high', 'xhigh'].includes(level) ? level : '';
 }
 
-function getOpenAiCompatibleProvider(value) {
-    return ['openai', 'openrouter', '9router', 'cockpit'].includes(value) ? value : '9router';
-}
-
-function resolveProviderConfig(provider, config = {}) {
-    if (config.base_url) {
-        return {
-            apiKey: config.api_key || '',
-            model: config.model || 'default-model',
-            candidates: [config.base_url],
-            label: config.name || provider || 'Custom Provider'
-        };
-    }
-    switch (provider) {
-        case 'openai':
-            return {
-                apiKey: config.api_key || process.env.OPENAI_API_KEY || '',
-                model: config.model || process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL,
-                candidates: [normalizeBaseUrl(config.base_url || process.env.OPENAI_BASE_URL || DEFAULT_OPENAI_BASE_URL)],
-                label: 'OpenAI'
-            };
-        case 'openrouter':
-            return {
-                apiKey: config.api_key || process.env.OPENROUTER_API_KEY || '',
-                model: config.model || process.env.OPENROUTER_MODEL || DEFAULT_OPENROUTER_MODEL,
-                candidates: [normalizeBaseUrl(config.base_url || process.env.OPENROUTER_BASE_URL || DEFAULT_OPENROUTER_BASE_URL)],
-                label: 'OpenRouter'
-            };
-        case 'cockpit':
-            return {
-                apiKey: config.api_key || process.env.COCKPIT_API_KEY || '',
-                model: config.model || process.env.COCKPIT_MODEL || DEFAULT_COCKPIT_MODEL,
-                candidates: buildCockpitBaseUrlCandidates(config),
-                label: 'Cockpit'
-            };
-        case '9router':
-        default:
-            return {
-                apiKey: config.api_key || process.env.NINE_ROUTER_API_KEY || '',
-                model: config.model || process.env.NINE_ROUTER_MODEL || DEFAULT_MODEL,
-                candidates: buildBaseUrlCandidates(config),
-                label: '9router'
-            };
-    }
-}
-
-function buildBaseUrlCandidates(config = {}) {
-    const configured = normalizeBaseUrl(config.base_url || process.env.NINE_ROUTER_BASE_URL || DEFAULT_BASE_URL);
-    const publicBase = normalizeBaseUrl(DEFAULT_BASE_URL);
-    const fallback = normalizeBaseUrl(process.env.NINE_ROUTER_FALLBACK_BASE_URL || DEFAULT_FALLBACK_BASE_URL);
-    return Array.from(new Set([configured, publicBase, fallback].filter(Boolean)));
-}
-
-function buildCockpitBaseUrlCandidates(config = {}) {
-    const configured = normalizeBaseUrl(
-        config.base_url || process.env.COCKPIT_BASE_URL || DEFAULT_COCKPIT_BASE_URL
-    );
-    // Cockpit is local-only. Never fall back to a remote provider from this lane.
-    return configured ? [configured] : [];
+function resolveProviderConfig(config = {}) {
+    const baseUrl = normalizeBaseUrl(config.base_url);
+    return {
+        apiKey: String(config.api_key || '').trim(),
+        model: String(config.model || '').trim(),
+        candidates: baseUrl ? [baseUrl] : [],
+        label: String(config.name || config.provider || 'Custom Provider').trim() || 'Custom Provider'
+    };
 }
 
 async function resolveReachableBaseUrl({ apiKey, signal, candidates }) {
-    if (candidates.length === 1) {
-        return candidates[0];
+    // A provider entry is fully defined in Magento. Never probe or fall back
+    // to a built-in endpoint with this provider's credential.
+    const candidate = Array.isArray(candidates)
+        ? candidates.map(normalizeBaseUrl).find(Boolean)
+        : '';
+    if (!candidate) {
+        throw new Error('The custom provider base URL is missing.');
     }
-    let lastError = null;
-
-    for (const candidate of candidates) {
-        try {
-            const response = await fetch(`${candidate}/models`, {
-                method: 'GET',
-                headers: {
-                    Authorization: `Bearer ${apiKey}`,
-                    Accept: 'application/json'
-                },
-                signal
-            });
-
-            if (response.ok) {
-                return candidate;
-            }
-
-            const error = new Error(`Base URL ${candidate} returned HTTP ${response.status}`);
-            error.status = response.status;
-            lastError = error;
-        } catch (error) {
-            lastError = error;
-        }
-    }
-
-    throw lastError || new Error('Unable to reach 9router endpoints.');
+    return candidate;
 }
 
 function formatHistory(history) {
@@ -736,12 +674,10 @@ async function buildHttpError(response) {
     return readProviderErrorResponse(response, 'AI provider');
 }
 
-function formatProviderError(error, providerLabel = '9router') {
+function formatProviderError(error, providerLabel = 'Custom provider') {
     const message = String(error?.message || '');
     const code = String(error?.cause?.code || error?.code || '');
-    const baseUrlHint = providerLabel === '9router'
-        ? 'Please check the public/tailnet base_url in configuration.'
-        : 'Please check the base_url in configuration.';
+    const baseUrlHint = 'Please check the custom provider base URL in configuration.';
 
     if (error?.code === 'PROVIDER_STREAM_TIMEOUT') {
         return 'The AI service took too long to complete. Please try again with a shorter request.';
@@ -757,6 +693,12 @@ function formatProviderError(error, providerLabel = '9router') {
 
     if (Number.isInteger(error?.status) && error.status >= 500) {
         return `${providerLabel} endpoint returned HTTP ${error.status}. ${baseUrlHint}`;
+    }
+
+    // 404 almost always means a wrong model name or a base_url missing its
+    // version segment (e.g. https://host/v1), so name the usual suspects.
+    if (error?.status === 404 || /\bHTTP\s+404\b/i.test(message)) {
+        return `${providerLabel} rejected the request (HTTP 404). Check the provider base URL (must include the version path, e.g. /v1) and the model name.`;
     }
 
     if (error?.status === 429 || /quota|too many requests|rate[- ]?limit/i.test(message)) {
@@ -797,7 +739,6 @@ function isRetryableProviderError(error) {
 
 export {
     buildFallbackMessage,
-    buildBaseUrlCandidates,
     formatProviderError,
     isBlockingToolFailure,
     isRetryableProviderError,

@@ -4,19 +4,11 @@ function clampInteger(value, fallback, minimum, maximum) {
     return Math.max(minimum, Math.min(Math.trunc(parsed), maximum));
 }
 
-function canonicalize(value) {
-    if (Array.isArray(value)) return value.map(canonicalize);
-    if (!value || typeof value !== 'object') return value;
-
-    return Object.fromEntries(
-        Object.keys(value)
-            .sort()
-            .map((key) => [key, canonicalize(value[key])])
-    );
-}
-
 function fingerprint(name, args) {
-    return `${String(name || '')}:${JSON.stringify(canonicalize(args || {}))}`;
+    // Use the same server-owned semantic identity as the customer timeline.
+    // Presentation/language evidence and pagination must never turn one
+    // product operation into a second visible or executed action.
+    return createToolActivityContinuationKey({ toolName: name, args });
 }
 
 /**
@@ -72,3 +64,4 @@ export function toolBudgetMessage(reason) {
             return 'The tool execution budget is exhausted. Finish the response from the verified evidence already returned.';
     }
 }
+import { createToolActivityContinuationKey } from './tool-activity.js';

@@ -30,6 +30,24 @@
     // import stays last so component-specific geometry cannot override it.
     @import "source/chat-widget/_close-buttons.less";
 
+    // Keep this in the entrypoint: Magento's local preprocessor can retain
+    // an older imported partial. Reasoning headings label their next
+    // paragraph and must not inherit the roomy assistant-message heading
+    // spacing.
+    .afd-ai-chat__reasoning-step-message,
+    .afd-ai-chat__thinking-step-message {
+        h1, h2, h3, h4, h5, h6 {
+            margin: 0.1rem 0 0.12rem;
+            font-size: inherit;
+            line-height: 1.35;
+        }
+
+        h1:first-child, h2:first-child, h3:first-child,
+        h4:first-child, h5:first-child, h6:first-child {
+            margin-top: 0;
+        }
+    }
+
     // Keep this small composition contract at the entrypoint. Magento's
     // preprocessor can retain an imported partial during local static builds;
     // these final rules guarantee the latest composer order even in that

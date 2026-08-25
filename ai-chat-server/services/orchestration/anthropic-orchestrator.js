@@ -10,6 +10,10 @@ import { anthropicToolDefinitions } from '../tools/tool-registry.js';
 import { buildAgentSystemInstruction } from './agent-system-guidance.js';
 import { pageContextInstruction } from '../catalog/page-context.js';
 import {
+    FINAL_SYNTHESIS_INSTRUCTION,
+    isFinalSynthesisTurn
+} from './tool-rounds.js';
+import {
     formatProviderError,
     readProviderErrorResponse
 } from '../providers/provider-error.js';
@@ -141,24 +145,19 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
 
     try {
         progressPulse.start();
-        for (let iteration = 0; iteration < maxToolRounds; iteration += 1) {
+        // Keep one request after the final tool batch for synthesis. Omitting
+        // tool definitions on that request prevents a ninth tool execution.
+        for (let iteration = 0; iteration <= maxToolRounds; iteration += 1) {
             if (isCancelled()) return { cancelled: true };
+
+            const finalSynthesisOnly = isFinalSynthesisTurn(iteration, maxToolRounds);
+            const requestSystemInstruction = finalSynthesisOnly
+                ? `${systemInstruction}\n\n${FINAL_SYNTHESIS_INSTRUCTION}`
+                : systemInstruction;
 
             const smoothEmitter = createSmoothChunkEmitter({
                 emit: content => ws.send(JSON.stringify({ type: 'chunk', content })),
                 isCancelled
-            });
-            const thinkingEmitter = createSmoothChunkEmitter({
-                emit: delta => ws.send(JSON.stringify({
-                    type: 'thinking_delta',
-                    step_id: `reasoning-${iteration}`,
-                    delta,
-                    visibility: 'public'
-                })),
-                isCancelled,
-                intervalMs: 18,
-                minChars: 1,
-                maxChars: 24
             });
             const customerTurnBuffer = createCustomerTurnBuffer();
 
@@ -188,11 +187,11 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                     body: JSON.stringify({
                         model,
                         messages,
-                        system: systemInstruction,
+                        system: requestSystemInstruction,
                         max_tokens: thinking ? Math.max(maxOutputTokens, thinking.budget_tokens + 256) : maxOutputTokens,
                         stream: true,
                         ...(thinking ? { thinking } : {}),
-                        tools: tools.length > 0 ? tools : undefined
+                        ...(!finalSynthesisOnly && tools.length > 0 ? { tools } : {})
                     }),
                     signal: controller.signal
                 });
@@ -256,8 +255,17 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                                     currentBlock = { type: 'text', text: '' };
                                     currentBlocks.push(currentBlock);
                                 } else if (cb.type === 'thinking') {
-                                    currentBlock = { type: 'thinking', thinking: '' };
+                                    currentBlock = { type: 'thinking', thinking: '', signature: '' };
                                     currentBlocks.push(currentBlock);
+                                } else if (cb.type === 'redacted_thinking') {
+                                    // Redacted reasoning is opaque server-side
+                                    // state; it must be replayed verbatim on
+                                    // later tool rounds or the API rejects the
+                                    // follow-up request.
+                                    currentBlocks.push({
+                                        type: 'redacted_thinking',
+                                        data: cb.data
+                                    });
                                 }
                                 addProviderCitations(providerResponse, cb.citations);
                             } else if (eventType === 'content_block_delta' || parsed.type === 'content_block_delta') {
@@ -272,7 +280,11 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                                     customerTurnBuffer.push(delta.text);
                                 } else if (delta.type === 'thinking_delta') {
                                     if (currentBlock) currentBlock.thinking += delta.thinking;
-                                    if (delta.thinking) thinkingEmitter.push(delta.thinking);
+                                } else if (delta.type === 'signature_delta') {
+                                    // Thinking blocks replayed on the next tool
+                                    // round need their signature or the API
+                                    // rejects the follow-up request.
+                                    if (currentBlock) currentBlock.signature += delta.signature || '';
                                 } else if (delta.type === 'input_json_delta' && currentToolUse) {
                                     currentToolUse.input_json += delta.partial_json;
                                 }
@@ -298,8 +310,11 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 if (signal) signal.removeEventListener('abort', forwardAbort);
             }
 
-            const toolCalls = currentBlocks.filter(b => b.type === 'tool_use');
-            await thinkingEmitter.drain();
+            const rawToolCalls = currentBlocks.filter(b => b.type === 'tool_use');
+            const toolCalls = finalSynthesisOnly ? [] : rawToolCalls;
+            if (finalSynthesisOnly && rawToolCalls.length > 0) {
+                console.warn('[Anthropic Adapter] Provider ignored the tool-free final synthesis turn.');
+            }
             if (toolCalls.length === 0) {
                 const finalText = customerTurnBuffer.commit();
                 if (finalText) {
@@ -331,12 +346,9 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 const callName = tc.name;
                 const callArgs = tc.input || {};
 
-                ws.send(JSON.stringify({
-                    type: 'tool_call',
-                    name: callName,
-                    arguments: callArgs
-                }));
-
+                // Customer progress uses the same sanitized `tool_activity`
+                // frames as the other adapters (emitted inside toolFlow).
+                // Raw provider tool names and arguments never reach the browser.
                 const outcome = await toolFlow.execute({
                     name: callName,
                     args: callArgs,
@@ -372,6 +384,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             }
 
             if (toolErrorMessage) {
+                toolFlow.completePendingActivity();
                 ws.send(JSON.stringify({
                     type: 'error',
                     content: `Magento tool failed: ${toolErrorMessage}`
@@ -392,6 +405,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 content: buildFallbackMessage()
             }));
         }
+        toolFlow.completePendingActivity();
         emitProductPresentation(ws, pendingProductPresentation);
         ws.send(JSON.stringify({
             type: 'done',
@@ -401,6 +415,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         return { cancelled: false, hasVisibleProse: hasVisibleText };
     } catch (error) {
         console.error('[Anthropic Adapter] Error during chat streaming:', summarizeError(error));
+        toolFlow.completePendingActivity();
         ws.send(JSON.stringify({
             type: 'error',
             error_code: error.code || 'provider_error',

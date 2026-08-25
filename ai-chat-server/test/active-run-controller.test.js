@@ -29,3 +29,14 @@ test('preserves request ids and recognizes abort failures', () => {
     assert.equal(isAbortError(Object.assign(new Error('stopped'), { name: 'AbortError' })), true);
     assert.equal(isAbortError(new Error('provider failed')), false);
 });
+
+test('records a closed connection as recoverable instead of a shopper stop', () => {
+    const messages = [];
+    const ws = { send: (message) => messages.push(JSON.parse(message)) };
+    const controller = createActiveRunController({ isSocketOpen: () => true });
+    const run = controller.createActiveRun(ws, 'request-reload');
+
+    assert.equal(controller.cancelActiveRun(ws, null, 'connection_lost'), true);
+    assert.equal(run.interruptionReason, 'connection_lost');
+    assert.equal(messages[0].interruption_reason, 'connection_lost');
+});

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { acquireImageGenerationAdmission } from '../services/media/image-generation-guard.js';
 
-test('applies customer hourly, daily and cooldown limits before acquiring capacity', async () => {
+test('applies customer hourly, daily and cooldown limits before starting generation', async () => {
     const calls = [];
     const runtime = {
         async consumeRateLimit(key, options) {
@@ -32,19 +32,22 @@ test('applies customer hourly, daily and cooldown limits before acquiring capaci
     });
 
     assert.equal(admission.allowed, true);
+    // Capacity is secured first; the scarce time-window counters are only
+    // consumed afterwards so a busy slot cannot burn daily attempts.
+    assert.equal(calls[0].namespace, 'image-generation');
+    assert.equal(calls[0].options.concurrency, 1);
     assert.equal(calls.filter((call) => call.options?.windowMs).length, 3);
-    assert.equal(calls.at(-1).namespace, 'image-generation');
-    assert.equal(calls.at(-1).options.concurrency, 1);
 });
 
-test('returns the longest retry interval when an image quota is exhausted', async () => {
+test('releases reserved capacity and reports the longest retry when a quota rejects', async () => {
+    let released = false;
     const runtime = {
         async consumeRateLimit(key) {
             if (key.endsWith(':day')) return { allowed: false, retryAfterMs: 90000 };
             return { allowed: true, retryAfterMs: 0 };
         },
         async acquireScopedCapacity() {
-            throw new Error('capacity must not be acquired after quota rejection');
+            return { release: async () => { released = true; } };
         }
     };
 
@@ -60,6 +63,34 @@ test('returns the longest retry interval when an image quota is exhausted', asyn
         reason: 'image_rate_limited',
         retryAfterMs: 90000
     });
+    assert.equal(released, true);
+});
+
+test('does not burn scarce hourly or daily quota while the identity slot is busy', async () => {
+    const quotaKeys = [];
+    const runtime = {
+        async consumeRateLimit(key) {
+            quotaKeys.push(key);
+            return { allowed: true, retryAfterMs: 0 };
+        },
+        async acquireScopedCapacity() {
+            return null;
+        }
+    };
+
+    const admission = await acquireImageGenerationAdmission({
+        runtime,
+        identity: 'guest:busy',
+        isCustomer: false,
+        config: { image_generation: { cooldown_seconds: 60 } }
+    });
+
+    assert.deepEqual(admission, {
+        allowed: false,
+        reason: 'image_generation_busy',
+        retryAfterMs: 5000
+    });
+    assert.deepEqual(quotaKeys, []);
 });
 
 test('keeps capacity protection without charging the provider Image API quota for a chat SVG fallback', async () => {

@@ -424,6 +424,9 @@ export function createMessageHandlers(deps) {
 
             let savedMessageId = null;
             let persistent = false;
+            const sendIfOpen = (payload) => {
+                if (isSocketOpen(ws)) ws.send(payload);
+            };
             if (client.customerId) {
                 savedMessageId = await db.saveMessage(conversationId, client.customerId, 'assistant', assistantPayload, null, catalogScope);
                 persistent = true;
@@ -434,9 +437,9 @@ export function createMessageHandlers(deps) {
                         hasImage: currentUser.hasImage
                     });
                     await db.updateConversationTitle(conversationId, client.customerId, newTitle, catalogScope);
-                    ws.send(JSON.stringify({ type: 'refresh_conversations' }));
+                    sendIfOpen(JSON.stringify({ type: 'refresh_conversations' }));
                 }
-                ws.send(attachRequestId({ type: 'message_saved', role: 'assistant', entity_id: savedMessageId, persistent }, run.requestId));
+                sendIfOpen(attachRequestId({ type: 'message_saved', role: 'assistant', entity_id: savedMessageId, persistent }, run.requestId));
                 void reportAssistantCompletion({
                     config: aiConfig,
                     client: { ...client, guestId: guestHistoryIdentity(client) },
@@ -460,7 +463,7 @@ export function createMessageHandlers(deps) {
                 );
             }
 
-            ws.send(attachRequestId({ type: 'message_saved', role: 'assistant', entity_id: savedMessageId, persistent }, run.requestId));
+            sendIfOpen(attachRequestId({ type: 'message_saved', role: 'assistant', entity_id: savedMessageId, persistent }, run.requestId));
             void reportAssistantCompletion({
                 config: aiConfig,
                 client: { ...client, guestId: guestHistoryIdentity(client) },
@@ -470,7 +473,7 @@ export function createMessageHandlers(deps) {
                 durationMs: Date.now() - processingStartedAt
             });
             await broadcastGuestConversation(ws, client, guestMode, conversationId);
-            ws.send(JSON.stringify({ type: 'refresh_conversations' }));
+            sendIfOpen(JSON.stringify({ type: 'refresh_conversations' }));
             return true;
         };
 
@@ -479,10 +482,12 @@ export function createMessageHandlers(deps) {
                 return interruptedResponsePersistence;
             }
 
-            const interruptedResponse = buildInterruptedAssistantPayload(assistantParts, run.startedAt);
-            if (interruptedResponse.parts.length === 0) {
-                return Promise.resolve(false);
-            }
+            const interruptedResponse = buildInterruptedAssistantPayload(
+                assistantParts,
+                run.startedAt,
+                Date.now(),
+                run.interruptionReason
+            );
 
             interruptedResponsePersistence = persistAssistantResponse(
                 interruptedResponse.parts,
@@ -702,7 +707,10 @@ export function createMessageHandlers(deps) {
 
             await persistAssistantResponse(
                 assistantParts,
-                { provider_meta: providerResponseMetadata },
+                {
+                    provider_meta: providerResponseMetadata,
+                    worked_for_ms: Math.max(0, Date.now() - run.startedAt)
+                },
                 { refreshTitle: true }
             );
 

@@ -67,6 +67,7 @@
                 <field id="expose_coupon_codes" translate="label comment" type="select" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
                     <label>Allow AI to Share Coupon Codes</label>
                     <comment>Disabled by default. Enable only for coupon rules whose codes are safe to disclose to every eligible shopper in this store view.</comment>
+                    <config_path>afd_ai/features/expose_coupon_codes</config_path>
                     <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
                     <depends>
                         <field id="enabled">1</field>
@@ -255,6 +256,24 @@
                     <label>Conversation Retention (Days)</label>
                     <comment>Allowed range: 1–730 days.</comment>
                     <config_path>afd_ai/privacy/conversation_retention_days</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
+                </field>
+                <field id="analytics_event_retention_days" translate="label comment" type="text" sortOrder="20" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Attribution Event Retention (Days)</label>
+                    <comment>Daily cleanup deletes AI attribution events older than this. Allowed range: 30–3650 days.</comment>
+                    <config_path>afd_ai/privacy/analytics_event_retention_days</config_path>
+                    <validate>validate-number validate-greater-than-zero</validate>
+                    <depends>
+                        <field id="afd_ai/general/enabled">1</field>
+                    </depends>
+                </field>
+                <field id="guardrail_audit_retention_days" translate="label comment" type="text" sortOrder="30" showInDefault="1" showInWebsite="0" showInStore="0">
+                    <label>Guardrail Audit Retention (Days)</label>
+                    <comment>Daily cleanup deletes guardrail decision records older than this. Allowed range: 30–3650 days.</comment>
+                    <config_path>afd_ai/privacy/guardrail_audit_retention_days</config_path>
                     <validate>validate-number validate-greater-than-zero</validate>
                     <depends>
                         <field id="afd_ai/general/enabled">1</field>

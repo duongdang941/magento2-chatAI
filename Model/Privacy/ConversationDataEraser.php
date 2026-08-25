@@ -18,9 +18,13 @@ class ConversationDataEraser
 {
     private const RETENTION_BATCH_SIZE = 500;
 
+    /** Telemetry tables keyed by the same owner identifiers as conversations. */
+    private const TELEMETRY_TABLES = ['afd_ai_analytics_event', 'afd_ai_guardrail_audit'];
+
     public function __construct(
         private readonly ResourceConnection $resource,
-        private readonly ChatAttachmentStorage $attachmentStorage
+        private readonly ChatAttachmentStorage $attachmentStorage,
+        private readonly \Psr\Log\LoggerInterface $logger
     ) {
     }
 
@@ -64,7 +68,28 @@ class ConversationDataEraser
         }
 
         $this->deleteAttachmentDirectories($rows);
+        $this->deleteTelemetryForOwner($owner);
         return $result;
+    }
+
+    /** @param array{sql:string,value:int|string} $owner */
+    private function deleteTelemetryForOwner(array $owner): void
+    {
+        foreach (self::TELEMETRY_TABLES as $table) {
+            try {
+                $this->resource->getConnection()->delete(
+                    $this->resource->getTableName($table),
+                    [$owner['sql'] => $owner['value']]
+                );
+            } catch (\Throwable $exception) {
+                // Best effort: the privacy-critical erasure above already
+                // committed and must not be reported as failed by telemetry.
+                $this->logger->warning('Afd AI privacy erase could not delete telemetry rows.', [
+                    'table' => $table,
+                    'exception' => $exception,
+                ]);
+            }
+        }
     }
 
     /** @return array{conversations:int,messages:int} */

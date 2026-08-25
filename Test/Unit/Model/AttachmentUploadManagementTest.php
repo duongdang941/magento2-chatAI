@@ -73,6 +73,7 @@ class AttachmentUploadManagementTest extends TestCase
         ]);
         $this->customerSession->method('getCustomerId')->willReturn(42);
         $this->scopeConfig->method('getValue')->willReturn('test-secret-key-123');
+        $this->config->method('getWebSocketTicketSecret')->willReturn('test-secret-key-123');
 
         $this->quotaCounter->expects($this->once())
             ->method('reserve')
@@ -102,6 +103,7 @@ class AttachmentUploadManagementTest extends TestCase
     {
         $this->customerSession->method('getCustomerId')->willReturn(42);
         $this->scopeConfig->method('getValue')->willReturn('test-secret-key-123');
+        $this->config->method('getWebSocketTicketSecret')->willReturn('test-secret-key-123');
 
         $writeDir = $this->createMock(\Magento\Framework\Filesystem\Directory\WriteInterface::class);
         $writeDir->method('isFile')->willReturnCallback(function (string $path) {
@@ -139,6 +141,7 @@ class AttachmentUploadManagementTest extends TestCase
     {
         $this->customerSession->method('getCustomerId')->willReturn(42);
         $this->scopeConfig->method('getValue')->willReturn('test-secret-key-123');
+        $this->config->method('getWebSocketTicketSecret')->willReturn('test-secret-key-123');
 
         $writeDir = $this->createMock(\Magento\Framework\Filesystem\Directory\WriteInterface::class);
         // First call: meta does not exist, file exists
@@ -187,5 +190,17 @@ class AttachmentUploadManagementTest extends TestCase
         // Second replay call
         $secondResult = $this->management->complete('att_test123', $validToken);
         $this->assertTrue($secondResult);
+    }
+
+    public function testInitiateThrowsWhenNoSigningSecretCanBeResolved(): void
+    {
+        $this->config->method('isEnabled')->willReturn(true);
+        $this->config->method('getWebSocketTicketSecret')->willReturn('');
+        $this->scopeConfig->method('getValue')->willReturn('');
+
+        $this->expectException(LocalizedException::class);
+        $this->expectExceptionMessage('no signing secret');
+
+        $this->management->initiate('vision', 1024, 'image/jpeg');
     }
 }

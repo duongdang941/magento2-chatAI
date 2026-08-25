@@ -17,6 +17,10 @@ import { geminiToolDefinitions } from '../tools/tool-registry.js';
 import { buildAgentSystemInstruction } from './agent-system-guidance.js';
 import { pageContextInstruction } from '../catalog/page-context.js';
 import {
+    FINAL_SYNTHESIS_INSTRUCTION,
+    isFinalSynthesisTurn
+} from './tool-rounds.js';
+import {
     buildFallbackMessage,
     createProviderNeutralToolFlow
 } from './provider-neutral-tool-flow.js';
@@ -92,11 +96,18 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             isCancelled
         });
         const genAI = new GoogleGenerativeAI(apiKey);
+        const runtimeSystemInstruction = `${systemInstruction}\n\nRUNTIME TOOL BUDGET: Use at most ${maxToolRounds} reasoning rounds and ${agentConfig.max_tool_executions || 15} total tool executions. Blocked duplicate or over-budget calls must not be repeated; finish from verified evidence already returned.\n\n${pageContextInstruction(options.pageContext)}\n\n${guestOrderAccessInstruction(options.customerId, options.guestOrderAccess)}`;
         const model = genAI.getGenerativeModel({
             model: modelName,
             tools,
             generationConfig: { maxOutputTokens },
-            systemInstruction: `${systemInstruction}\n\nRUNTIME TOOL BUDGET: Use at most ${maxToolRounds} reasoning rounds and ${agentConfig.max_tool_executions || 15} total tool executions. Blocked duplicate or over-budget calls must not be repeated; finish from verified evidence already returned.\n\n${pageContextInstruction(options.pageContext)}\n\n${guestOrderAccessInstruction(options.customerId, options.guestOrderAccess)}`
+            systemInstruction: runtimeSystemInstruction
+        });
+        const finalSynthesisModel = genAI.getGenerativeModel({
+            model: modelName,
+            tools,
+            generationConfig: { maxOutputTokens },
+            systemInstruction: `${runtimeSystemInstruction}\n\n${FINAL_SYNTHESIS_INSTRUCTION}`
         });
         // Prepare History in API format
         const chatHistory = history
@@ -121,28 +132,33 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 currentUserMessage.text || currentUserMessage.content || ''
             )
         });
-        let isDone = false;
-        let iteration = 0;
         let hasVisibleText = false;
         let hasVisibleProducts = false;
         let lastToolOutcome = null;
         let toolErrorMessage = '';
         let pendingProductPresentation = null;
 
-        while (!isDone && iteration < maxToolRounds) {
+        // Reserve one final, tool-free Gemini request after the last allowed
+        // tool batch so the model can produce its customer-facing synthesis.
+        for (let iteration = 0; iteration <= maxToolRounds; iteration += 1) {
             if (isCancelled()) {
                 return { cancelled: true };
             }
 
-            iteration++;
-            logger.debug('gemini', `Iteration ${iteration}, Turn: ${chatHistory[chatHistory.length - 1].role}`);
+            const finalSynthesisOnly = isFinalSynthesisTurn(iteration, maxToolRounds);
+            const turnNumber = iteration + 1;
+            logger.debug('gemini', `Iteration ${turnNumber}, Turn: ${chatHistory[chatHistory.length - 1].role}`);
 
             // Keep tool-selection policy provider-neutral. Gemini needs its
             // own wire format, but the decision comes from the same shared
             // catalogue policy as OpenAI-compatible providers.
             const request = {
                 contents: chatHistory,
-                ...(toolFlow.shouldForceProductSearch() ? {
+                ...(finalSynthesisOnly ? {
+                    toolConfig: {
+                        functionCallingConfig: { mode: 'NONE' }
+                    }
+                } : toolFlow.shouldForceProductSearch() ? {
                     toolConfig: {
                         functionCallingConfig: {
                             mode: 'ANY',
@@ -151,7 +167,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                     }
                 } : {})
             };
-            const result = await model.generateContentStream(request, {
+            const result = await (finalSynthesisOnly ? finalSynthesisModel : model).generateContentStream(request, {
                 ...(signal ? { signal } : {}),
                 timeout: providerTimeoutMs
             });
@@ -162,19 +178,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 emit: content => ws.send(JSON.stringify({ type: 'chunk', content })),
                 isCancelled
             });
-            const thinkingEmitter = createSmoothChunkEmitter({
-                emit: delta => ws.send(JSON.stringify({
-                    type: 'thinking_delta',
-                    step_id: `reasoning-${iteration}`,
-                    delta,
-                    visibility: 'public'
-                })),
-                isCancelled,
-                intervalMs: 18,
-                minChars: 1,
-                maxChars: 24
-            });
-
             for await (const chunk of result.stream) {
                 if (isCancelled()) {
                     return { cancelled: true };
@@ -187,7 +190,9 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                     if (parts) {
                         for (const part of parts) {
                             if (part.thought === true || part.thought) {
-                                if (part.text) thinkingEmitter.push(part.text);
+                                // Provider thoughts are private. Storefront progress is
+                                // represented only by verified tool_activity events.
+                                continue;
                             } else if (part.text) {
                                 smoothEmitter.push(part.text);
                                 hasVisibleText = true;
@@ -207,8 +212,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 } catch (e) {}
             }
 
-            await thinkingEmitter.drain();
-
             if (combinedParts.length > 0) {
                 chatHistory.push({
                     role: 'model',
@@ -221,32 +224,43 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             }
 
             // If AI did not call any tools, this is the final customer answer
-            if (functionCalls.length === 0) {
+            const toolCalls = finalSynthesisOnly ? [] : functionCalls;
+            if (finalSynthesisOnly && functionCalls.length > 0) {
+                logger.warn('gemini', 'Provider ignored the tool-free final synthesis turn.');
+            }
+
+            if (toolCalls.length === 0) {
                 await smoothEmitter.drain();
                 break;
             }
-                const functionResponses = await Promise.all(functionCalls.map(async (fnCall) => {
-                    if (isCancelled()) return null;
-                    const result = await toolFlow.execute({
-                        id: fnCall.id,
-                        name: fnCall.name,
-                        args: fnCall.args
-                    });
-                    return {
-                        ...result,
-                        functionResponse: createGeminiFunctionResponsePart(result.name, result.modelContext)
-                    };
-                }));
+                // Gemini can return several function calls in one model turn,
+                // but the customer timeline is deliberately serial.  Starting
+                // call B only after call A has returned lets A stay “running”
+                // for its entire real execution and lets the shared tool flow
+                // mark it complete at the exact moment B begins.
+                const execution = await executeGeminiFunctionCallsInOrder(
+                    toolCalls,
+                    async (fnCall) => {
+                        const result = await toolFlow.execute({
+                            id: fnCall.id,
+                            name: fnCall.name,
+                            args: fnCall.args
+                        });
+                        return {
+                            ...result,
+                            functionResponse: createGeminiFunctionResponsePart(result.name, result.modelContext)
+                        };
+                    },
+                    isCancelled
+                );
 
-                if (isCancelled()) {
+                if (execution.cancelled) {
                     return { cancelled: true };
                 }
 
-                const completedFunctionResponses = functionResponses.filter(Boolean);
-                // Gemini can run more than one function call in a turn. Their
-                // network completion order is not a storefront presentation
-                // contract, so restore the model's original call order before
-                // choosing the final card, terminal result, or fallback.
+                const completedFunctionResponses = execution.responses;
+                // Preserve the model's declared order for the provider history
+                // and for choosing the final card, terminal result, or fallback.
                 const toolState = toolFlow.reconcile(completedFunctionResponses);
                 lastToolOutcome = toolState.lastToolOutcome || lastToolOutcome;
                 hasVisibleProducts = toolState.hasVisibleProducts;
@@ -260,11 +274,14 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 });
 
                 if (toolErrorMessage) {
+                    toolFlow.completePendingActivity();
                     ws.send(JSON.stringify({
                         type: 'error',
                         content: `Magento tool failed: ${toolErrorMessage}`
                     }));
-                    break;
+                    // Match the OpenAI/Anthropic adapters: a blocking tool
+                    // failure terminates the turn without a `done` frame.
+                    return { cancelled: false };
                 }
         }
 
@@ -284,6 +301,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             return { cancelled: true };
         }
 
+        toolFlow.completePendingActivity();
         emitProductPresentation(ws, pendingProductPresentation);
         ws.send(JSON.stringify({
             type: 'done',
@@ -297,6 +315,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         }
 
         console.error('Gemini Orchestrator Error:', summarizeError(error));
+        toolFlow.completePendingActivity();
         ws.send(JSON.stringify({ type: 'error', content: formatGeminiError(error) }));
         return { cancelled: false, error };
     } finally {
@@ -318,6 +337,23 @@ export function createGeminiFunctionResponsePart(name, content) {
             response: { content }
         }
     };
+}
+
+/**
+ * Execute one Gemini function batch in strict model order.
+ *
+ * Parallel Magento calls make a “completed” activity ambiguous: a later call
+ * can be announced before the earlier action has actually finished.  The
+ * storefront contract instead presents one continuous action at a time.
+ */
+export async function executeGeminiFunctionCallsInOrder(functionCalls, execute, isCancelled = () => false) {
+    const responses = [];
+    for (const fnCall of Array.isArray(functionCalls) ? functionCalls : []) {
+        if (isCancelled()) return { cancelled: true, responses };
+        const response = await execute(fnCall);
+        if (response) responses.push(response);
+    }
+    return { cancelled: isCancelled(), responses };
 }
 
 /**

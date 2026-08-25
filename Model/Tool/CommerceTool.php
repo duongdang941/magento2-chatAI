@@ -44,10 +44,12 @@ class CommerceTool
             $shopperScope = $this->shopperScopeResolver->resolve($customerGroupId, $customerId);
             $skus = [$sku1, $sku2];
             $products = [];
+            $missingSkus = [];
             foreach ($skus as $sku) {
                 try {
                     $product = $this->getScopedProduct($sku, $shopperScope);
                     if (!$product) {
+                        $missingSkus[] = trim($sku);
                         continue;
                     }
                     $product->setCustomerGroupId($shopperScope->getCustomerGroupId());
@@ -60,14 +62,22 @@ class CommerceTool
                         'url' => $product->getProductUrl()
                     ];
                 } catch (\Magento\Framework\Exception\NoSuchEntityException $e) {
+                    $missingSkus[] = trim($sku);
                     continue;
                 }
             }
 
+            // A one-sided result must not present itself as a complete
+            // comparison: the model needs to know which requested SKU could
+            // not be resolved in the shopper's scope.
             if (empty($products)) {
-                $result = ['status' => 'NOT_FOUND', 'message' => __('No products found for comparison.')];
+                $result = [
+                    'status' => 'NOT_FOUND',
+                    'message' => __('No products found for comparison.'),
+                    'missing_skus' => $missingSkus,
+                ];
             } else {
-                $result = ['status' => 'OK', 'products' => $products];
+                $result = ['status' => 'OK', 'products' => $products, 'missing_skus' => $missingSkus];
             }
         } catch (\Throwable $exception) {
             $this->logger->error('AI product comparison failed.', ['exception' => $exception]);

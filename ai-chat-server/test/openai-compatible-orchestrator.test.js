@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 
 import {
     buildFallbackMessage,
-    buildBaseUrlCandidates,
     formatProviderError,
     isBlockingToolFailure,
     isRetryableProviderError,
     readOpenAiResponsesStream,
-    resolveProviderConfig
+    resolveProviderConfig,
+    resolveReachableBaseUrl,
+    streamChatResponse
 } from '../services/orchestration/openai-compatible-orchestrator.js';
 import {
     GUEST_ORDER_AGENT_GUIDANCE,
@@ -63,35 +64,23 @@ test('forwards OpenAI Responses reasoning summary deltas as thinking events', as
     ]);
 });
 
-test('buildBaseUrlCandidates always includes the public 9router endpoint', () => {
-    const originalBase = process.env.NINE_ROUTER_BASE_URL;
-    const originalFallback = process.env.NINE_ROUTER_FALLBACK_BASE_URL;
+test('uses only the custom provider endpoint without credential-bearing probes', async () => {
+    const originalFetch = globalThis.fetch;
+    let probes = 0;
+    globalThis.fetch = async () => {
+        probes += 1;
+        return { ok: true };
+    };
 
     try {
-        process.env.NINE_ROUTER_BASE_URL = 'https://aud4eq.tailabefe9.ts.net/v1';
-        delete process.env.NINE_ROUTER_FALLBACK_BASE_URL;
-
-        assert.deepEqual(
-            buildBaseUrlCandidates({
-                base_url: 'https://aud4eq.tailabefe9.ts.net/v1'
-            }),
-            [
-                'https://aud4eq.tailabefe9.ts.net/v1',
-                'https://raud4eq.9router.com/v1'
-            ]
-        );
+        const baseUrl = await resolveReachableBaseUrl({
+            apiKey: 'merchant-secret',
+            candidates: ['https://primary.example/v1/', 'https://fallback.example/v1']
+        });
+        assert.equal(baseUrl, 'https://primary.example/v1');
+        assert.equal(probes, 0);
     } finally {
-        if (originalBase === undefined) {
-            delete process.env.NINE_ROUTER_BASE_URL;
-        } else {
-            process.env.NINE_ROUTER_BASE_URL = originalBase;
-        }
-
-        if (originalFallback === undefined) {
-            delete process.env.NINE_ROUTER_FALLBACK_BASE_URL;
-        } else {
-            process.env.NINE_ROUTER_FALLBACK_BASE_URL = originalFallback;
-        }
+        globalThis.fetch = originalFetch;
     }
 });
 
@@ -174,10 +163,10 @@ test('normalizes account address updates without accepting customer identity', (
     });
 });
 
-test('formatProviderError exposes 9router HTTP failures clearly', () => {
+test('formatProviderError exposes custom provider HTTP failures clearly', () => {
     assert.equal(
-        formatProviderError(new Error('Base URL https://aud4eq.tailabefe9.ts.net/v1 returned HTTP 502')),
-        '9router endpoint returned HTTP 502. Please check the public/tailnet base_url in configuration.'
+        formatProviderError(new Error('Base URL https://provider.example/v1 returned HTTP 502'), 'Merchant provider'),
+        'Merchant provider endpoint returned HTTP 502. Please check the custom provider base URL in configuration.'
     );
 });
 
@@ -196,16 +185,18 @@ test('does not abort normal chat when native Web Search is unavailable', () => {
     assert.match(buildFallbackMessage(), /AI response could not be completed/i);
 });
 
-test('configures a direct OpenAI adapter without Gemini fallback', () => {
-    const config = resolveProviderConfig('openai', {
+test('configures a custom OpenAI-compatible endpoint without built-in defaults', () => {
+    const config = resolveProviderConfig({
+        name: 'Merchant provider',
         api_key: 'test-openai-key',
-        model: 'gpt-4.1-mini'
+        model: 'merchant-model',
+        base_url: 'https://provider.example/v1/'
     });
 
-    assert.equal(config.label, 'OpenAI');
+    assert.equal(config.label, 'Merchant provider');
     assert.equal(config.apiKey, 'test-openai-key');
-    assert.equal(config.model, 'gpt-4.1-mini');
-    assert.deepEqual(config.candidates, ['https://api.openai.com/v1']);
+    assert.equal(config.model, 'merchant-model');
+    assert.deepEqual(config.candidates, ['https://provider.example/v1']);
 });
 
 test('tells the provider when guest order access is already verified', () => {
@@ -243,6 +234,9 @@ test('uses a bounded, language-neutral catalogue retrieval protocol', () => {
     assert.match(CATALOG_AGENT_GUIDANCE, /unavailable_query_match/);
     assert.match(CATALOG_AGENT_GUIDANCE, /requires a fresh "searchProducts" call in the current turn/i);
     assert.match(CATALOG_AGENT_GUIDANCE, /PRODUCT CARD CONTRACT/i);
+    assert.match(CATALOG_AGENT_GUIDANCE, /exactly names one previously shown card title/i);
+    assert.match(CATALOG_AGENT_GUIDANCE, /never add, suggest, recommend, or name another product/i);
+    assert.match(CATALOG_AGENT_GUIDANCE, /final supported retrieval has zero items/i);
     assert.match(buildAgentSystemInstruction(), /plain text\/Markdown only/i);
     assert.match(RESPONSE_LANGUAGE_AGENT_GUIDANCE, /grammatical\/request words/i);
     assert.match(RESPONSE_LANGUAGE_AGENT_GUIDANCE, /product name.*must never change/i);
@@ -270,4 +264,75 @@ test('keeps structured price and configurable options out of language-specific q
         }),
         { sku: 'SKU-1', selectedOptions: '{"finish":"matte","material":"cotton"}' }
     );
+});
+
+test('custom OpenAI-compatible provider streams chunks and terminates with a done frame, never an error frame', async () => {
+    const http = await import('node:http');
+    const sseBody = [
+        'data: {"id":"c1","choices":[{"index":0,"delta":{"role":"assistant","content":"Xin chào"}}]}\n\n',
+        'data: {"id":"c1","choices":[{"index":0,"delta":{"content":" từ provider tùy chỉnh!"}}]}\n\n',
+        'data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":5,"total_tokens":8}}\n\n',
+        'data: [DONE]\n\n'
+    ].join('');
+
+    const server = http.createServer((request, response) => {
+        assert.match(request.url, /\/chat\/completions$/);
+        assert.equal(request.headers.authorization, 'Bearer test-key-123');
+        response.writeHead(200, { 'Content-Type': 'text/event-stream', Connection: 'close' });
+        response.end(sseBody);
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const baseUrl = `http://127.0.0.1:${server.address().port}/v1`;
+
+    const frames = [];
+    const ws = { send: (frame) => frames.push(JSON.parse(frame)) };
+
+    try {
+        const result = await streamChatResponse(
+            { text: 'Có sản phẩm nào màu đen không' },
+            ws,
+            [],
+            null,
+            {
+                provider: 'deepseek',
+                name: 'Deepseek',
+                base_url: baseUrl,
+                api_key: 'test-key-123',
+                model: 'deepseek-chat',
+                api_format: 'openai-chat-completions'
+            },
+            {}
+        );
+
+        assert.equal(result.cancelled, false);
+        assert.equal(result.error, undefined);
+        const chunkText = frames
+            .filter((frame) => frame.type === 'chunk')
+            .map((frame) => frame.content)
+            .join('');
+        assert.match(chunkText, /Xin chào từ provider tùy chỉnh!/);
+        assert.equal(
+            frames.some((frame) => frame.type === 'error'),
+            false,
+            `unexpected error frames: ${JSON.stringify(frames.filter((frame) => frame.type === 'error'))}`
+        );
+        const done = frames.find((frame) => frame.type === 'done');
+        assert.ok(done, 'terminal done frame must be sent after a successful turn');
+        assert.equal(done.provider_meta?.finish_reason, 'stop');
+        assert.equal(done.provider_meta?.provider, 'deepseek');
+        assert.equal(done.provider_meta?.model, 'deepseek-chat');
+    } finally {
+        server.closeAllConnections?.();
+        await new Promise((resolve) => server.close(resolve));
+    }
+});
+
+test('formatProviderError points at base URL and model name for HTTP 404 rejections', () => {
+    const message = formatProviderError(
+        Object.assign(new Error('Not Found'), { status: 404 }),
+        'Deepseek'
+    );
+    assert.match(message, /HTTP 404/);
+    assert.match(message, /base URL/);
+    assert.match(message, /model name/);
 });

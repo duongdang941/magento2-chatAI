@@ -92,51 +92,13 @@ class AttachmentQuotaReconciler
                     $corrected++;
                 }
 
-                // Reconcile and release stale/expired reservations (> 10 minutes)
+                // Recover finalizing attachments BEFORE force-expiring any
+                // reservation: a verified-complete final file must stay
+                // committable, and AttachmentRepository::commitFinalAttachmentAtomic
+                // fails closed once its reservation is no longer active and
+                // unexpired.
                 $resTable = $this->resource->getTableName('afd_ai_attachment_reservation');
                 $attTable = $this->resource->getTableName('afd_ai_attachment');
-                if ($connection->isTableExists($resTable)) {
-                    $expiredReservations = $connection->fetchAll(
-                        $connection->select()->from($resTable)
-                            ->where('state = ?', 'active')
-                            ->where('expires_at < ?', gmdate('Y-m-d H:i:s', time() - 600))
-                    );
-                    foreach ($expiredReservations as $expiredRes) {
-                        $reservationId = (string)$expiredRes['reservation_id'];
-                        $owner = (string)$expiredRes['owner_path'];
-                        $resBytes = (int)$expiredRes['reserved_bytes'];
-                        $attachmentId = (string)($expiredRes['attachment_id'] ?? '');
-
-                        // Atomic conditional transition from active -> expired
-                        $affected = $connection->update(
-                            $resTable,
-                            ['state' => 'expired', 'updated_at' => gmdate('Y-m-d H:i:s')],
-                            ['reservation_id = ?' => $reservationId, 'state = ?' => 'active']
-                        );
-
-                        if ($affected > 0) {
-                            // Release owner reserved quota
-                            $connection->update($table, [
-                                'reserved_bytes' => new \Zend_Db_Expr('GREATEST(0, CAST(reserved_bytes AS SIGNED) - ' . $resBytes . ')'),
-                                'updated_at' => gmdate('Y-m-d H:i:s')
-                            ], ['scope_type = ?' => 'owner', 'scope_key = ?' => $owner]);
-
-                            // Release global reserved quota
-                            $connection->update($table, [
-                                'reserved_bytes' => new \Zend_Db_Expr('GREATEST(0, CAST(reserved_bytes AS SIGNED) - ' . $resBytes . ')'),
-                                'updated_at' => gmdate('Y-m-d H:i:s')
-                            ], ['scope_type = ?' => 'global', 'scope_key = ?' => 'module']);
-
-                            if ($attachmentId !== '' && $connection->isTableExists($attTable)) {
-                                $connection->update($attTable, [
-                                    'state' => 'expired',
-                                    'updated_at' => gmdate('Y-m-d H:i:s')
-                                ], ['attachment_id = ?' => $attachmentId, 'state IN (?)' => ['issued', 'staged']]);
-                            }
-                            $corrected++;
-                        }
-                    }
-                }
 
                 // Reconcile finalizing attachments whose lease has expired (> 60s)
                 if ($connection->isTableExists($attTable)) {
@@ -149,7 +111,7 @@ class AttachmentQuotaReconciler
                         $attId = (string)$staleAtt['attachment_id'];
                         $finalPath = (string)($staleAtt['final_path'] ?? '');
                         $stagedPath = (string)($staleAtt['staged_path'] ?? '');
-                        
+
                         $finalExists = $finalPath !== '' && $directory->isFile($finalPath);
                         $stagedExists = $stagedPath !== '' && $directory->isFile($stagedPath);
 
@@ -163,6 +125,20 @@ class AttachmentQuotaReconciler
 
                             if ($this->attachmentRepository) {
                                 try {
+                                    // Grace window: extend an aged-out reservation so
+                                    // the atomic commit's active/unexpired check can
+                                    // pass for this recovered finalization only.
+                                    if ($resId !== '' && $connection->isTableExists($resTable)) {
+                                        $connection->update($resTable, [
+                                            'state' => 'active',
+                                            'expires_at' => gmdate('Y-m-d H:i:s', time() + 300),
+                                            'updated_at' => gmdate('Y-m-d H:i:s'),
+                                        ], [
+                                            'reservation_id = ?' => $resId,
+                                            'attachment_id = ?' => $attId,
+                                            'state IN (?)' => ['active', 'expired'],
+                                        ]);
+                                    }
                                     $this->attachmentRepository->commitFinalAttachmentAtomic(
                                         $attId,
                                         $finalPath,
@@ -210,6 +186,59 @@ class AttachmentQuotaReconciler
                                 'state' => 'failed',
                                 'updated_at' => gmdate('Y-m-d H:i:s')
                             ], ['attachment_id = ?' => $attId, 'state = ?' => 'finalizing']);
+                            $corrected++;
+                        }
+                    }
+                }
+
+                // Reconcile and release stale/expired reservations (> 10 minutes).
+                // Reservations of in-flight finalizing uploads are excluded; the
+                // recovery pass above already resolved every stale one.
+                if ($connection->isTableExists($resTable)) {
+                    $expirySelect = $connection->select()->from($resTable)
+                        ->where('state = ?', 'active')
+                        ->where('expires_at < ?', gmdate('Y-m-d H:i:s', time() - 600));
+                    if ($connection->isTableExists($attTable)) {
+                        $expirySelect->where(
+                            'attachment_id NOT IN (?)',
+                            $connection->select()
+                                ->from($attTable, 'attachment_id')
+                                ->where('state = ?', 'finalizing')
+                        );
+                    }
+                    $expiredReservations = $connection->fetchAll($expirySelect);
+                    foreach ($expiredReservations as $expiredRes) {
+                        $reservationId = (string)$expiredRes['reservation_id'];
+                        $owner = (string)$expiredRes['owner_path'];
+                        $resBytes = (int)$expiredRes['reserved_bytes'];
+                        $attachmentId = (string)($expiredRes['attachment_id'] ?? '');
+
+                        // Atomic conditional transition from active -> expired
+                        $affected = $connection->update(
+                            $resTable,
+                            ['state' => 'expired', 'updated_at' => gmdate('Y-m-d H:i:s')],
+                            ['reservation_id = ?' => $reservationId, 'state = ?' => 'active']
+                        );
+
+                        if ($affected > 0) {
+                            // Release owner reserved quota
+                            $connection->update($table, [
+                                'reserved_bytes' => new \Zend_Db_Expr('GREATEST(0, CAST(reserved_bytes AS SIGNED) - ' . $resBytes . ')'),
+                                'updated_at' => gmdate('Y-m-d H:i:s')
+                            ], ['scope_type = ?' => 'owner', 'scope_key = ?' => $owner]);
+
+                            // Release global reserved quota
+                            $connection->update($table, [
+                                'reserved_bytes' => new \Zend_Db_Expr('GREATEST(0, CAST(reserved_bytes AS SIGNED) - ' . $resBytes . ')'),
+                                'updated_at' => gmdate('Y-m-d H:i:s')
+                            ], ['scope_type = ?' => 'global', 'scope_key = ?' => 'module']);
+
+                            if ($attachmentId !== '' && $connection->isTableExists($attTable)) {
+                                $connection->update($attTable, [
+                                    'state' => 'expired',
+                                    'updated_at' => gmdate('Y-m-d H:i:s')
+                                ], ['attachment_id = ?' => $attachmentId, 'state IN (?)' => ['issued', 'staged']]);
+                            }
                             $corrected++;
                         }
                     }

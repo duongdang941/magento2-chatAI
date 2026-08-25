@@ -313,12 +313,15 @@ class Upload implements HttpPostActionInterface, CsrfAwareActionInterface
 
     private function extractTicket(): string
     {
+        // Accept the single-use bearer ticket only from the Authorization
+        // header so it cannot leak into access logs, proxies, or Referer
+        // through the upload URL.
         $authHeader = (string)($this->request->getHeader('Authorization') ?? '');
-        if (str_starts_with($authHeader, 'Bearer ')) {
-            return trim(substr($authHeader, 7));
+        if (!str_starts_with($authHeader, 'Bearer ')) {
+            return '';
         }
 
-        return trim((string)($this->request->getParam('ticket') ?? ''));
+        return trim(substr($authHeader, 7));
     }
 
     private function resolveOwnerId(): string|int

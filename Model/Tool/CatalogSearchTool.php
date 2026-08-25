@@ -112,6 +112,7 @@ class CatalogSearchTool
         $collection->getSelect()->limitPage($page, $limit);
 
         [$resultData, $productIds] = $this->collectProductResults($collection, $shopperScope);
+        $matchedVariantOptionValue = '';
         if ($exactIdentity) {
             [$resultData, $productIds] = $this->filterPresentedIdentityMatches(
                 $query,
@@ -122,13 +123,51 @@ class CatalogSearchTool
                 $totalResults = count($resultData);
             }
         }
+        // Fulltext indices normally contain product names and descriptions,
+        // but not the values of configurable children.  A colour such as
+        // "schwarz" can therefore be a valid selectable option while the
+        // initial fulltext query has zero rows.  Recover only from the
+        // authoritative configurable-option values; never replace it with an
+        // unfiltered category browse.
+        if ($resultData === [] && !$exactIdentity && $query !== '') {
+            [$optionResultData, $optionProductIds, $optionTotalResults] = $this->findActiveVariantOptionValueFallback(
+                $query,
+                $categoryIds,
+                $minPrice,
+                $maxPrice,
+                $directAddOnly,
+                $excludedNameTerms,
+                $shopperScope,
+                $page,
+                $limit
+            );
+            if ($optionResultData !== []) {
+                $resultData = $optionResultData;
+                $productIds = $optionProductIds;
+                $totalResults = $optionTotalResults;
+                $matchedVariantOptionValue = $query;
+            }
+        }
         $activeIdentityDistance = $this->bestPresentedProductIdentityDistance($query, $resultData);
         // Fulltext engines commonly return no row for a one-character typo.
-        // The bounded identity fallback is safe for every non-empty query:
-        // its matcher rejects short broad facets and requires all meaningful
-        // query tokens to map to one product name. Do not make recovery depend
-        // on the model setting exactIdentity correctly.
-        if ($resultData === [] && $activeIdentityDistance === null && $query !== '') {
+        // The bounded identity fallback is safe for genuine relevance-empty
+        // page-1 searches without SQL-level catalogue constraints: its matcher
+        // rejects short broad facets and requires all meaningful query tokens
+        // to map to one product name. It rebuilds retrieval without category,
+        // price or direct-add filters and ignores the page boundary, so it
+        // must never replace an honest empty result for a constrained or
+        // paginated request; otherwise cards could violate the very
+        // constraints that meta still claims were applied.
+        $identityFallbackAllowed = $categoryIds === []
+            && $minPrice <= 0.0
+            && $maxPrice <= 0.0
+            && !$directAddOnly
+            && $page === 1;
+        if ($resultData === []
+            && $activeIdentityDistance === null
+            && $query !== ''
+            && $identityFallbackAllowed
+        ) {
             [$resultData, $productIds] = $this->findActiveIdentityFallback(
                 $query,
                 $excludedNameTerms,
@@ -183,6 +222,7 @@ class CatalogSearchTool
                 'exact_query_match' => $exactIdentity && $activeIdentityDistance !== null,
                 'exact_query_miss' => $exactQueryMiss,
                 'excluded_terms' => $excludedNameTerms,
+                'variant_option_value_match' => $matchedVariantOptionValue,
                 'unavailable_query_match' => $unavailableQueryMatch,
             ],
             'currency' => $priceConstraints['meta'],
@@ -477,6 +517,90 @@ class CatalogSearchTool
         return $options;
     }
 
+    /**
+     * Fall back from fulltext to a real selectable value on a configurable
+     * child. This remains language-neutral: the agent supplies the current
+     * catalogue value and Magento verifies it against the active store view.
+     *
+     * @param int[] $categoryIds
+     * @param string[] $excludedNameTerms
+     * @return array{0: array<int, array<string, mixed>>, 1: int[], 2: int}
+     */
+    private function findActiveVariantOptionValueFallback(
+        string $optionValue,
+        array $categoryIds,
+        float $minPrice,
+        float $maxPrice,
+        bool $directAddOnly,
+        array $excludedNameTerms,
+        ShopperScope $shopperScope,
+        int $page,
+        int $limit
+    ): array {
+        $optionValue = trim($optionValue);
+        if ($optionValue === '' || mb_strlen($optionValue) > 120) {
+            return [[], [], 0];
+        }
+
+        $collection = $this->createCategoryProductCollection($shopperScope);
+        $collection->addAttributeToFilter('type_id', ['eq' => 'configurable']);
+        if ($categoryIds !== []) {
+            $collection->addCategoriesFilter(['in' => $categoryIds]);
+        }
+        $this->applyAvailabilityAndPriceFilters($collection, $minPrice, $maxPrice);
+        $this->applyExcludedNameTerms($collection, $excludedNameTerms);
+        if ($directAddOnly) {
+            $this->applyDirectAddOnlyFilter($collection);
+        }
+        $this->applyVariantOptionValueFilter($collection, $optionValue, $shopperScope);
+
+        $totalResults = $this->getFilteredCollectionSize($collection);
+        if ($totalResults < 1) {
+            return [[], [], 0];
+        }
+
+        $collection->clear();
+        $collection->getSelect()->limitPage($page, $limit);
+        [$resultData, $productIds] = $this->collectProductResults($collection, $shopperScope);
+
+        return [$resultData, $productIds, $totalResults];
+    }
+
+    /**
+     * Restrict parent configurables to a child value registered on one of the
+     * parent configurable attributes. The store-view label takes precedence
+     * over the default label, exactly as Magento renders option labels.
+     */
+    private function applyVariantOptionValueFilter($collection, string $optionValue, ShopperScope $shopperScope): void
+    {
+        $connection = $collection->getConnection();
+        $superLinkTable = $connection->quoteIdentifier($collection->getTable('catalog_product_super_link'));
+        $superAttributeTable = $connection->quoteIdentifier($collection->getTable('catalog_product_super_attribute'));
+        $entityIntTable = $connection->quoteIdentifier($collection->getTable('catalog_product_entity_int'));
+        $optionValueTable = $connection->quoteIdentifier($collection->getTable('eav_attribute_option_value'));
+        $storeId = max(0, $shopperScope->getStoreId());
+
+        $collection->getSelect()->where(
+            'EXISTS (SELECT 1'
+            . ' FROM ' . $superLinkTable . ' AS variant_link'
+            . ' INNER JOIN ' . $superAttributeTable . ' AS configurable_attribute'
+            . ' ON configurable_attribute.product_id = variant_link.parent_id'
+            . ' INNER JOIN ' . $entityIntTable . ' AS variant_attribute'
+            . ' ON variant_attribute.entity_id = variant_link.product_id'
+            . ' AND variant_attribute.attribute_id = configurable_attribute.attribute_id'
+            . ' AND variant_attribute.store_id = 0'
+            . ' INNER JOIN ' . $optionValueTable . ' AS option_default'
+            . ' ON option_default.option_id = variant_attribute.value'
+            . ' AND option_default.store_id = 0'
+            . ' LEFT JOIN ' . $optionValueTable . ' AS option_store'
+            . ' ON option_store.option_id = option_default.option_id'
+            . ' AND option_store.store_id = ' . (int)$storeId
+            . ' WHERE variant_link.parent_id = e.entity_id'
+            . ' AND LOWER(COALESCE(NULLIF(option_store.value, \'\'), option_default.value)) = LOWER(?))',
+            $optionValue
+        );
+    }
+
     private function canPresentProduct($product): bool
     {
         return $product
@@ -485,9 +609,10 @@ class CatalogSearchTool
 
     /**
      * Recover an active product identity when Magento fulltext does not fold a
-     * typo, transposition, or missing diacritic. This path runs only for an
-     * explicit exact-identity request and retains normal visibility/stock
-     * filters, so it cannot become an unbounded catalogue fallback.
+     * typo, transposition, or missing diacritic. searchProducts() calls this
+     * only for a relevance-empty, unconstrained, first-page query and retains
+     * normal visibility/stock filters, so it cannot become an unbounded
+     * catalogue fallback.
      *
      * @param string[] $excludedNameTerms
      * @return array{0: array<int, array<string, mixed>>, 1: int[]}

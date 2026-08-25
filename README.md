@@ -36,6 +36,8 @@ Important boundaries:
 
 Provider and OAuth secrets are encrypted before the gateway writes a local snapshot or Redis value. Configure `AI_CONFIG_ENCRYPTION_KEY` or the existing 32+ character `AI_NODE_SYNC_SECRET`. Files are permissioned `0600`; Redis must also use authentication, private networking, and encrypted backups.
 
+The OpenAI Realtime credential for Live Voice has no Admin UI field: provision it per environment with `OPENAI_REALTIME_API_KEY` on the Node gateway (or as `afd_ai/voice/live_api_key` via CLI `bin/magento config:set`), while the `live_enabled`, model, session-rate, and duration controls stay in Admin configuration.
+
 ## Security invariants
 
 - Integration ACL is limited to `Afd_AI::chat_gateway`; never grant `Magento_Backend::all`.

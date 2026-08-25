@@ -1,15 +1,9 @@
 import { createCircuitOpenError, ProviderCircuitBreaker } from '../providers/provider-circuit-breaker.js';
 
 const adapterLoaders = Object.freeze({
-    gemini: () => import('../providers/gemini-adapter.js'),
-    anthropic: () => import('../providers/anthropic-adapter.js'),
     'anthropic-messages': () => import('../providers/anthropic-adapter.js'),
-    openai: () => import('../providers/openai-compatible-adapter.js'),
     'openai-chat-completions': () => import('../providers/openai-compatible-adapter.js'),
-    'openai-responses': () => import('../providers/openai-compatible-adapter.js'),
-    openrouter: () => import('../providers/openai-compatible-adapter.js'),
-    '9router': () => import('../providers/openai-compatible-adapter.js'),
-    cockpit: () => import('../providers/openai-compatible-adapter.js')
+    'openai-responses': () => import('../providers/openai-compatible-adapter.js')
 });
 
 const providerCircuitBreaker = new ProviderCircuitBreaker();
@@ -23,15 +17,13 @@ function providerKey(providerName, config = {}) {
     ].join('|');
 }
 
-/** Provider selection resolves dynamically based on provider name or API format */
-export const getProviderAdapter = async (providerName, config = {}) => {
+/** Provider selection is determined only by the configured custom API format. */
+export const getProviderAdapter = async (_providerName, config = {}) => {
     const format = String(config.api_format || '').toLowerCase();
-    if (format === 'anthropic-messages' || format === 'anthropic') {
-        return (await adapterLoaders['anthropic']()).default;
+    const loader = adapterLoaders[format];
+    if (!loader) {
+        throw new Error('The custom provider API format is unsupported.');
     }
-
-    const providerKey = String(providerName || '').toLowerCase();
-    const loader = adapterLoaders[providerKey] || adapterLoaders[format] || adapterLoaders['openai'];
     return (await loader()).default;
 };
 

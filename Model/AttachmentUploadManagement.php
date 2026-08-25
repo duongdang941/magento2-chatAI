@@ -354,7 +354,10 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
 
     private function getSecret(): string
     {
-        $configured = (string)$this->scopeConfig->getValue('afd_ai/websocket/secret');
+        // Read through the GatewaySecretManager-backed accessor so legacy
+        // encrypted configuration values are revealed instead of being used
+        // as raw HMAC key material.
+        $configured = $this->config->getWebSocketTicketSecret();
         if ($configured !== '') {
             return $configured;
         }
@@ -366,6 +369,10 @@ class AttachmentUploadManagement implements AttachmentUploadManagementInterface
             }
         }
 
-        return (string)$this->encryptor->getHash('afd-ai-upload-default-secret');
+        // Never fall back to a deterministic secret: a guessable HMAC key
+        // would let anyone forge upload tickets.
+        throw new LocalizedException(
+            __('Attachment uploads are unavailable because no signing secret could be resolved.')
+        );
     }
 }

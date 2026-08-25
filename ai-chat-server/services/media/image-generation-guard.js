@@ -27,35 +27,8 @@ export async function acquireImageGenerationAdmission({
         ? readLimit(imageConfig.customer_per_day, 10, 1, 500)
         : readLimit(imageConfig.guest_per_day, 5, 1, 200);
     const cooldownSeconds = readLimit(imageConfig.cooldown_seconds, 60, 0, 3600);
-    if (chargeProviderImageQuota) {
-        const checks = [
-            runtime.consumeRateLimit(`${identity}:image:hour`, {
-                limit: hourlyLimit,
-                windowMs: 60 * 60 * 1000
-            }),
-            runtime.consumeRateLimit(`${identity}:image:day`, {
-                limit: dailyLimit,
-                windowMs: 24 * 60 * 60 * 1000
-            })
-        ];
-        if (cooldownSeconds > 0) {
-            checks.push(runtime.consumeRateLimit(`${identity}:image:cooldown`, {
-                limit: 1,
-                windowMs: cooldownSeconds * 1000
-            }));
-        }
-
-        const results = await Promise.all(checks);
-        const denied = results.filter((result) => !result.allowed);
-        if (denied.length > 0) {
-            return {
-                allowed: false,
-                reason: 'image_rate_limited',
-                retryAfterMs: Math.max(...denied.map((result) => Number(result.retryAfterMs) || 0))
-            };
-        }
-    }
-
+    // Capacity is secured before any scarce time-window counter is consumed
+    // so a busy slot (`image_generation_busy`) never burns hourly/daily quota.
     const timeoutMs = readLimit(imageConfig.timeout_ms, 180000, 30000, 300000);
     const capacity = await runtime.acquireScopedCapacity('image-generation', identity, {
         concurrency: readLimit(imageConfig.max_concurrent_per_identity, 1, 1, 3),
@@ -67,6 +40,41 @@ export async function acquireImageGenerationAdmission({
             reason: 'image_generation_busy',
             retryAfterMs: 5000
         };
+    }
+
+    if (chargeProviderImageQuota) {
+        try {
+            const checks = [
+                runtime.consumeRateLimit(`${identity}:image:hour`, {
+                    limit: hourlyLimit,
+                    windowMs: 60 * 60 * 1000
+                }),
+                runtime.consumeRateLimit(`${identity}:image:day`, {
+                    limit: dailyLimit,
+                    windowMs: 24 * 60 * 60 * 1000
+                })
+            ];
+            if (cooldownSeconds > 0) {
+                checks.push(runtime.consumeRateLimit(`${identity}:image:cooldown`, {
+                    limit: 1,
+                    windowMs: cooldownSeconds * 1000
+                }));
+            }
+
+            const results = await Promise.all(checks);
+            const denied = results.filter((result) => !result.allowed);
+            if (denied.length > 0) {
+                await capacity.release?.();
+                return {
+                    allowed: false,
+                    reason: 'image_rate_limited',
+                    retryAfterMs: Math.max(...denied.map((result) => Number(result.retryAfterMs) || 0))
+                };
+            }
+        } catch (error) {
+            await capacity.release?.();
+            throw error;
+        }
     }
 
     return { allowed: true, release: capacity.release };

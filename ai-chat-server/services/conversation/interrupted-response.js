@@ -9,14 +9,19 @@ function stoppedAfterSeconds(startedAt, stoppedAt) {
     return Math.max(0, Math.floor((stopped - started) / 1000));
 }
 
-export function interruptedResponseMetadata(startedAt, stoppedAt = Date.now()) {
-    return {
+export function interruptedResponseMetadata(startedAt, stoppedAt = Date.now(), reason = '') {
+    const metadata = {
         interrupted: true,
         stopped_after_seconds: stoppedAfterSeconds(startedAt, stoppedAt)
     };
+    // A reload closes the ticket-authenticated socket before an assistant
+    // token may exist. Keep that distinct from the shopper explicitly pressing
+    // Stop so the restored UI can describe the recovery action accurately.
+    if (reason === 'connection_lost') metadata.interruption_reason = reason;
+    return metadata;
 }
 
-export function buildInterruptedAssistantPayload(parts, startedAt, stoppedAt = Date.now()) {
+export function buildInterruptedAssistantPayload(parts, startedAt, stoppedAt = Date.now(), reason = '') {
     const visibleParts = (Array.isArray(parts) ? parts : [])
         .filter((part) => part?.type === 'text' || part?.type === 'image')
         .map((part) => part?.type === 'image'
@@ -35,7 +40,7 @@ export function buildInterruptedAssistantPayload(parts, startedAt, stoppedAt = D
         .filter((part) => part.type === 'image' ? /^https?:\/\//i.test(part.url) : part.raw.trim() !== '');
 
     return {
-        ...interruptedResponseMetadata(startedAt, stoppedAt),
+        ...interruptedResponseMetadata(startedAt, stoppedAt, reason),
         parts: visibleParts
     };
 }

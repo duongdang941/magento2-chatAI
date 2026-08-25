@@ -446,48 +446,135 @@ class CartTool
     /**
      * @inheritDoc
      */
-    public function updateCartItem(string $sku, int $qty)
+    public function updateCartItem(string $sku, int $qty, string $cartTarget = 'checkout')
     {
-        try {
-            $quote = $this->checkoutCart->getQuote();
-            $itemFound = false;
-            $productName = '';
-
-            foreach ($quote->getAllVisibleItems() as $item) {
-                if ($item->getSku() === $sku) {
-                    $item->setQty($qty);
-                    $productName = $item->getName();
-                    $itemFound = true;
-                    break;
-                }
-            }
-
-            if ($itemFound) {
-                $this->checkoutCart->save();
-                $result = [
-                    'status' => 'OK',
-                    'message' => __('%1 quantity has been updated to %2.', $productName, $qty)->render(),
-                    'sku' => $sku,
-                    'qty' => $qty
-                ];
-            } else {
-                $result = [
-                    'status' => 'NOT_FOUND',
-                    'message' => __('Product with SKU %1 was not found in your cart.', $sku)->render()
-                ];
-            }
-        } catch (\Exception $e) {
-            $result = [
-                'status' => 'ERROR',
-                'message' => $e->getMessage()
-            ];
-        }
+        $result = $this->updateSelectedCartItemQuantity($sku, $qty, $cartTarget);
 
         /** @var \Afd\AI\Api\Data\ToolResponseInterface $response */
         $response = $this->toolResponseFactory->create();
         $response->setData([$result]);
         $response->setHtml('');
         return $response;
+    }
+
+    /**
+     * Set a new quantity for the visible cart line matching a catalogue SKU.
+     *
+     * The update follows the same quantity policy, SKU matching and result
+     * dialect as addToCart/removeFromCart: quantities rejected by the sale
+     * policy never reach the quote and every outcome uses the shared status
+     * vocabulary understood by the gateway's browser cart bridge.
+     *
+     * @return array<string, mixed>
+     */
+    public function updateSelectedCartItemQuantity(
+        string $sku,
+        int $qty,
+        string $cartTarget = 'checkout'
+    ): array {
+        $sku = trim($sku);
+        $isQuoteCart = $cartTarget === 'quote';
+        $cart = $isQuoteCart ? $this->quoteCartAdapter->getCart() : $this->checkoutCart;
+        $cartType = $isQuoteCart ? 'request_quote' : 'checkout';
+
+        if ($cart === null) {
+            return $this->quoteCartUnavailable();
+        }
+
+        try {
+            $matchedItem = null;
+            foreach ($cart->getQuote()->getAllVisibleItems() as $item) {
+                if ($this->cartItemMatchesSku($item, $sku)) {
+                    $matchedItem = $item;
+                    break;
+                }
+            }
+
+            if ($matchedItem === null) {
+                return [
+                    'status' => 'requires_customer_action',
+                    'reason' => 'product_not_found_in_cart',
+                    'message' => $isQuoteCart
+                        ? __('This product was not found in your Quote Cart.')->render()
+                        : __('This product was not found in your cart.')->render(),
+                    'sku' => $sku,
+                    'cart_type' => $cartType,
+                    'cart_qty' => (float)$cart->getQuote()->getItemsQty(),
+                ];
+            }
+
+            $product = $matchedItem->getProduct() ?: $matchedItem;
+            $quantityValidation = $this->saleQuantityPolicy->validate($product, (float)$qty);
+            if ($quantityValidation['valid'] !== true) {
+                return $this->invalidQuantityResult($product, $quantityValidation, $qty);
+            }
+
+            $matchedItem->setQty($qty);
+            $cart->save();
+
+            if (!$this->cartItemMatchesSku($matchedItem, $sku)
+                || abs((float)$matchedItem->getQty() - $qty) > 0.000001) {
+                throw new \RuntimeException('The selected cart did not retain the requested quantity.');
+            }
+
+            return [
+                'status' => 'success',
+                'message' => __('%1 quantity has been updated to %2.', $matchedItem->getName(), $qty)->render(),
+                'product' => (string)$matchedItem->getName(),
+                'sku' => $sku,
+                'qty' => $qty,
+                'cart_qty' => (float)$cart->getQuote()->getItemsQty(),
+                'cart_type' => $cartType,
+            ];
+        } catch (LocalizedException $exception) {
+            // Magento also uses LocalizedException for inventory failures. A
+            // quantity update beyond the currently salable stock is shopper
+            // correctable, not an error.
+            if ($this->isInsufficientStockException($exception)) {
+                $this->logger->warning('Afd AI cart action exceeds current salable stock.', [
+                    'sku' => $sku,
+                    'requested_qty' => $qty,
+                    'cart_type' => $cartType,
+                    'message' => $exception->getMessage(),
+                ]);
+
+                return [
+                    'status' => 'requires_customer_action',
+                    'reason' => 'insufficient_stock',
+                    'message' => __('The requested quantity is not currently available.')->render(),
+                    'sku' => $sku,
+                    'requested_qty' => $qty,
+                    'cart_type' => $cartType,
+                ];
+            }
+
+            $this->logger->warning('Afd AI could not update a cart item quantity.', [
+                'sku' => $sku,
+                'cart_type' => $cartType,
+                'message' => $exception->getMessage(),
+            ]);
+            return [
+                'status' => 'requires_customer_action',
+                'reason' => 'quantity_update_rejected',
+                'message' => __('This quantity change was rejected by the store. Please choose another quantity.')->render(),
+                'sku' => $sku,
+                'requested_qty' => $qty,
+                'cart_type' => $cartType,
+            ];
+        } catch (\Throwable $exception) {
+            $this->logger->warning('Afd AI could not update an item in the cart.', [
+                'sku' => $sku,
+                'cart_type' => $cartType,
+                'exception' => $exception,
+            ]);
+
+            return [
+                'status' => 'error',
+                'message' => __('The selected product could not be updated in the cart.')->render(),
+                'sku' => $sku,
+                'cart_type' => $cartType,
+            ];
+        }
     }
 
     /**

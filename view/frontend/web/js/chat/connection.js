@@ -776,7 +776,11 @@ const {
                             0,
                             Number(message.stoppedAfterSeconds ?? message.stopped_after_seconds) || 0
                         ),
-                        workedForMs: Math.max(0, Number(message.workedForMs) || 0),
+                        workedForMs: Math.max(
+                            0,
+                            Number(message.workedForMs) || 0,
+                            Number(message.worked_for_ms) || 0
+                        ),
                         attachments: Array.isArray(message.attachments) ? message.attachments : [],
                         parts: Array.isArray(message.parts) ? message.parts.map((part) => (
                             part.type === 'products'

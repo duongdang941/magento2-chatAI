@@ -159,11 +159,13 @@
             "created_at": true
         },
         "index": {
-            "AFD_AI_GENERATED_IMAGE_REFERENCE_FILENAME": true
+            "AFD_AI_GENERATED_IMAGE_REFERENCE_FILENAME": true,
+            "AFD_AI_GENERATED_IMAGE_REF_FILENAME": true
         },
         "constraint": {
             "PRIMARY": true,
-            "FK_F69F00A2F08DBE3ABB1B7364F4DACA51": true
+            "FK_F69F00A2F08DBE3ABB1B7364F4DACA51": true,
+            "AFD_AI_GENERATED_IMAGE_REF_MESSAGE_ID": true
         }
     },
     "afd_ai_guest_order_access": {
@@ -181,11 +183,13 @@
             "created_at": true
         },
         "index": {
-            "AFD_AI_GUEST_ORDER_ACCESS_ACCESS_TOKEN_HASH": true
+            "AFD_AI_GUEST_ORDER_ACCESS_ACCESS_TOKEN_HASH": true,
+            "AFD_AI_GUEST_ORDER_TOKEN": true
         },
         "constraint": {
             "PRIMARY": true,
-            "AFD_AI_GUEST_ORDER_ACCESS_EMAIL_HASH_SESSION_ID": true
+            "AFD_AI_GUEST_ORDER_ACCESS_EMAIL_HASH_SESSION_ID": true,
+            "AFD_AI_GUEST_ORDER_EMAIL_SESSION": true
         }
     },
     "afd_ai_knowledge_document": {
@@ -211,7 +215,10 @@
         "index": {
             "AFD_AI_KNOWLEDGE_DOCUMENT_STORE_ID_WEBSITE_ID_STATUS_UPDATED_AT": true,
             "AFD_AI_KNOWLEDGE_DOCUMENT_IDENTIFIER_VERSION": true,
-            "AFD_AI_KNOWLEDGE_DOCUMENT_EFFECTIVE_AT_EXPIRES_AT": true
+            "AFD_AI_KNOWLEDGE_DOCUMENT_EFFECTIVE_AT_EXPIRES_AT": true,
+            "AFD_AI_KB_SCOPE_STATUS": true,
+            "AFD_AI_KB_IDENTIFIER_VERSION": true,
+            "AFD_AI_KB_EFFECTIVE_EXPIRES": true
         },
         "constraint": {
             "PRIMARY": true
@@ -240,7 +247,12 @@
             "AFD_AI_ANALYTICS_EVENT_CONVERSATION_ID_OCCURRED_AT": true,
             "AFD_AI_ANALYTICS_EVENT_CANDIDATE_SET_ID_OCCURRED_AT": true,
             "AFD_AI_ANALYTICS_EVENT_QUOTE_ID_OCCURRED_AT": true,
-            "AFD_AI_ANALYTICS_EVENT_ORDER_INCREMENT_ID_OCCURRED_AT": true
+            "AFD_AI_ANALYTICS_EVENT_ORDER_INCREMENT_ID_OCCURRED_AT": true,
+            "AFD_AI_ANALYTICS_STORE_EVENT_TIME": true,
+            "AFD_AI_ANALYTICS_CONVERSATION": true,
+            "AFD_AI_ANALYTICS_CANDIDATE": true,
+            "AFD_AI_ANALYTICS_QUOTE": true,
+            "AFD_AI_ANALYTICS_ORDER": true
         },
         "constraint": {
             "PRIMARY": true
@@ -264,11 +276,102 @@
         },
         "index": {
             "AFD_AI_GUARDRAIL_AUDIT_STORE_ID_CREATED_AT": true,
-            "AFD_AI_GUARDRAIL_AUDIT_CONVERSATION_ID_CREATED_AT": true
+            "AFD_AI_GUARDRAIL_AUDIT_CONVERSATION_ID_CREATED_AT": true,
+            "AFD_AI_GUARDRAIL_STORE_CREATED": true,
+            "AFD_AI_GUARDRAIL_CONVERSATION": true
         },
         "constraint": {
             "PRIMARY": true,
-            "AFD_AI_GUARDRAIL_AUDIT_DECISION_ID": true
+            "AFD_AI_GUARDRAIL_AUDIT_DECISION_ID": true,
+            "AFD_AI_GUARDRAIL_DECISION_ID": true
+        }
+    },
+    "afd_ai_attachment_quota": {
+        "column": {
+            "scope_id": true,
+            "scope_type": true,
+            "scope_key": true,
+            "used_bytes": true,
+            "reserved_bytes": true,
+            "updated_at": true
+        },
+        "index": {
+            "AFD_AI_ATTACHMENT_QUOTA_UPDATED": true
+        },
+        "constraint": {
+            "PRIMARY": true,
+            "AFD_AI_ATTACHMENT_QUOTA_SCOPE": true
+        }
+    },
+    "afd_ai_attachment": {
+        "column": {
+            "entity_id": true,
+            "attachment_id": true,
+            "owner_type": true,
+            "owner_key": true,
+            "conversation_id": true,
+            "state": true,
+            "staged_path": true,
+            "final_path": true,
+            "mime_type": true,
+            "bytes": true,
+            "sha256": true,
+            "reservation_id": true,
+            "nonce_hash": true,
+            "expires_at": true,
+            "created_at": true,
+            "updated_at": true
+        },
+        "index": {
+            "AFD_AI_ATTACHMENT_OWNER_STATE": true,
+            "AFD_AI_ATTACHMENT_CONVERSATION": true,
+            "AFD_AI_ATTACHMENT_EXPIRES": true
+        },
+        "constraint": {
+            "PRIMARY": true,
+            "AFD_AI_ATTACHMENT_ID": true
+        }
+    },
+    "afd_ai_attachment_reservation": {
+        "column": {
+            "entity_id": true,
+            "reservation_id": true,
+            "attachment_id": true,
+            "owner_path": true,
+            "reserved_bytes": true,
+            "state": true,
+            "expires_at": true,
+            "created_at": true,
+            "updated_at": true
+        },
+        "index": {
+            "AFD_AI_ATTACHMENT_RES_EXPIRES": true,
+            "AFD_AI_ATTACHMENT_RES_OWNER": true
+        },
+        "constraint": {
+            "PRIMARY": true,
+            "AFD_AI_ATTACHMENT_RES_ID": true
+        }
+    },
+    "afd_ai_provider": {
+        "column": {
+            "provider_id": true,
+            "name": true,
+            "provider_code": true,
+            "base_url": true,
+            "api_key": true,
+            "api_format": true,
+            "models_json": true,
+            "is_active": true,
+            "created_at": true,
+            "updated_at": true
+        },
+        "index": {
+            "AFD_AI_PROVIDER_ACTIVE": true
+        },
+        "constraint": {
+            "PRIMARY": true,
+            "AFD_AI_PROVIDER_CODE": true
         }
     }
 }

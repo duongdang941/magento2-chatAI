@@ -10,7 +10,8 @@ import {
     configuredWebSocketOrigins,
     createDistributedWebSocketConnectionAdmission,
     createWebSocketConnectionAdmission,
-    installWebSocketHeartbeat
+    installWebSocketHeartbeat,
+    webSocketNetworkIdentity
 } from './services/security/websocket-security.js';
 import {
     acceptsClientContract,
@@ -77,6 +78,7 @@ import {
 import {
     clearPendingVerificationAction,
     consumePendingVerificationAction,
+    hasPendingVerificationAction,
     rememberPendingVerificationAction
 } from './services/conversation/pending-verification-action.js';
 import { createHistoryMessagePreparer } from './services/conversation/history-message-preparer.js';
@@ -359,8 +361,11 @@ wss.on('connection', async (ws, req) => {
         // Stable across reconnects so a new short-lived connection ticket
         // cannot reset chat or mutation throttles.
         rateLimitKey: customerId ? `${tenantPrefix}customer:${customerId}` : `${tenantPrefix}session:${auth.sessionId}`,
+        // Same identity rule as connection admission so shoppers behind the
+        // documented nginx/TRUST_PROXY=1 deployment keep distinct network
+        // throttles instead of collapsing into the proxy's address.
         networkRateLimitKey: `network:${crypto.createHash('sha256')
-            .update(String(req.socket?.remoteAddress || 'unknown'), 'utf8')
+            .update(webSocketNetworkIdentity(req), 'utf8')
             .digest('hex')}`,
         token: null,
         guestOrderEmail: '',
@@ -637,7 +642,26 @@ wss.on('connection', async (ws, req) => {
                     if (result?.status === 'success' && purpose === 'support') {
                         consumePendingVerificationAction(client, purpose);
                         await sendSupportPortal(ws, client, formId);
-                    } else if (result?.status === 'success') {
+                    } else if (result?.status === 'success' && hasPendingVerificationAction(client, purpose)) {
+                        // The resumed turn must pass the same per-minute throttle
+                        // as an explicit `chat` message. Check before consuming
+                        // so a throttled shopper keeps the action for a retry.
+                        const aiConfig = await getAiConfig(runtime, client.catalogScope?.storeCode || '', client.tenantId || client.catalogScope?.tenantId || '');
+                        const rateLimit = await runtime.consumeRateLimit(client.rateLimitKey, {
+                            limit: aiConfig.rate_limits?.messages_per_minute || MAX_MESSAGES_PER_MINUTE,
+                            windowMs: 60 * 1000
+                        });
+                        if (!rateLimit.allowed) {
+                            metrics.increment('rate_limited');
+                            ws.send(JSON.stringify({
+                                type: 'busy',
+                                error_code: 'RATE_LIMITED',
+                                recoverable: true,
+                                retry_after: Math.max(1, Math.ceil(rateLimit.retryAfterMs / 1000)),
+                                content: 'You are sending messages too quickly. Please wait a moment.'
+                            }));
+                            break;
+                        }
                         const pendingAction = consumePendingVerificationAction(client, purpose);
                         if (pendingAction && isSocketOpen(ws)) {
                             const resumeRequestId = `verification-resume-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
@@ -995,7 +1019,21 @@ wss.on('connection', async (ws, req) => {
             }
         } catch (error) {
             console.error('Message handling error:', summarizeError(error));
-            ws.send(JSON.stringify({ type: 'error', content: 'Internal server error' }));
+            // A request-scoped frontend ignores uncorrelated lifecycle frames
+            // to prevent an old socket message from mutating a newer turn.
+            // Preserve the original request id here so an unexpected gateway
+            // exception always releases the matching loading state. `data`
+            // lives inside the try scope above, so recover the id defensively
+            // from the raw frame instead; this handler must never reject or an
+            // unhandled rejection would crash the gateway.
+            let requestId = '';
+            try {
+                requestId = String(JSON.parse(raw)?.request_id || '');
+            } catch { /* malformed frame carries no recoverable request id */ }
+            ws.send(attachRequestId({
+                type: 'error',
+                content: 'Internal server error'
+            }, requestId));
         }
     });
     ws.on('close', () => {

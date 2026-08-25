@@ -106,6 +106,7 @@ class MessagePageLoader
                 'parts' => $decodedMessage['parts'],
                 'interrupted' => $decodedMessage['interrupted'],
                 'stopped_after_seconds' => $decodedMessage['stopped_after_seconds'],
+                'worked_for_ms' => $decodedMessage['worked_for_ms'] ?? 0,
                 'source' => $decodedMessage['source'] ?? '',
                 'sender_label' => $decodedMessage['sender_label'] ?? '',
                 // attachment is retained for clients during the rolling deployment. New clients use attachments.
@@ -209,6 +210,7 @@ class MessagePageLoader
                 'parts' => $decodedMessage['parts'],
                 'interrupted' => $decodedMessage['interrupted'],
                 'stopped_after_seconds' => $decodedMessage['stopped_after_seconds'],
+                'worked_for_ms' => $decodedMessage['worked_for_ms'] ?? 0,
                 'source' => $decodedMessage['source'] ?? '',
                 'sender_label' => $decodedMessage['sender_label'] ?? '',
                 'attachment' => $attachments[0] ?? null,

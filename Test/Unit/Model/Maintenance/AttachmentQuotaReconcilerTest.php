@@ -109,4 +109,97 @@ class AttachmentQuotaReconcilerTest extends TestCase
         $this->expectExceptionMessage('simulated database crash');
         $sut->execute();
     }
+
+    /**
+     * A stale finalizing attachment with an aged-out reservation must get a
+     * grace extension BEFORE any force-expiry pass, so the verified-complete
+     * final file can still be committed atomically instead of wedging forever.
+     */
+    public function testGrantsGraceWindowBeforeCommittingStaleFinalizingAttachment(): void
+    {
+        $finalPath = 'afd_ai/chat/guest/abc123/9/finalhash.webp';
+        $directory = $this->createMock(WriteInterface::class);
+        $directory->method('search')->willReturn([]);
+        $directory->method('isFile')->with($finalPath)->willReturn(true);
+        $directory->method('stat')->with($finalPath)->willReturn(['size' => 4096]);
+        $filesystem = $this->createMock(Filesystem::class);
+        $filesystem->method('getDirectoryWrite')->with(DirectoryList::VAR_DIR)->willReturn($directory);
+
+        $select = $this->getMockBuilder(Select::class)->disableOriginalConstructor()->getMock();
+        $select->method('from')->willReturnSelf();
+        $select->method('where')->willReturnSelf();
+        $select->method('forUpdate')->willReturnSelf();
+
+        $updates = [];
+        $connection = $this->createMock(AdapterInterface::class);
+        $connection->method('select')->willReturn($select);
+        $connection->method('isTableExists')->willReturn(true);
+        $connection->method('fetchAll')->willReturnOnConsecutiveCalls(
+            [],
+            [[
+                'attachment_id' => 'att789',
+                'reservation_id' => 'res456',
+                'owner_key' => 'abc123',
+                'owner_type' => 'guest',
+                'conversation_id' => 9,
+                'final_path' => $finalPath,
+                'staged_path' => '',
+            ]],
+            []
+        );
+        // Existing global row already matches the scanned usage, so the only
+        // correction in this run is the recovered finalization commit itself.
+        $connection->method('fetchRow')->willReturn([
+            'scope_id' => 5,
+            'used_bytes' => 0,
+            'reserved_bytes' => 0,
+        ]);
+        $connection->method('update')->willReturnCallback(
+            static function (string $table, array $data, array $where = []) use (&$updates): int {
+                $updates[] = ['table' => $table, 'data' => $data];
+                return 1;
+            }
+        );
+        $resource = $this->createMock(ResourceConnection::class);
+        $resource->method('getConnection')->willReturn($connection);
+        $resource->method('getTableName')->willReturnArgument(0);
+        $lock = $this->createMock(LockManagerInterface::class);
+        $lock->method('lock')->willReturn(true);
+
+        $updatesAtCommit = null;
+        $repository = $this->createMock(\Afd\AI\Model\Attachment\AttachmentRepository::class);
+        $repository->expects(self::once())->method('commitFinalAttachmentAtomic')->with(
+            'att789',
+            $finalPath,
+            'guest/abc123',
+            4096,
+            'res456',
+            9,
+            'abc123'
+        )->willReturnCallback(static function () use (&$updates, &$updatesAtCommit): void {
+            $updatesAtCommit = $updates;
+        });
+
+        $sut = new AttachmentQuotaReconciler(
+            $filesystem,
+            $resource,
+            $lock,
+            $this->createMock(LoggerInterface::class),
+            $repository
+        );
+
+        $result = $sut->execute();
+
+        self::assertTrue($result['reconciled']);
+        self::assertSame(1, $result['corrected']);
+        self::assertNotNull($updatesAtCommit);
+        // The reservation received its active grace extension before commit.
+        $graceExtensions = array_filter(
+            $updatesAtCommit,
+            static fn (array $update): bool =>
+                $update['table'] === 'afd_ai_attachment_reservation'
+                && (($update['data']['state'] ?? '') === 'active')
+        );
+        self::assertCount(1, $graceExtensions);
+    }
 }

@@ -492,7 +492,14 @@
                 }
                 this.richTextAssetsPromise = modules.loadRichTextAssets(config.richTextAssets || {});
                 this.richTextAssetsPromise
-                    .catch(() => null)
+                    .catch((error) => {
+                        // Not fatal: helpers.js fails closed and renders the
+                        // markdown source as escaped plain text until (or if)
+                        // Marked/DOMPurify become available. Surface the
+                        // degradation instead of swallowing it.
+                        console.warn('[AFD-AI-CHAT] Rich-text libraries failed to load; markdown renders as plain text.', error);
+                        return null;
+                    })
                     .finally(() => this.ensureWebSocketConnection());
             },
             closeChat() {

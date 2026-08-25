@@ -22,14 +22,22 @@ class CatalogIdentityMatcher
             return '';
         }
 
-        // Keep candidate retrieval deliberately coarse and let the bounded
-        // identity-distance scorer make the decision. A long prefix loses the
-        // correct candidate whenever a shopper omits or duplicates a letter
-        // near the beginning (Luftbalons/Luftballons,
-        // Sonenbrille/Sonnenbrille). Three leading characters still keep the
-        // fallback set bounded while remaining tolerant of those common
-        // one-character mistakes.
-        return mb_substr($tokens[0], 0, min(3, mb_strlen($tokens[0])));
+        // Use the most distinctive supplied identity token rather than the
+        // first token. Product titles often begin with short generic words
+        // such as "T", "T-Shirt", or a model family; using one of those
+        // broad prefixes can consume the bounded candidate page before the
+        // actual product is examined. The identity-distance scorer still
+        // validates every token, while the longest token keeps the candidate
+        // lookup narrow and language-neutral.
+        $anchor = array_reduce(
+            $tokens,
+            static fn (?string $best, string $token): string => $best === null || mb_strlen($token) > mb_strlen($best)
+                ? $token
+                : $best,
+            null
+        );
+
+        return mb_substr($anchor, 0, min(3, mb_strlen($anchor)));
     }
 
     /**

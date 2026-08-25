@@ -27,3 +27,15 @@ test('interrupted response duration is never negative', () => {
         stopped_after_seconds: 0
     });
 });
+
+test('marks a reload interruption without changing an explicit stop payload', () => {
+    assert.deepEqual(interruptedResponseMetadata(1_000, 3_100, 'connection_lost'), {
+        interrupted: true,
+        stopped_after_seconds: 2,
+        interruption_reason: 'connection_lost'
+    });
+    assert.deepEqual(interruptedResponseMetadata(1_000, 3_100, 'user_stop'), {
+        interrupted: true,
+        stopped_after_seconds: 2
+    });
+});

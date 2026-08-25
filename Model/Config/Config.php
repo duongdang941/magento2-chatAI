@@ -16,7 +16,7 @@ class Config
     public const XML_PATH_ENABLED = 'afd_ai/general/enabled';
     public const XML_PATH_PERSIST_GUEST_HISTORY = 'afd_ai/general/persist_guest_history';
     public const XML_PATH_CHAT_SERVER_URL = 'afd_ai/general/chat_server_url';
-    public const XML_PATH_EXPOSE_COUPON_CODES = 'afd_ai/general/expose_coupon_codes';
+    public const XML_PATH_EXPOSE_COUPON_CODES = 'afd_ai/features/expose_coupon_codes';
     public const XML_PATH_PROVIDER = 'afd_ai/general/provider';
     public const XML_PATH_MODEL = 'afd_ai/general/model';
     public const XML_PATH_THOUGHT_LEVEL = 'afd_ai/general/thought_level';
@@ -87,6 +87,10 @@ class Config
     public const XML_PATH_ATTACHMENT_MAX_OWNER_STORAGE_BYTES = 'afd_ai/attachments/max_owner_storage_bytes';
 
     public const XML_PATH_VOICE_ENABLED = 'afd_ai/voice/enabled';
+    public const XML_PATH_VOICE_LIVE_ENABLED = 'afd_ai/voice/live_enabled';
+    public const XML_PATH_VOICE_LIVE_MODEL = 'afd_ai/voice/live_model';
+    public const XML_PATH_VOICE_LIVE_MAX_SESSIONS_PER_MINUTE = 'afd_ai/voice/live_max_sessions_per_minute';
+    public const XML_PATH_VOICE_LIVE_MAX_DURATION_SECONDS = 'afd_ai/voice/live_max_duration_seconds';
     public const XML_PATH_VOICE_TRANSCRIPTION_MODEL = 'afd_ai/voice/transcription_model';
     public const XML_PATH_VOICE_MAX_DURATION_SECONDS = 'afd_ai/voice/max_duration_seconds';
     public const XML_PATH_VOICE_MAX_AUDIO_BYTES = 'afd_ai/voice/max_audio_bytes';
@@ -100,6 +104,8 @@ class Config
 
     public const XML_PATH_CONVERSATION_RETENTION_DAYS = 'afd_ai/privacy/conversation_retention_days';
     public const XML_PATH_RESOLVED_CASE_RETENTION_DAYS = 'afd_ai/privacy/resolved_case_retention_days';
+    public const XML_PATH_ANALYTICS_RETENTION_DAYS = 'afd_ai/privacy/analytics_event_retention_days';
+    public const XML_PATH_GUARDRAIL_AUDIT_RETENTION_DAYS = 'afd_ai/privacy/guardrail_audit_retention_days';
 
     public const XML_PATH_MAGENTO_CONSUMER_KEY = 'afd_ai/general/magento_consumer_key';
     public const XML_PATH_MAGENTO_CONSUMER_SECRET = 'afd_ai/general/magento_consumer_secret';
@@ -524,13 +530,19 @@ class Config
             'max_concurrent_per_identity' => (int)$this->scopeConfig->getValue(self::XML_PATH_VOICE_MAX_CONCURRENT_PER_IDENTITY, ScopeInterface::SCOPE_STORE, $storeId),
             'timeout_ms' => (int)$this->scopeConfig->getValue(self::XML_PATH_VOICE_TIMEOUT_MS, ScopeInterface::SCOPE_STORE, $storeId),
             'live' => [
-                'enabled' => $provider === 'openai' && $this->scopeConfig->isSetFlag(self::XML_PATH_VOICE_ENABLED, ScopeInterface::SCOPE_STORE, $storeId),
+                // Live Voice additionally requires the per-store live_enabled
+                // kill switch so OpenAI Realtime stays off until it is enabled.
+                'enabled' => $provider === 'openai'
+                    && $this->scopeConfig->isSetFlag(self::XML_PATH_VOICE_ENABLED, ScopeInterface::SCOPE_STORE, $storeId)
+                    && $this->scopeConfig->isSetFlag(self::XML_PATH_VOICE_LIVE_ENABLED, ScopeInterface::SCOPE_STORE, $storeId),
                 'api_key' => $provider === 'openai'
                     ? trim((string)$this->scopeConfig->getValue('afd_ai/voice/live_api_key', ScopeInterface::SCOPE_STORE, $storeId))
                     : '',
                 'model' => $provider === 'openai'
-                    ? trim((string)$this->scopeConfig->getValue('afd_ai/voice/live_model', ScopeInterface::SCOPE_STORE, $storeId))
+                    ? trim((string)$this->scopeConfig->getValue(self::XML_PATH_VOICE_LIVE_MODEL, ScopeInterface::SCOPE_STORE, $storeId))
                     : '',
+                'max_sessions_per_minute' => max(1, min(30, (int)$this->scopeConfig->getValue(self::XML_PATH_VOICE_LIVE_MAX_SESSIONS_PER_MINUTE, ScopeInterface::SCOPE_STORE, $storeId))),
+                'max_duration_seconds' => max(30, min(1800, (int)$this->scopeConfig->getValue(self::XML_PATH_VOICE_LIVE_MAX_DURATION_SECONDS, ScopeInterface::SCOPE_STORE, $storeId))),
             ],
         ];
     }
@@ -543,6 +555,23 @@ class Config
             'access_token' => $this->scopeConfig->getValue(self::XML_PATH_MAGENTO_ACCESS_TOKEN, ScopeInterface::SCOPE_STORE, $storeId),
             'access_token_secret' => $this->scopeConfig->getValue(self::XML_PATH_MAGENTO_ACCESS_TOKEN_SECRET, ScopeInterface::SCOPE_STORE, $storeId),
         ];
+    }
+
+    /** Bounded telemetry retention; 0 keeps the configured fallback of each cleaner. */
+    public function getAnalyticsRetentionDays(): int
+    {
+        return max(30, min(3650, (int)$this->scopeConfig->getValue(
+            self::XML_PATH_ANALYTICS_RETENTION_DAYS,
+            ScopeConfigInterface::SCOPE_TYPE_DEFAULT
+        )));
+    }
+
+    public function getGuardrailAuditRetentionDays(): int
+    {
+        return max(30, min(3650, (int)$this->scopeConfig->getValue(
+            self::XML_PATH_GUARDRAIL_AUDIT_RETENTION_DAYS,
+            ScopeConfigInterface::SCOPE_TYPE_DEFAULT
+        )));
     }
 
     public function getNodeSyncSecret(): string
@@ -571,7 +600,9 @@ class Config
 
     public function canExposeCouponCodes(?int $storeId = null): bool
     {
-        return $this->scopeConfig->isSetFlag("afd_ai/features/expose_coupon_codes", ScopeInterface::SCOPE_STORE, $storeId);
+        // Single canonical reader for the coupon-sharing toggle so admin saves,
+        // defaults, and CommerceTool enforcement all resolve afd_ai/features/expose_coupon_codes.
+        return $this->isCouponSharingAllowed($storeId);
     }
 
     private function getVoiceTranscriptionModel(?int $storeId = null): string

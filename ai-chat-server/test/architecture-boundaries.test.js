@@ -16,6 +16,15 @@ test('provider adapters do not own Magento persistence or tool schemas', () => {
     }
 });
 
+test('every provider reserves a tool-free final synthesis turn', () => {
+    for (const filename of ['gemini-orchestrator.js', 'openai-compatible-orchestrator.js', 'anthropic-orchestrator.js']) {
+        const source = read('services', 'orchestration', filename);
+        assert.match(source, /isFinalSynthesisTurn/);
+        assert.match(source, /FINAL_SYNTHESIS_INSTRUCTION/);
+        assert.match(source, /iteration\s*<=\s*maxToolRounds/);
+    }
+});
+
 test('production code never logs raw model tool arguments', () => {
     for (const filename of ['gemini-orchestrator.js', 'openai-compatible-orchestrator.js']) {
         const source = read('services', 'orchestration', filename);
@@ -82,12 +91,12 @@ test('frontend composition root delegates state and feature behaviour', () => {
     assert.doesNotMatch(compositionRoot, /pendingGuestOrderAccessParts:\s*\[/);
 });
 
-test('storefront work history renders provider reasoning plus verified action items', () => {
+test('storefront work history renders only verified customer action items', () => {
     const template = read('..', 'view', 'frontend', 'templates', 'chat', 'partials', 'conversation.phtml');
     assert.match(template, /reasoningTimeline\(part\)/);
     assert.match(template, /event\.type === 'activity'/);
-    assert.match(template, /isProviderReasoningStep\(event\)/);
-    assert.match(template, /renderStreamingMarkdown\(event\.content\)/);
+    assert.doesNotMatch(template, /isProviderReasoningStep\(event\)/);
+    assert.doesNotMatch(template, /renderStreamingMarkdown\(event\.content\)/);
     assert.doesNotMatch(template, /reasoningSteps\(part\)/);
 });
 
@@ -103,6 +112,7 @@ test('every provider receives the current-turn language lock before it sees hist
         const source = read('services', 'orchestration', filename);
         assert.match(source, /const currentUserText = String\(currentUserMessage\.text \|\| currentUserMessage\.content \|\| ''\);/);
         assert.match(source, /shopperMessage:\s*currentUserText/);
+        assert.doesNotMatch(source, /type:\s*'thinking_delta'/);
     }
 });
 

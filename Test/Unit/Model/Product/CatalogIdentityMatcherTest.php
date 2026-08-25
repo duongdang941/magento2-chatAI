@@ -18,11 +18,11 @@ class CatalogIdentityMatcherTest extends TestCase
         ));
     }
 
-    public function testBuildsABoundedCandidatePrefixForAShortInsertionTypo(): void
+    public function testBuildsABoundedCandidatePrefixFromTheMostDistinctiveIdentityToken(): void
     {
         $matcher = new CatalogIdentityMatcher();
 
-        self::assertSame('tas', $matcher->searchPrefix('Tase Freiheit'));
+        self::assertSame('fre', $matcher->searchPrefix('Tase Freiheit'));
         self::assertSame(1, $matcher->identityDistance(
             'Tase Freiheit',
             'Tasse "Freiheit"'
@@ -39,6 +39,17 @@ class CatalogIdentityMatcherTest extends TestCase
         self::assertSame(1, $matcher->identityDistance(
             'Sonenbrille Deutschland im Blick',
             'Sonnenbrille "Deutschland im Blick"'
+        ));
+    }
+
+    public function testIgnoresAShortGenericTitlePrefixWhenFindingAnExactProduct(): void
+    {
+        $matcher = new CatalogIdentityMatcher();
+
+        self::assertSame('jet', $matcher->searchPrefix('T-Shirt "#jetztafd"'));
+        self::assertSame(0, $matcher->identityDistance(
+            'T-Shirt "#jetztafd"',
+            'T-Shirt "#jetztafd"'
         ));
     }
 

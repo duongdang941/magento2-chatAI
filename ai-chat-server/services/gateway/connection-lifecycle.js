@@ -32,7 +32,10 @@ export function createConnectionLifecycle({
     function cleanup(ws, metricName) {
         const client = clientData.get(ws);
         clearSupportTyping(client);
-        cancelActiveRun(ws);
+        // A page reload closes the socket while the gateway can still be
+        // waiting for the provider's first token. Mark it for durable recovery
+        // instead of treating it as a deliberate shopper stop.
+        cancelActiveRun(ws, null, 'connection_lost');
         browserCartBridge.rejectAll(ws);
         clientData.delete(ws);
         metrics.increment(metricName);

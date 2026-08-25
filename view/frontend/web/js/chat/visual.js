@@ -125,9 +125,17 @@ const {
                     feedbackDetailsSaved: Boolean(message.feedback_reason || message.feedback_comment),
                     feedbackBusy: false,
                     interrupted: message.interrupted === true,
+                    interruptionReason: message.interruption_reason === 'connection_lost'
+                        ? 'connection_lost'
+                        : '',
                     stoppedAfterSeconds: Math.max(
                         0,
                         Number(message.stopped_after_seconds ?? message.stoppedAfterSeconds) || 0
+                    ),
+                    workedForMs: Math.max(
+                        0,
+                        Number(message.workedForMs) || 0,
+                        Number(message.worked_for_ms) || 0
                     ),
                     edited: message.is_edited === true,
                     editedAt: String(message.edited_at || ''),

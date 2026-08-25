@@ -704,6 +704,7 @@
                                                 })
                                                 .filter(Boolean)
                                             : [];
+                                        const productUrl = String(item.url || '').trim();
                                         return {
                                             position: index + 1,
                                             product_ref: item.product_ref || (item.id ? `product:${item.id}` : ''),
@@ -714,6 +715,14 @@
                                             // out of the private ledger because
                                             // they are time-sensitive evidence.
                                             name: String(item.name),
+                                            // This URL was returned by Magento with the
+                                            // displayed card. Keep it only for an explicit
+                                            // later "open/get the link" request for this one
+                                            // card; it is not current price or availability
+                                            // evidence.
+                                            url: /^(?:https?:\/\/|\/)/i.test(productUrl)
+                                                ? productUrl.slice(0, 2048)
+                                                : '',
                                             product_type: String(item.product_type || 'simple'),
                                             requires_variant_selection: item.requires_variant_selection === true,
                                             variant_options: options
@@ -724,7 +733,7 @@
                             const catalogMemoryEnabled = config.features?.candidate_memory_enabled !== false;
                             const catalogContext = catalogMemoryEnabled && catalogProducts.length
                                 ? `[CATALOG_CONTEXT:v2]\n${JSON.stringify({
-                                    instruction: 'PRIVATE REFERENCE LEDGER, NOT CURRENT CATALOGUE EVIDENCE. Use only to resolve an unambiguous follow-up that explicitly gives product_ref/SKU or singularly refers to exactly one immediately preceding card. For every new search, recommendation, list, count, filter, comparison, price, option, or availability claim, call the appropriate Magento tool in the current turn. Never copy this ledger into customer prose or use it to create a text-only product list.',
+                                    instruction: 'PRIVATE REFERENCE LEDGER, NOT CURRENT CATALOGUE EVIDENCE. Use only to resolve an unambiguous follow-up that explicitly gives product_ref/SKU, exactly names one previously shown card, or singularly refers to exactly one immediately preceding card. For a link/open-page-only follow-up, return only that card\'s recorded Magento URL without a new search; do not reuse this ledger for price, stock, options, availability, recommendation, list, count, filter, or comparison claims. For every other new search, recommendation, list, count, filter, comparison, price, option, or availability claim, call the appropriate Magento tool in the current turn. Never copy this ledger into customer prose or use it to create a text-only product list.',
                                     products: catalogProducts
                                 })}`
                                 : '';
@@ -877,72 +886,12 @@
             },
 
             toolActivityLabel(activity) {
-                const tool = String(activity?.tool || '');
-                const state = String(activity?.state || 'running');
-                const count = Number(activity?.result_count);
-                const hasCount = Number.isFinite(count) && count >= 0;
-
-                // Labels come from the storefront translation table so the
-                // action timeline follows the shop locale, matching how the
-                // rest of the widget renders customer-facing copy.
-                if (tool === 'searchProducts') {
-                    if (state === 'running') return this.t('tool_checking_products');
-                    if (state === 'failed') return this.t('tool_products_unavailable');
-                    return hasCount && count > 0
-                        ? this.t('tool_products_checked_count', { 1: count })
-                        : this.t('tool_products_checked');
-                }
-                if (tool === 'searchWeb') {
-                    if (state === 'running') return this.t('tool_checking_external');
-                    if (state === 'failed') return this.t('tool_external_unavailable');
-                    return this.t('tool_external_checked');
-                }
-                if (tool === 'searchStoreKnowledge') {
-                    return state === 'running' ? this.t('tool_checking_store') : this.t('tool_store_checked');
-                }
-                if (tool === 'listCategories') {
-                    return state === 'running' ? this.t('tool_checking_categories') : this.t('tool_categories_checked');
-                }
-                if (tool === 'getProductAvailability') {
-                    return state === 'running' ? this.t('tool_checking_availability') : this.t('tool_availability_checked');
-                }
-                if (tool === 'compareProducts') {
-                    return state === 'running' ? this.t('tool_comparing_products') : this.t('tool_product_comparison_checked');
-                }
-                if (tool === 'addToCart' || tool === 'removeFromCart') {
-                    return state === 'running' ? this.t('tool_updating_cart') : this.t('tool_cart_updated');
-                }
-                if (tool === 'getRecentOrders' || tool === 'getGuestOrders') {
-                    return state === 'running' ? this.t('tool_checking_orders') : this.t('tool_orders_checked');
-                }
-                if (tool === 'getOrderDetails' || tool === 'getGuestOrderDetails') {
-                    return state === 'running' ? this.t('tool_checking_order_details') : this.t('tool_order_details_checked');
-                }
-                if (tool === 'getOrderFulfillment') {
-                    return state === 'running' ? this.t('tool_checking_delivery') : this.t('tool_delivery_checked');
-                }
-                if (tool === 'cancelOrder') {
-                    return state === 'running' ? this.t('tool_canceling_order') : this.t('tool_order_cancel_checked');
-                }
-                if (tool === 'requestReturn') {
-                    return state === 'running' ? this.t('tool_requesting_return') : this.t('tool_return_requested');
-                }
-                if (tool === 'handoffToHuman') {
-                    return state === 'running' ? this.t('tool_contacting_support') : this.t('tool_support_checked');
-                }
-                if (tool === 'subscribeBackInStock') {
-                    return state === 'running' ? this.t('tool_subscribing_stock') : this.t('tool_stock_subscribed');
-                }
-                if (tool === 'updateOrderAddress' || tool === 'updateGuestOrderAddress') {
-                    return state === 'running' ? this.t('tool_checking_address') : this.t('tool_address_checked');
-                }
-                if (tool === 'getCustomerAddresses' || tool === 'updateCustomerAddress') {
-                    return state === 'running' ? this.t('tool_checking_account_addresses') : this.t('tool_account_addresses_checked');
-                }
-                if (tool === 'generateImage') {
-                    return state === 'running' ? this.t('tool_preparing_image') : this.t('tool_image_prepared');
-                }
-                return state === 'running' ? this.t('tool_checking_request') : this.t('tool_request_checked');
+                // The action text is generated per tool call in the shopper's
+                // request language. Deliberately do not fall back to a store
+                // locale dictionary: that would reintroduce hard-coded text
+                // and could switch a Spanish, Japanese, or Vietnamese shopper
+                // to English.
+                return String(activity?.label || '').trim();
             },
 
             toolActivityIcon(activity) {

@@ -30,6 +30,7 @@ test('catalog context preserves configurable attribute machine codes', () => {
                             id: 890,
                             name: 'T-Shirt "#jetztafd"',
                             sku: 'N012.A0',
+                            url: 'https://afd.test/t-shirt-jetzafd-2.html',
                             product_type: 'configurable',
                             requires_variant_selection: true,
                             variant_options: [
@@ -51,6 +52,43 @@ test('catalog context preserves configurable attribute machine codes', () => {
     assert.match(context, /"code":"farbe","label":"Farbe","values":\["schwarz","weiß"\]/);
     assert.match(context, /"code":"grosse","label":"Größe","values":\["S","M","L"\]/);
     assert.match(context, /"code":"gender","label":"Geschlecht","values":\["Damen","Herren"\]/);
+    assert.match(context, /"url":"https:\/\/afd\.test\/t-shirt-jetzafd-2\.html"/);
+    assert.match(context, /exactly names one previously shown card/i);
+    assert.match(context, /link\/open-page-only follow-up/i);
+});
+
+test('catalog context keeps only the returned URL for an exact-title link follow-up', () => {
+    const methods = sandbox.window.AfdAiChat.attachmentMethods({
+        config: {},
+        urls: {},
+        helpers: { MAX_MODEL_HISTORY_MESSAGES: 16 }
+    });
+    const history = methods.buildModelHistory.call({
+        messages: [
+            {
+                role: 'assistant',
+                parts: [{
+                    type: 'products',
+                    payload: {
+                        items: [{
+                            id: 890,
+                            name: 'T-Shirt "#jetztafd"',
+                            sku: 'N012.A0',
+                            url: 'https://afd.test/t-shirt-jetzafd-2.html',
+                            price: '20,00 €'
+                        }]
+                    }
+                }]
+            },
+            { role: 'user', content: 'Cho toi link san pham T-Shirt "#jetztafd"' }
+        ],
+        htmlToText: () => ''
+    });
+
+    const context = history[0].parts[0].text;
+    assert.match(context, /"name":"T-Shirt \\\"#jetztafd\\\""/);
+    assert.match(context, /"url":"https:\/\/afd\.test\/t-shirt-jetzafd-2\.html"/);
+    assert.doesNotMatch(context, /20,00 €/);
 });
 
 test('candidate memory can be killed per store without removing the visible product card', () => {

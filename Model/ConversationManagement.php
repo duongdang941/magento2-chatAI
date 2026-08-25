@@ -204,15 +204,29 @@ class ConversationManagement implements ConversationManagementInterface
             if ($role === 'user') {
                 $this->attachUserMessage($message, $attachment, $customerId, $conversationId);
             }
-            $this->messageRepository->save($message);
-            $this->generatedImageReferenceRepository->replaceForMessage(
-                (int)$message->getEntityId(),
-                $role,
-                $content
-            );
 
-            if ($role === 'user') {
-                $this->supportInboxService->recordCustomerMessage($conversationId);
+            // The message row, its generated-image references and the support
+            // inbox counter must succeed or fail together: a gateway retry
+            // after a partial write would duplicate the shopper's message.
+            // Notification side-effects stay outside this transaction, as in
+            // SupportCaseService::create().
+            $connection = $this->conversationResource->getConnection();
+            $connection->beginTransaction();
+            try {
+                $this->messageRepository->save($message);
+                $this->generatedImageReferenceRepository->replaceForMessage(
+                    (int)$message->getEntityId(),
+                    $role,
+                    $content
+                );
+
+                if ($role === 'user') {
+                    $this->supportInboxService->recordCustomerMessage($conversationId);
+                }
+                $connection->commit();
+            } catch (\Throwable $transactionException) {
+                $connection->rollBack();
+                throw $transactionException;
             }
 
             return (int)$message->getEntityId();

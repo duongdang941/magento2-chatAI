@@ -19,15 +19,27 @@ test('enforces the total execution budget without counting blocked calls', () =>
     assert.equal(budget.executions, 2);
 });
 
-test('blocks duplicate calls using canonical argument order', () => {
+test('blocks duplicate calls using one semantic operation key', () => {
     const budget = createToolExecutionBudget({
         max_tool_executions: 10,
         max_category_calls: 3,
         block_duplicate_tool_calls: true
     });
 
-    assert.equal(budget.reserve('searchProducts', { query: 'flag', page: 1 }).allowed, true);
-    assert.deepEqual(budget.reserve('searchProducts', { page: 1, query: 'flag' }), {
+    assert.equal(budget.reserve('searchProducts', {
+        query: ' Cờ ',
+        page: 1,
+        responseLanguage: 'vi',
+        responseLanguageEvidence: ['cửa hàng có'],
+        activityPresentation: { runningLabel: 'Đang tìm sản phẩm' }
+    }).allowed, true);
+    assert.deepEqual(budget.reserve('searchProducts', {
+        query: 'cờ',
+        page: 2,
+        responseLanguage: 'en',
+        responseLanguageEvidence: ['do you have'],
+        activityPresentation: { runningLabel: 'Searching products' }
+    }), {
         allowed: false,
         reason: 'duplicate_tool_call'
     });

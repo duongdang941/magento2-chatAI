@@ -78,3 +78,7 @@
 "The secure chat connection is reconnecting. Please try again in a moment.","Die sichere Chat-Verbindung wird wiederhergestellt. Bitte versuchen Sie es gleich noch einmal."
 "More products could not be loaded","Weitere Produkte konnten nicht geladen werden"
 "Could not load more products. Please try again.","Weitere Produkte konnten nicht geladen werden. Bitte versuchen Sie es erneut."
+"Attachment uploads are unavailable because no signing secret could be resolved.","Datei-Uploads sind nicht verfügbar, da kein Signaturschlüssel ermittelt werden konnte."
+"Your customer information could not be loaded right now. Please try again later.","Ihre Kundeninformationen konnten gerade nicht geladen werden. Bitte versuchen Sie es später erneut."
+"Your recent orders could not be loaded right now. Please try again later.","Ihre letzten Bestellungen konnten gerade nicht geladen werden. Bitte versuchen Sie es später erneut."
+"Your addresses could not be loaded right now. Please try again later.","Ihre Adressen konnten gerade nicht geladen werden. Bitte versuchen Sie es später erneut."

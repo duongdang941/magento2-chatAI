@@ -422,13 +422,17 @@ export function extractAttachmentRef(part) {
 }
 
 function getVarChatDir() {
+    // Candidate locations come from the environment or the process working
+    // directory only; no machine-specific absolute path is hardcoded.
+    const magentoRoot = String(process.env.MAGENTO_ROOT || '').trim();
     const candidates = [
+        String(process.env.AFD_VAR_CHAT_DIR || '').trim(),
+        magentoRoot ? path.resolve(magentoRoot, 'var/afd_ai/chat') : '',
         path.resolve(process.cwd(), '../../../../../var/afd_ai/chat'),
         path.resolve(process.cwd(), '../../../../var/afd_ai/chat'),
         path.resolve(process.cwd(), 'var/afd_ai/chat'),
-        path.resolve(process.cwd(), '../var/afd_ai/chat'),
-        '/Users/duongdang/Sites/magento/afd/var/afd_ai/chat'
-    ];
+        path.resolve(process.cwd(), '../var/afd_ai/chat')
+    ].filter(Boolean);
     for (const candidate of candidates) {
         if (fs.existsSync(candidate)) {
             return candidate;
@@ -636,46 +640,6 @@ export function recordOutboundAssistantPart(assistantParts, parsed) {
             purpose: parsed.purpose === 'support' ? 'support' : 'order',
             expires_at: parsed.expires_at
         });
-    } else if ((parsed.type === 'thinking_delta' || parsed.type === 'thinking_step')
-        && parsed.visibility === 'public') {
-        const content = String(parsed.delta ?? parsed.content ?? '');
-        if (!content) return;
-        let reasoningPart = assistantParts.find(p => p.type === 'reasoning');
-        if (!reasoningPart) {
-            reasoningPart = { type: 'reasoning', events: [], steps: [], activities: [] };
-            assistantParts.unshift(reasoningPart);
-        }
-        if (!Array.isArray(reasoningPart.events)) reasoningPart.events = [];
-        if (!Array.isArray(reasoningPart.steps)) reasoningPart.steps = [];
-        const stepId = String(parsed.step_id || 'default').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80) || 'default';
-        const id = `provider-reasoning-${stepId}`;
-        const existing = reasoningPart.events.find(step => step.type === 'step' && step.id === id);
-        if (existing) {
-            existing.content = `${String(existing.content || '')}${content}`.slice(0, 16000);
-            existing.state = 'completed';
-        } else {
-            const step = {
-                id,
-                type: 'step',
-                source: 'provider_reasoning',
-                content: content.slice(0, 16000),
-                state: 'completed'
-            };
-            reasoningPart.events.push(step);
-            reasoningPart.steps.push(step);
-        }
-    } else if (parsed.type === 'discard_tentative_step' && parsed.visibility === 'public') {
-        const stepId = String(parsed.step_id || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
-        if (!stepId) return;
-        const id = `provider-reasoning-${stepId}`;
-        for (const reasoningPart of assistantParts.filter(part => part?.type === 'reasoning')) {
-            if (Array.isArray(reasoningPart.events)) {
-                reasoningPart.events = reasoningPart.events.filter(event => event?.id !== id);
-            }
-            if (Array.isArray(reasoningPart.steps)) {
-                reasoningPart.steps = reasoningPart.steps.filter(step => step?.id !== id);
-            }
-        }
     } else if (parsed.type === 'tool_activity' && parsed.tool) {
         let reasoningPart = assistantParts.find(p => p.type === 'reasoning');
         if (!reasoningPart) {
@@ -683,18 +647,52 @@ export function recordOutboundAssistantPart(assistantParts, parsed) {
             assistantParts.unshift(reasoningPart);
         }
         if (!Array.isArray(reasoningPart.events)) reasoningPart.events = [];
-        const activityId = String(parsed.activity_id || '');
-        const existing = reasoningPart.events.find(a => a.type === 'activity' && a.id === activityId);
+        const language = normalizeActivityLanguage(parsed.language);
+        const turnSummary = normalizeActivityTurnSummary(parsed.turn_summary);
+        const continuationKey = normalizeActivityContinuationKey(parsed.continuation_key);
+        const executionActivityId = String(parsed.activity_id || parsed.display_key || '');
+        const directExisting = reasoningPart.events.find(a => a.type === 'activity' && a.id === executionActivityId);
+        const previousActivity = reasoningPart.events[reasoningPart.events.length - 1];
+        // Consecutive executions can be one logical operation. The gateway's
+        // opaque continuation key, not a translated customer label, decides
+        // whether their durable timeline row is updated or appended.
+        const continuedExisting = !directExisting
+            && continuationKey
+            && previousActivity?.type === 'activity'
+            && previousActivity.state === 'running'
+            && previousActivity.continuation_key === continuationKey
+            ? previousActivity
+            : null;
+        const existing = directExisting || continuedExisting;
+        const activityId = existing?.id || executionActivityId;
         if (existing) {
+            const isRestartedAction = String(parsed.state || 'running') === 'running'
+                && existing.state !== 'running';
             existing.state = parsed.state;
             if (parsed.result_count !== undefined) existing.result_count = parsed.result_count;
+            if (typeof parsed.label === 'string') existing.label = parsed.label.slice(0, 240);
+            if (language) existing.language = language;
+            if (turnSummary) existing.turn_summary = turnSummary;
+            if (continuationKey) existing.continuation_key = continuationKey;
+            if (isRestartedAction) {
+                reasoningPart.events = reasoningPart.events.filter(event => event !== existing);
+                reasoningPart.events.push(existing);
+                if (Array.isArray(reasoningPart.activities)) {
+                    reasoningPart.activities = reasoningPart.activities.filter(activity => activity !== existing);
+                    reasoningPart.activities.push(existing);
+                }
+            }
         } else {
             const actItem = {
                 id: activityId,
                 type: 'activity',
                 tool: String(parsed.tool || ''),
                 state: String(parsed.state || 'running'),
-                result_count: parsed.result_count
+                result_count: parsed.result_count,
+                ...(typeof parsed.label === 'string' ? { label: parsed.label.slice(0, 240) } : {}),
+                ...(language ? { language } : {}),
+                ...(turnSummary ? { turn_summary: turnSummary } : {}),
+                ...(continuationKey ? { continuation_key: continuationKey } : {})
             };
             reasoningPart.events.push(actItem);
             if (Array.isArray(reasoningPart.activities)) reasoningPart.activities.push(actItem);
@@ -720,4 +718,27 @@ function findLastProductPartIndex(parts) {
         if (parts[index]?.type === 'products') return index;
     }
     return -1;
+}
+
+function normalizeActivityLanguage(value) {
+    const language = String(value || '').trim();
+    return /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$/.test(language)
+        ? language.slice(0, 35)
+        : '';
+}
+
+function normalizeActivityTurnSummary(value) {
+    const summary = String(value || '').replace(/\s+/g, ' ').trim();
+    return summary.length >= 12
+        && summary.length <= 120
+        && (summary.match(/\{duration\}/g) || []).length === 1
+        && !/[<>`]/.test(summary)
+        && !/(?:https?:\/\/|www\.)/i.test(summary)
+        ? summary
+        : '';
+}
+
+function normalizeActivityContinuationKey(value) {
+    const key = String(value || '').trim();
+    return /^activity-[a-f0-9]{24}$/.test(key) ? key : '';
 }

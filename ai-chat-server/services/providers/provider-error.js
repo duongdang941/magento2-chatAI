@@ -47,7 +47,12 @@ export function formatProviderError(error, label = 'AI provider') {
     if (code === 'provider_rate_limited') return `${label} is rate limiting requests. Please try again shortly.`;
     if (code === 'provider_unavailable') return `${label} is temporarily unavailable. Please try again shortly.`;
     if (code === 'provider_request_rejected') {
-        return `${label} rejected the request${status ? ` (HTTP ${status})` : ''}. Check the provider configuration.`;
+        // 404 almost always means a wrong model name or a base_url missing its
+        // version segment (e.g. https://host/v1), so name the usual suspects.
+        if (status === 404) {
+            return `${label} rejected the request (HTTP 404). Check the provider base URL (must include the version path, e.g. /v1) and the model name.`;
+        }
+        return `${label} rejected the request${status ? ` (HTTP ${status})` : ''}. Check the provider configuration (base URL, model name, API format).`;
     }
     return `${label} could not complete the request. Please try again.`;
 }

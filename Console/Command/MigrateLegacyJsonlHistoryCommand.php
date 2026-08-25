@@ -112,15 +112,34 @@ class MigrateLegacyJsonlHistoryCommand extends Command
                 continue;
             }
 
-            $rows = $this->buildRows($records, $customerId, $conversationId, $dryRun);
+            $rows = $this->buildRows($records, $customerId, $conversationId);
+            $attachmentPayloads = $this->collectAttachmentPayloads($records);
 
             if (!$dryRun) {
                 $connection->beginTransaction();
                 try {
                     $connection->insertMultiple($messageTable, $rows);
+                    // Files are stored only after the row insert succeeded but
+                    // before commit, so a failure cannot orphan quota-counted
+                    // files waiting on the weekly sweep.
+                    $this->storeAttachmentsWithinTransaction(
+                        $attachmentPayloads,
+                        $customerId,
+                        $conversationId,
+                        $messageTable
+                    );
                     $connection->commit();
                 } catch (\Throwable $exception) {
                     $connection->rollBack();
+                    // The rolled-back rows no longer reference these files.
+                    try {
+                        $this->chatAttachmentStorage->deleteConversationAttachments($customerId, $conversationId);
+                    } catch (\Throwable $cleanupException) {
+                        $output->writeln(sprintf(
+                            '<comment>Attachment cleanup after failed import failed: %s</comment>',
+                            $cleanupException->getMessage()
+                        ));
+                    }
                     throw $exception;
                 }
             }
@@ -184,34 +203,97 @@ class MigrateLegacyJsonlHistoryCommand extends Command
     }
 
     /**
+     * Rows are built file-free; attachment payloads are stored only from
+     * storeAttachmentsWithinTransaction() after the rows exist.
+     *
      * @param array<int, array<string, mixed>> $records
      * @return array<int, array<string, string|int>>
      */
-    private function buildRows(array $records, int $customerId, int $conversationId, bool $dryRun): array
+    private function buildRows(array $records, int $customerId, int $conversationId): array
     {
         $rows = [];
         foreach ($records as $record) {
             $role = ($record['role'] ?? '') === 'assistant' ? 'assistant' : 'user';
-            $attachment = null;
-            if ($role === 'user' && isset($record['attachment']) && is_array($record['attachment']) && !$dryRun) {
-                $attachment = $this->chatAttachmentStorage->storeFromPayload(
-                    $record['attachment'],
-                    $customerId,
-                    $conversationId
-                );
-            }
             $rows[] = [
                 'session_id' => 'legacy-jsonl-import',
                 'customer_id' => $customerId,
                 'conversation_id' => $conversationId,
                 'role' => $role,
                 'content' => $record['content'],
-                'attachment' => $attachment,
+                'attachment' => null,
                 'created_at' => $this->normalizeTimestamp($record['created_at'] ?? null)
             ];
         }
 
         return $rows;
+    }
+
+    /**
+     * Attachment payloads in user-message order; dry-run stays file-free by
+     * only ever consuming this list inside the non-dry-run transaction.
+     *
+     * @param array<int, array<string, mixed>> $records
+     * @return array<int, array<string, mixed>>
+     */
+    private function collectAttachmentPayloads(array $records): array
+    {
+        $payloads = [];
+        foreach ($records as $record) {
+            if (($record['role'] ?? '') === 'assistant') {
+                continue;
+            }
+            if (isset($record['attachment']) && is_array($record['attachment'])) {
+                $payloads[] = $record['attachment'];
+            }
+        }
+
+        return $payloads;
+    }
+
+    /**
+     * Stores each pending attachment and writes the returned metadata onto its
+     * inserted message row. Runs on an open per-conversation transaction so a
+     * rollback removes the rows; execute() deletes any already-stored files.
+     *
+     * @param array<int, array<string, mixed>> $payloads
+     */
+    private function storeAttachmentsWithinTransaction(
+        array $payloads,
+        int $customerId,
+        int $conversationId,
+        string $messageTable
+    ): void {
+        if ($payloads === []) {
+            return;
+        }
+
+        $connection = $this->resourceConnection->getConnection();
+        $userRows = array_values(array_filter(
+            $connection->fetchAll(
+                $connection->select()
+                    ->from($messageTable, ['entity_id', 'role'])
+                    ->where('conversation_id = ?', $conversationId)
+                    ->order('entity_id ASC')
+            ),
+            static fn (array $row): bool => ($row['role'] ?? '') === 'user'
+        ));
+        // Same chronological user-order matching as migrateExistingAttachments().
+        if (count($userRows) < count($payloads)) {
+            throw new \RuntimeException('Legacy import could not match inserted message rows for attachments.');
+        }
+
+        foreach (array_values($payloads) as $index => $payload) {
+            $metadata = $this->chatAttachmentStorage->storeFromPayload(
+                $payload,
+                $customerId,
+                $conversationId
+            );
+            $connection->update(
+                $messageTable,
+                ['attachment' => $metadata],
+                ['entity_id = ?' => (int)$userRows[$index]['entity_id']]
+            );
+        }
     }
 
     /**

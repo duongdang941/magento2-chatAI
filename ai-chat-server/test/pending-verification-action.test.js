@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
     clearPendingVerificationAction,
     consumePendingVerificationAction,
+    hasPendingVerificationAction,
     rememberPendingVerificationAction
 } from '../services/conversation/pending-verification-action.js';
 
@@ -53,4 +54,21 @@ test('expires and clears stale actions', () => {
     assert.equal(client.pendingVerificationAction, null);
     clearPendingVerificationAction(client);
     assert.equal(client.pendingVerificationAction, null);
+});
+
+test('reports readiness for the resumed turn without consuming the action', () => {
+    const client = {};
+    rememberPendingVerificationAction(client, {
+        purpose: 'order',
+        conversationId: 5,
+        text: 'Track my order'
+    }, { now: 1000, ttlMs: 5000 });
+
+    // A throttled gateway checks readiness first so a rate-limited shopper
+    // keeps the pending action available for a retry after verification.
+    assert.equal(hasPendingVerificationAction(client, 'order', { now: 2000 }), true);
+    assert.equal(hasPendingVerificationAction(client, 'support', { now: 2000 }), false);
+    assert.equal(hasPendingVerificationAction(client, 'order', { now: 7000 }), false);
+    assert.equal(client.pendingVerificationAction?.text, 'Track my order');
+    assert.equal(consumePendingVerificationAction(client, 'order', { now: 3000 })?.text, 'Track my order');
 });
