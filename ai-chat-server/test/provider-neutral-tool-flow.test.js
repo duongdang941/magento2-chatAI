@@ -54,6 +54,69 @@ test('defers category discovery for a product request until a product search has
     assert.deepEqual(frames, []);
 });
 
+test('finishes a general store overview from taxonomy without selecting an arbitrary product category', async () => {
+    const calls = [];
+    const flow = createProviderNeutralToolFlow({
+        provider: 'gemini',
+        currentUserMessage: { text: 'Cửa hàng có những sản phẩm nào?' },
+        options: {
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                if (name === 'listCategories') {
+                    return {
+                        data: [
+                            { id: 101, name: 'Textilien', product_count: 29, parent_id: 2, level: 2 },
+                            { id: 102, name: 'T-Shirts & Polohemden', product_count: 10, parent_id: 101, level: 3 }
+                        ]
+                    };
+                }
+                throw new Error(`Unexpected tool ${name}`);
+            }
+        }
+    });
+
+    const overview = await flow.execute({
+        id: 'store-overview',
+        name: 'listCategories',
+        args: {
+            lookupPurpose: 'taxonomy_question',
+            responseLanguage: 'vi',
+            responseLanguageEvidence: ['Cửa hàng', 'sản phẩm nào']
+        }
+    });
+
+    assert.equal(overview.blocked, false);
+    assert.equal(overview.visibleProducts, false);
+    assert.equal(overview.modelContext.categories.length, 2);
+    assert.match(overview.modelContext.instruction, /general store overview/i);
+    assert.equal(flow.getState().taxonomyOverviewResolved, true);
+
+    const productSearch = await flow.execute({
+        id: 'unwanted-category-search',
+        name: 'searchProducts',
+        args: {
+            query: '',
+            categoryId: 102,
+            exactIdentity: false,
+            responseLanguage: 'vi',
+            responseLanguageEvidence: ['Cửa hàng', 'sản phẩm nào'],
+            activityPresentation: {
+                language: 'vi',
+                runningLabel: 'Đang tìm sản phẩm',
+                completedLabel: 'Đã tìm xong sản phẩm',
+                failedLabel: 'Không thể tìm sản phẩm',
+                runningSummary: 'Đang xử lý trong {duration}',
+                completedSummary: 'Đã xử lý trong {duration}',
+                searchScope: 'trong danh mục {category}'
+            }
+        }
+    });
+
+    assert.equal(productSearch.blocked, true);
+    assert.equal(productSearch.outcome.content.reason, 'taxonomy_overview_complete');
+    assert.deepEqual(calls.map(call => call.name), ['listCategories']);
+});
+
 test('does not execute a product search that omits localized action metadata', async () => {
     const frames = [];
     const flow = createProviderNeutralToolFlow({

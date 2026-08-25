@@ -82,6 +82,7 @@ export function createProviderNeutralToolFlow({
         lastToolOutcome: null,
         pendingProductPresentation: null,
         terminalCatalog: false,
+        taxonomyOverviewResolved: false,
         productPageRequiredCart: null,
         toolErrorMessage: ''
     };
@@ -205,6 +206,28 @@ export function createProviderNeutralToolFlow({
                     name: toolName,
                     args: normalizedArgs,
                     content: resolvedCatalogIdentityBlock(),
+                    blocked: true,
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
+            }
+
+            // A taxonomy overview is the complete answer for a broad question
+            // about what the store carries. Do not let a provider pick an
+            // arbitrary child category after it has received the verified
+            // hierarchy; a shopper must make a new, specific request first.
+            if (toolName === 'searchProducts' && state.taxonomyOverviewResolved) {
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: normalizedArgs,
+                    content: {
+                        status: 'blocked',
+                        reason: 'taxonomy_overview_complete',
+                        instruction: 'The current shopper turn is a completed general store overview. Answer only from the returned category hierarchy. Do not choose a category, call searchProducts, or present one category as the whole store. A new shopper request for a named category, product type, or filter starts product retrieval.'
+                    },
                     blocked: true,
                     state,
                     catalogQueryContinuity,
@@ -366,6 +389,12 @@ export function createProviderNeutralToolFlow({
 
             rememberVerifiedCategoryNames(verifiedCategoryNames, toolName, content);
             rememberProductPageRequiredCart(state, toolName, content);
+            if (toolName === 'listCategories'
+                && String(normalizedArgs.lookupPurpose || '') === 'taxonomy_question'
+                && Array.isArray(content?.data)
+                && content.data.length > 0) {
+                state.taxonomyOverviewResolved = true;
+            }
 
             emitCustomerToolEvents({ ws, name: toolName, content, options });
             const contentStatus = String(content?.status || '').toLowerCase();
@@ -515,7 +544,10 @@ async function executeTool({
         });
     }
 
-    return executeRegisteredMagentoTool(name, args, {
+    const executeMagentoTool = typeof options.executeMagentoTool === 'function'
+        ? options.executeMagentoTool
+        : executeRegisteredMagentoTool;
+    return executeMagentoTool(name, args, {
         token: customerToken,
         magentoOauth: config.magento_oauth,
         magentoBaseUrl: config.magento_base_url,
@@ -728,6 +760,7 @@ function presentToolResult({ name, args, content, shopperMessage, options }) {
             return { productPresentation, visibleImage, modelContext };
         }
         const categories = Array.isArray(content?.data) ? content.data : [];
+        const isTaxonomyOverview = String(args.lookupPurpose || '') === 'taxonomy_question';
         modelContext = {
             categories: categories
                 .map((category) => ({
@@ -746,7 +779,9 @@ function presentToolResult({ name, args, content, shopperMessage, options }) {
                 shopperMessage,
                 args.query
             ),
-            instruction: 'Only describe the exact returned Magento categories. A category count is not a list of products.'
+            instruction: isTaxonomyOverview
+                ? 'This is the complete verified category hierarchy for a general store overview. Answer in the shopper language from these categories only. Do not select a category, name individual products, call another catalogue tool, add parent/child counts together, or imply that one category count is the total store catalogue.'
+                : 'Only describe the exact returned Magento categories. A category count is not a list of products.'
         };
     } else if (name === 'compareProducts') {
         modelContext = content?.error ? { error: content.error } : {

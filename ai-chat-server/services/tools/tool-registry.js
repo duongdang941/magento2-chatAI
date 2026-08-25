@@ -113,11 +113,11 @@ export const TOOL_DEFINITIONS = Object.freeze([
         sku: { type: 'string' },
         selectedOptions: { type: 'object', additionalProperties: { type: 'string' } }
     }, ['sku'])),
-    tool('listCategories', 'Inspect the real Magento category taxonomy.', objectSchema({
+    tool('listCategories', 'Inspect the real Magento category taxonomy. Use taxonomy_question for a category-structure question or a broad request for what the store carries; do not select a product category unless the shopper asks for one.', objectSchema({
         lookupPurpose: {
             type: 'string',
             enum: ['product_discovery', 'taxonomy_question'],
-            description: 'product_discovery when taxonomy is needed to find/show products; taxonomy_question only when the shopper explicitly asks about the category structure itself.'
+            description: 'product_discovery when taxonomy is needed to find/show a requested product; taxonomy_question for category structure or a broad store-range overview without a requested product type.'
         },
         responseLanguage: { type: 'string' },
         responseLanguageEvidence: { type: 'array', items: { type: 'string' } }
