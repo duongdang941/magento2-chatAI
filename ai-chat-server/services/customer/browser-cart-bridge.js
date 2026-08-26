@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 
 const DEFAULT_TIMEOUT_MS = 25_000;
+const MAX_PENDING_REQUESTS = 10;
 
 /**
  * Coordinates a cart mutation with the browser that owns the storefront
@@ -27,8 +28,12 @@ export class BrowserCartBridge {
             return Promise.resolve(this.failure('A product could not be selected.'));
         }
 
+        const requests = this.requestsFor(ws);
+        if (requests.size >= MAX_PENDING_REQUESTS) {
+            return Promise.resolve(this.failure('Too many pending cart requests. Please wait and try again.'));
+        }
+
         return new Promise((resolve) => {
-            const requests = this.requestsFor(ws);
             let settled = false;
             let timeout = null;
 
