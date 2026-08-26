@@ -78,6 +78,84 @@ test('keeps response language out of Magento search parameters', () => {
     );
 });
 
+test('keeps similarity-fallback control metadata out of Magento search parameters', () => {
+    assert.deepEqual(
+        normalizeSearchArguments({
+            query: 'shirt',
+            categoryId: 101,
+            similarityFallback: true
+        }),
+        { query: 'shirt', categoryId: 101, limit: 5, pageSize: 5, page: 1 }
+    );
+});
+
+test('keeps single-product follow-up correlation out of Magento search parameters', () => {
+    assert.deepEqual(
+        normalizeSearchArguments({
+            query: 'N042.A104',
+            exactIdentity: true,
+            followUpProductRef: 'product:986'
+        }),
+        { query: 'N042.A104', exactIdentity: true, limit: 5, pageSize: 5, page: 1 }
+    );
+});
+
+test('keeps only Magento-discovered configurable attribute constraints', () => {
+    assert.deepEqual(
+        normalizeSearchArguments({
+            query: '',
+            categoryId: 101,
+            requiredVariantAttributeCode: 'FARBE',
+            requiredVariantOptionValues: ['blau', 'blau', ''],
+            excludedVariantOptionValues: ['rot', 'rot', '']
+        }),
+        {
+            query: '',
+            categoryId: 101,
+            requiredVariantAttributeCode: 'farbe',
+            requiredVariantOptionValues: '["blau"]',
+            excludedVariantOptionValues: '["rot"]',
+            limit: 5,
+            pageSize: 5,
+            page: 1
+        }
+    );
+    assert.deepEqual(
+        normalizeSearchArguments({
+            query: '',
+            excludedVariantOptionValues: ['rot']
+        }),
+        { query: '', limit: 5, pageSize: 5, page: 1 }
+    );
+});
+
+test('preserves hard variant option constraints in signed product-page continuations', () => {
+    const page = buildCatalogProductsPayload({
+        data: [{ id: 9, sku: 'SKU-9' }],
+        meta: {
+            pagination: { total: 2, page: 1, page_size: 1, returned: 1, has_more: true, next_page: 2 },
+            scope: { category_id: 101, category_name: 'Textilien' }
+        }
+    }, {
+        query: 'T-Shirt',
+        categoryId: 101,
+        requiredVariantAttributeCode: 'farbe',
+        requiredVariantOptionValues: '["blau"]',
+        excludedVariantOptionValues: '["rot"]',
+        limit: 1
+    });
+
+    assert.deepEqual(verifyCatalogPageToken(page.payload.continuation), {
+        query: 'T-Shirt',
+        categoryId: 101,
+        page: 2,
+        pageSize: 1,
+        requiredVariantAttributeCode: 'farbe',
+        requiredVariantOptionValues: ['blau'],
+        excludedVariantOptionValues: ['rot']
+    });
+});
+
 test('keeps a valid explicit price currency while rejecting malformed currency input', () => {
     assert.deepEqual(
         normalizeSearchArguments({ query: '', minPrice: 100, priceCurrency: 'usd' }),

@@ -23,7 +23,10 @@ export async function loadCatalogPage(context, aiConfig, runtime = null) {
         minPrice: context.minPrice,
         maxPrice: context.maxPrice,
         priceCurrency: context.priceCurrency,
-        directAddOnly: context.directAddOnly === true
+        directAddOnly: context.directAddOnly === true,
+        requiredVariantAttributeCode: context.requiredVariantAttributeCode,
+        requiredVariantOptionValues: context.requiredVariantOptionValues,
+        excludedVariantOptionValues: context.excludedVariantOptionValues
     }, MAX_CATALOG_PAGE_SIZE, context.pageSize);
     Object.assign(params, catalogScopeRequestParams(context.catalogScope, context.customerId));
     const url = catalogRestUrl(magentoUrl, 'afd-ai/products/search', context.catalogScope);

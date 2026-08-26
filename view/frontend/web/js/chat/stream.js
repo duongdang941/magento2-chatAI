@@ -190,6 +190,46 @@ const {
                 this.submitEditedMessage(index);
             },
 
+            rememberBranchReplacement(requestId, rollback) {
+                if (!rollback || !Number(rollback.anchorMessageId)) return;
+                this.pendingBranchReplacement = {
+                    requestId: String(requestId || ''),
+                    conversationId: Number(rollback.conversationId) || 0,
+                    anchorMessageId: Number(rollback.anchorMessageId),
+                    messages: Array.isArray(rollback.messages) ? rollback.messages : [],
+                    hasStartedChat: rollback.hasStartedChat === true,
+                    messageFeedback: rollback.messageFeedback || {},
+                    copiedMessageIndex: rollback.copiedMessageIndex ?? null
+                };
+            },
+
+            restoreFailedBranchReplacement(requestId, reloadFromServer = false) {
+                const pending = this.pendingBranchReplacement;
+                if (!pending || String(pending.requestId) !== String(requestId || '')) return false;
+
+                this.messages = pending.messages;
+                this.hasStartedChat = pending.hasStartedChat;
+                this.messageFeedback = pending.messageFeedback;
+                this.copiedMessageIndex = pending.copiedMessageIndex;
+                this.currentAiMessageIndex = -1;
+                this.statusMessage = '';
+                this.isLoading = false;
+                this.activeRequestId = null;
+                this.responseStartedAt = 0;
+                this.pendingProductParts = [];
+                this.pendingOrderAddressFormParts = [];
+                this.pendingGuestOrderAccessParts = [];
+                this.clearResponseWatchdog();
+                this.pendingBranchReplacement = null;
+
+                if (reloadFromServer && pending.conversationId && typeof this.switchConversation === 'function') {
+                    this.$nextTick(() => this.switchConversation(pending.conversationId, true, {
+                        replaceVisibleMessages: true
+                    }));
+                }
+                return true;
+            },
+
             async submitEditedMessage(index) {
                 if (this.isLoading || this.isReadingAttachments) return;
                 if (this.editingMessageIndex !== index) return;
@@ -217,6 +257,14 @@ const {
                 if (!draftText && draftAttachments.length === 0) return;
 
                 const replaceFromMessageId = Number(message.entity_id) || null;
+                const rollback = replaceFromMessageId ? {
+                    conversationId: this.activeConversationId,
+                    anchorMessageId: replaceFromMessageId,
+                    messages: this.messages.slice(),
+                    hasStartedChat: this.hasStartedChat,
+                    messageFeedback: this.messageFeedback,
+                    copiedMessageIndex: this.copiedMessageIndex
+                } : null;
                 this.cancelEditMessage();
                 this.messages = this.messages.slice(0, index);
                 this.hasStartedChat = this.messages.length > 0;
@@ -230,7 +278,8 @@ const {
                     draftAttachments,
                     draftText,
                     false,
-                    replaceFromMessageId
+                    replaceFromMessageId,
+                    rollback
                 );
             },
 
@@ -348,6 +397,14 @@ const {
                     return;
                 }
                 const replaceFromMessageId = Number(message.entity_id) || null;
+                const rollback = replaceFromMessageId ? {
+                    conversationId: this.activeConversationId,
+                    anchorMessageId: replaceFromMessageId,
+                    messages: this.messages.slice(),
+                    hasStartedChat: this.hasStartedChat,
+                    messageFeedback: this.messageFeedback,
+                    copiedMessageIndex: this.copiedMessageIndex
+                } : null;
                 this.cancelEditMessage();
                 this.messages = this.messages.slice(0, userIndex);
                 this.hasStartedChat = this.messages.length > 0;
@@ -361,7 +418,8 @@ const {
                     retryAttachments,
                     message.content || defaultSingleImage,
                     false,
-                    replaceFromMessageId
+                    replaceFromMessageId,
+                    rollback
                 );
             },
 
@@ -376,7 +434,7 @@ const {
                 await this.sendMessagePayload(text, attachments, displayText, true);
             },
 
-            async sendMessagePayload(text, attachments, displayText, restoreComposer, replaceFromMessageId = null) {
+            async sendMessagePayload(text, attachments, displayText, restoreComposer, replaceFromMessageId = null, replacementRollback = null) {
                 const outgoingAttachments = Array.isArray(attachments) ? attachments.map(attachment => ({ ...attachment })) : [];
                 if ((!text && outgoingAttachments.length === 0) || this.isLoading) return;
                 if (!this.validateOutgoingAttachmentBudget(outgoingAttachments)) return;
@@ -399,6 +457,7 @@ const {
                 this.hasStartedChat = true;
                 this.isCreatingNewChat = false;
                 const requestId = this.createRequestId();
+                if (replacementRollback) this.rememberBranchReplacement(requestId, replacementRollback);
                 this.messages.push({
                     role: 'user',
                     content: visibleText,
@@ -504,10 +563,6 @@ const {
                     this.uploadError = 'This message is too large for the secure chat connection. Remove an image or shorten the message/history and try again.';
                     this.$nextTick(() => this.resizeComposerInput?.());
                     return;
-                }
-
-                if (this.activeConversationId) {
-                    this.scheduleCrossTabConversationSync(this.activeConversationId, 180);
                 }
 
                 if (!this.socket || !this.wsConnected) {
@@ -902,12 +957,21 @@ const {
                         ));
                         if (savedMessage) {
                             savedMessage.entity_id = entityId;
+                            if (this.pendingBranchReplacement
+                                && String(this.pendingBranchReplacement.requestId) === String(data.request_id || '')) {
+                                this.pendingBranchReplacement = null;
+                            }
                             this.scheduleGuestSessionSnapshot();
                             // Persist the durable entity id immediately. A
                             // browser reload between the response and a
                             // debounced snapshot must not restore this turn as
                             // an anonymous transient duplicate.
                             this.persistGuestSessionSnapshot?.();
+                            // Cross-tab state is published only after this
+                            // durable id exists. Publishing the transient turn
+                            // first is what allowed an obsolete branch anchor
+                            // to reach another tab.
+                            this.scheduleCrossTabConversationSync(this.activeConversationId, 80);
                         }
                     } else if (data.role === 'assistant' && entityId) {
                         const savedMessage = [...this.messages].reverse().find((message) => (
@@ -1053,11 +1117,10 @@ const {
 
                 } else if (data.type === 'tool_activity') {
                     // A server action id identifies one real tool execution.
-                    // `display_key` is descriptive only: using it as the DOM
-                    // key replaced an earlier store search with a later one
-                    // that happened to have the same scope. Keep every action
-                    // in chronological order and update only its own running
-                    // → completed frame.
+                    // `timeline_key` is the gateway-owned customer operation
+                    // key. It is broader than a per-tool execution ID, so a
+                    // catalogue query refinement remains one timeline row.
+                    // Never use the translated label for this decision.
                     const activityId = String(data.activity_id || data.display_key || 'tool-' + Date.now() + '-' + Math.random());
                     // The gateway supplies an opaque semantic key for a
                     // continuous operation. It is intentionally unrelated to
@@ -1067,6 +1130,10 @@ const {
                     const continuationKey = /^activity-[a-f0-9]{24}$/.test(incomingContinuationKey)
                         ? incomingContinuationKey
                         : `legacy-${activityId}`;
+                    const incomingTimelineKey = String(data.timeline_key || '').trim();
+                    const timelineKey = /^(?:timeline-[a-z0-9][a-z0-9_-]{0,90}|activity-[a-f0-9]{24})$/.test(incomingTimelineKey)
+                        ? incomingTimelineKey
+                        : continuationKey;
                     const nextState = ['running', 'completed', 'failed'].includes(data.state) ? data.state : 'running';
                     const now = Date.now();
                     const currentActivityForKey = (activities) => {
@@ -1075,7 +1142,7 @@ const {
                             const activity = activities[index];
                             if (activity?.type === 'activity'
                                 && activity.isCurrentAction === true
-                                && activity.continuationKey === continuationKey) {
+                                && activity.timelineKey === timelineKey) {
                                 return activity;
                             }
                         }
@@ -1140,6 +1207,7 @@ const {
                     const nextActivity = {
                         id: renderedActivityId,
                         type: 'activity',
+                        timelineKey,
                         continuationKey,
                         tool: String(data.tool || ''),
                         state: nextState,
@@ -1421,6 +1489,10 @@ const {
                     this.$nextTick(() => this.scrollToBottom());
 
                 } else if (data.type === 'error') {
+                    if (data.error_code === 'REPLACE_ANCHOR_UNAVAILABLE'
+                        && this.restoreFailedBranchReplacement(data.request_id, true)) {
+                        return;
+                    }
                     this.statusMessage = '';
                     this.collapseReasoningForAnswer?.();
                     this.finalizeStreamingMarkdown();

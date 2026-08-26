@@ -36,6 +36,17 @@ export function createCatalogQueryContinuity() {
             const normalized = { ...args };
             const query = normalizeQuery(normalized.query);
             const categoryId = categoryIdFromArgs(normalized);
+            const requiredVariantAttributeCode = String(
+                normalized.requiredVariantAttributeCode ?? normalized.required_variant_attribute_code ?? ''
+            ).trim();
+            if (requiredVariantAttributeCode) {
+                // Attribute alternatives deliberately browse a verified
+                // category by an exact Magento attribute code. Reinstating the
+                // prior miss here would turn "other colours" back into a
+                // search for the unavailable colour.
+                normalized.query = query;
+                return normalized;
+            }
             const isVerifiedLeafCategory = categoryId > 0 && verifiedLeafCategoryIds.has(categoryId);
             if (isVerifiedLeafCategory && lastMissedQuery && (!query || query === lastMissedQuery)) {
                 // A verified leaf category is Magento's canonical product

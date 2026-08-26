@@ -16,6 +16,10 @@ export function normalizeSearchArguments(
     delete normalized.response_language;
     delete normalized.responseLanguageEvidence;
     delete normalized.response_language_evidence;
+    // This is a gateway-only correlation to a structured history anchor. It
+    // must not become a Magento request parameter.
+    delete normalized.followUpProductRef;
+    delete normalized.follow_up_product_ref;
     // Scope belongs to the signed WebSocket ticket. Never let model-provided
     // arguments select another store or customer price group.
     delete normalized.customerGroupId;
@@ -88,6 +92,13 @@ export function normalizeSearchArguments(
     }
     delete normalized.exact_identity;
 
+    // This flag governs the gateway's fallback policy. Magento receives only
+    // concrete filters that it can verify itself.
+    delete normalized.requiresVariantAttribute;
+    delete normalized.requires_variant_attribute;
+    delete normalized.similarityFallback;
+    delete normalized.similarity_fallback;
+
     const excludedTerms = Array.isArray(normalized.excludedTerms)
         ? normalized.excludedTerms
         : (Array.isArray(normalized.excluded_terms) ? normalized.excluded_terms : []);
@@ -102,8 +113,53 @@ export function normalizeSearchArguments(
     }
     delete normalized.excluded_terms;
 
+    const requiredVariantAttributeCode = String(
+        normalized.requiredVariantAttributeCode ?? normalized.required_variant_attribute_code ?? ''
+    ).trim().toLowerCase();
+    if (/^[a-z][a-z0-9_]{0,63}$/.test(requiredVariantAttributeCode)) {
+        normalized.requiredVariantAttributeCode = requiredVariantAttributeCode;
+    } else {
+        delete normalized.requiredVariantAttributeCode;
+    }
+    delete normalized.required_variant_attribute_code;
+
+    const requiredVariantOptionValues = Array.isArray(normalized.requiredVariantOptionValues)
+        ? normalized.requiredVariantOptionValues
+        : (Array.isArray(normalized.required_variant_option_values) ? normalized.required_variant_option_values : []);
+    const safeRequiredVariantOptionValues = requiredVariantOptionValues
+        .map((value) => String(value || '').trim())
+        .filter((value) => value && value.length <= 120)
+        .slice(0, 12);
+    if (normalized.requiredVariantAttributeCode && safeRequiredVariantOptionValues.length > 0) {
+        normalized.requiredVariantOptionValues = JSON.stringify([...new Set(safeRequiredVariantOptionValues)]);
+    } else {
+        delete normalized.requiredVariantOptionValues;
+    }
+    delete normalized.required_variant_option_values;
+
+    const excludedVariantOptionValues = Array.isArray(normalized.excludedVariantOptionValues)
+        ? normalized.excludedVariantOptionValues
+        : (Array.isArray(normalized.excluded_variant_option_values) ? normalized.excluded_variant_option_values : []);
+    const safeExcludedVariantOptionValues = excludedVariantOptionValues
+        .map((value) => String(value || '').trim())
+        .filter((value) => value && value.length <= 120)
+        .slice(0, 12);
+    if (normalized.requiredVariantAttributeCode && safeExcludedVariantOptionValues.length > 0) {
+        normalized.excludedVariantOptionValues = JSON.stringify([...new Set(safeExcludedVariantOptionValues)]);
+    } else {
+        delete normalized.excludedVariantOptionValues;
+    }
+    delete normalized.excluded_variant_option_values;
+
     normalized.query = String(normalized.query || '').trim();
     return normalized;
+}
+
+export function normalizeVariantAttributeDiscoveryArguments(args = {}) {
+    const categoryId = Number(args.categoryId ?? args.category_id ?? 0);
+    return Number.isFinite(categoryId) && categoryId > 0
+        ? { categoryId: Math.trunc(categoryId) }
+        : { categoryId: 0 };
 }
 
 function numericTokenAppearsInMessage(number, message) {

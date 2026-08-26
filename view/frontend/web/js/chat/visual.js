@@ -207,6 +207,9 @@ const {
                                 events: Array.isArray(part.events) ? part.events : [],
                                 steps: Array.isArray(part.steps) ? part.steps : [],
                                 activities: Array.isArray(part.activities) ? part.activities : [],
+                                ...(Number(part.elapsedMs) > 0 ? {
+                                    elapsedMs: Math.min(24 * 60 * 60 * 1000, Math.floor(Number(part.elapsedMs)))
+                                } : {}),
                                 // `isExpanded` is UI state, not stream data. A
                                 // stale serialized false value must not hide a
                                 // newly hydrated Thinking timeline; only the

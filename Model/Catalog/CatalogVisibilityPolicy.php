@@ -59,7 +59,16 @@ class CatalogVisibilityPolicy implements CatalogVisibilityPolicyInterface
             $collection->addAttributeToFilter('status', ['eq' => Status::STATUS_ENABLED]);
         }
         if ($requireCatalogVisibility) {
+            // Fulltext collections rebuild their selected entity IDs after
+            // addSearchFilter(). In that collection type Magento's
+            // setVisibility() alone does not materialize a SQL predicate, so
+            // a `Not Visible Individually` simple can enter the tool payload
+            // while the card renderer correctly omits it. Keep the native
+            // API call and add the equivalent EAV constraint explicitly so
+            // the search total, payload and rendered card grid share the
+            // exact same customer-visible product set.
             $collection->setVisibility(self::CATALOG_VISIBILITY);
+            $collection->addAttributeToFilter('visibility', ['in' => self::CATALOG_VISIBILITY]);
         }
         $collection->addPriceData(
             $shopperScope->getCustomerGroupId(),

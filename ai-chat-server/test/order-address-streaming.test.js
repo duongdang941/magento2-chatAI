@@ -343,6 +343,43 @@ test('retains every action when multiple executions share the same display key',
     );
 });
 
+test('coalesces consecutive catalogue refinements by gateway timeline key, not label text', () => {
+    const chat = createChat();
+    const timelineKey = 'timeline-catalog-search-store';
+
+    chat.handleStreamMessage({
+        type: 'tool_activity', request_id: 'stream-1', activity_id: 'search-1',
+        continuation_key: 'activity-0123456789abcdef01234567', timeline_key: timelineKey,
+        tool: 'searchProducts', state: 'running', label: 'Đang tìm kiếm sản phẩm trên toàn bộ cửa hàng'
+    });
+    chat.handleStreamMessage({
+        type: 'tool_activity', request_id: 'stream-1', activity_id: 'search-2',
+        continuation_key: 'activity-abcdef0123456789abcdef01', timeline_key: timelineKey,
+        tool: 'searchProducts', state: 'running', label: 'Đang tìm kiếm sản phẩm trên toàn bộ cửa hàng'
+    });
+    chat.handleStreamMessage({
+        type: 'tool_activity', request_id: 'stream-1', activity_id: 'search-2',
+        continuation_key: 'activity-abcdef0123456789abcdef01', timeline_key: timelineKey,
+        tool: 'searchProducts', state: 'completed', result_count: 1,
+        label: 'Đã tìm kiếm sản phẩm trên toàn bộ cửa hàng'
+    });
+
+    assert.deepEqual(
+        Array.from(chat.reasoningActivities(chat.messages[0].parts[0]), activity => [
+            activity.id,
+            activity.timelineKey,
+            activity.state,
+            activity.label
+        ]),
+        [[
+            'search-1',
+            timelineKey,
+            'completed',
+            'Đã tìm kiếm sản phẩm trên toàn bộ cửa hàng'
+        ]]
+    );
+});
+
 test('continues only the immediately active opaque operation key without comparing labels', () => {
     const chat = createChat();
     const storeSearchKey = 'activity-111111111111111111111111';
@@ -565,6 +602,7 @@ test('keeps the persisted action presentation and total duration after history h
         worked_for_ms: 12_345,
         parts: [{
             type: 'reasoning',
+            elapsedMs: 12_345,
             events: [{
                 id: 'catalog-search',
                 type: 'activity',
@@ -580,6 +618,7 @@ test('keeps the persisted action presentation and total duration after history h
     assert.equal(message.workedForMs, 12_345);
     assert.equal(message.parts[0].events[0].label, 'Đã tìm kiếm sản phẩm trong danh mục Textilien');
     assert.equal(message.parts[0].events[0].language, 'vi');
+    assert.equal(message.parts[0].elapsedMs, 12_345);
     chat.t = (key, values = {}) => key === 'worked_for'
         ? `Worked for ${values[1]}`
         : key;

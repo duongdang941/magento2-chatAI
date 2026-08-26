@@ -41,3 +41,11 @@ test('recognizes a single exact normalized product identity as sufficient eviden
     }), false);
     assert.equal(resolvedCatalogIdentityBlock().reason, 'catalog_identity_already_resolved');
 });
+
+test('recognizes a single exact product identity searched by SKU', () => {
+    assert.equal(isResolvedCatalogIdentity({
+        name: 'searchProducts',
+        query: 'N042.A104',
+        content: { data: [{ sku: 'N042.A104', name: 'T-Shirt "2. Wahl"' }] }
+    }), true);
+});

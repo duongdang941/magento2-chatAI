@@ -113,7 +113,10 @@ const {
                         // and reloads it again, creating a visible flicker.
                         this.guestSessionSnapshotRestored = false;
                         this.switchConversation(restoredConversationId, true, {
-                            preserveVisibleMessages: true
+                            // Browser storage is an offline fallback, not an
+                            // authority for durable entity ids. A branch may
+                            // already have been replaced in another tab.
+                            replaceVisibleMessages: true
                         });
                         return;
                     }
@@ -232,7 +235,9 @@ const {
                 if (!forceReload && Number(this.activeConversationId) === targetConversationId && this.hasStartedChat) return;
 
                 const isCurrentConversation = Number(this.activeConversationId) === targetConversationId;
-                const preserveVisibleMessages = options.preserveVisibleMessages === true
+                const replaceVisibleMessages = options.replaceVisibleMessages === true;
+                const preserveVisibleMessages = !replaceVisibleMessages
+                    && options.preserveVisibleMessages === true
                     && isCurrentConversation
                     && Array.isArray(this.messages)
                     && this.messages.length > 0;
@@ -406,9 +411,23 @@ const {
                         }
 
                         usedExistingIndexes.add(canonicalIndex);
+                        const existingMessage = this.messages[canonicalIndex] || {};
+                        const workedForMs = Math.max(
+                            0,
+                            Number(existingMessage.workedForMs) || 0,
+                            Number(existingMessage.worked_for_ms) || 0,
+                            Number(message.workedForMs) || 0,
+                            Number(message.worked_for_ms) || 0
+                        );
                         replacementByIndex.set(canonicalIndex, {
-                            ...this.messages[canonicalIndex],
-                            ...message
+                            ...existingMessage,
+                            ...message,
+                            // A passive durable refresh may race the guest
+                            // snapshot written at turn completion. Duration
+                            // is monotonic for a completed turn, so never let
+                            // an older payload with no timing metadata erase
+                            // the value already visible to the shopper.
+                            ...(workedForMs > 0 ? { workedForMs } : {})
                         });
                         matchingIndexes.forEach((index) => {
                             usedExistingIndexes.add(index);

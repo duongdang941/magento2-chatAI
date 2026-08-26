@@ -149,11 +149,12 @@ test('relays dynamic activity labels in an arbitrary shopper language', () => {
         categoryId: 44,
         activityPresentation: {
             language: 'es-MX',
-            runningLabel: 'Buscando productos en {category}',
-            completedLabel: 'Productos recuperados de {category}',
-            failedLabel: 'No se pudieron recuperar productos de {category}',
+            runningLabel: 'Buscando productos {scope}',
+            completedLabel: 'Productos recuperados {scope}',
+            failedLabel: 'No se pudieron recuperar productos {scope}',
             runningSummary: 'Trabajo en curso: {duration}',
-            completedSummary: 'Trabajo finalizado en {duration}'
+            completedSummary: 'Trabajo finalizado en {duration}',
+            searchScope: 'en {category}'
         }
     };
 
@@ -179,7 +180,7 @@ test('relays dynamic activity labels in an arbitrary shopper language', () => {
     assert.deepEqual(completed, {
         displayKey: 'catalog-search-category-44',
         language: 'es-MX',
-        label: 'Productos recuperados de Textilien',
+        label: 'Productos recuperados en Textilien',
         turnSummary: 'Trabajo finalizado en {duration}'
     });
 });
@@ -243,6 +244,60 @@ test('uses a model-localized verified search scope for the whole store and a cat
     assert.equal(categorySearch.label, 'Đang tìm sản phẩm màu đen trong danh mục Áo thun & Áo Polo');
 });
 
+test('rejects a translated category scope instead of appending its Magento name', () => {
+    const args = {
+        categoryId: 44,
+        activityPresentation: {
+            language: 'vi',
+            runningLabel: 'Đang tìm sản phẩm {scope}',
+            completedLabel: 'Đã tìm xong sản phẩm {scope}',
+            failedLabel: 'Không thể tìm sản phẩm {scope}',
+            runningSummary: 'Đang xử lý trong {duration}',
+            completedSummary: 'Đã xử lý trong {duration}',
+            searchScope: 'trong danh mục May mặc'
+        }
+    };
+
+    assert.equal(hasCompleteToolActivityPresentation({
+        toolName: 'searchProducts',
+        args,
+        knownCategoryName: 'Textilien'
+    }), false);
+    assert.equal(createToolActivityPresentation({
+        toolName: 'searchProducts',
+        args,
+        knownCategoryName: 'Textilien',
+        state: 'running'
+    }).label, undefined);
+});
+
+test('rejects a translated category embedded directly in an action label', () => {
+    const args = {
+        categoryId: 44,
+        activityPresentation: {
+            language: 'vi',
+            runningLabel: 'Đang tìm sản phẩm trong danh mục May mặc',
+            completedLabel: 'Đã tìm xong sản phẩm trong danh mục May mặc',
+            failedLabel: 'Không thể tìm sản phẩm trong danh mục May mặc',
+            runningSummary: 'Đang xử lý trong {duration}',
+            completedSummary: 'Đã xử lý trong {duration}',
+            searchScope: 'trong danh mục {category}'
+        }
+    };
+
+    assert.equal(hasCompleteToolActivityPresentation({
+        toolName: 'searchProducts',
+        args,
+        knownCategoryName: 'Textilien'
+    }), false);
+    assert.equal(createToolActivityPresentation({
+        toolName: 'searchProducts',
+        args,
+        knownCategoryName: 'Textilien',
+        state: 'running'
+    }).label, undefined);
+});
+
 test('removes a search-only placeholder leaked into a non-search action label', () => {
     const presentation = createToolActivityPresentation({
         toolName: 'listCategories',
@@ -267,13 +322,14 @@ test('keeps the total-work header generic and rejects category-specific text', (
         toolName: 'searchProducts',
         args: {
             categoryId: 99,
-            activityPresentation: {
-                language: 'en',
-                runningLabel: 'Searching products in {category}',
-                completedLabel: 'Retrieved products in {category}',
-                failedLabel: 'Could not retrieve products in {category}',
-                runningSummary: 'Fetching T-Shirts & Polohemden in {duration}',
-                completedSummary: 'Fetched T-Shirts & Polohemden in {duration}'
+        activityPresentation: {
+            language: 'en',
+            runningLabel: 'Searching products {scope}',
+            completedLabel: 'Retrieved products {scope}',
+            failedLabel: 'Could not retrieve products {scope}',
+            runningSummary: 'Fetching T-Shirts & Polohemden in {duration}',
+            completedSummary: 'Fetched T-Shirts & Polohemden in {duration}',
+            searchScope: 'in {category}'
             }
         },
         knownCategoryName: 'T-Shirts & Polohemden',

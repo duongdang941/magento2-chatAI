@@ -502,12 +502,18 @@ class ChatMessagePayload
             return null;
         }
 
-        return [
+        $normalized = [
             'type' => 'reasoning',
             'events' => $events,
             'steps' => array_values(array_filter($events, static fn (array $event): bool => $event['type'] === 'step')),
             'activities' => array_values(array_filter($events, static fn (array $event): bool => $event['type'] === 'activity')),
         ];
+        $elapsedMs = $this->normalizeWorkedForMs($part['elapsedMs'] ?? 0);
+        if ($elapsedMs > 0) {
+            $normalized['elapsedMs'] = $elapsedMs;
+        }
+
+        return $normalized;
     }
 
     private function normalizeWorkedForMs(mixed $value): int

@@ -11,6 +11,26 @@ use PHPUnit\Framework\TestCase;
 
 class DirectAddEligibilityTest extends TestCase
 {
+    public function testConfigurableSearchResultIsNotReloadedForDirectAddValidation(): void
+    {
+        $product = $this->createMock(Product::class);
+        $product->method('getId')->willReturn(43);
+        $product->expects(self::once())
+            ->method('getData')
+            ->with('type_id')
+            ->willReturn('configurable');
+
+        $productRepository = $this->createMock(ProductRepositoryInterface::class);
+        $productRepository->expects(self::never())->method('getById');
+
+        $saleQuantityPolicy = $this->createMock(SaleQuantityPolicy::class);
+        $saleQuantityPolicy->expects(self::never())->method('getPolicy');
+
+        $eligibility = new DirectAddEligibility($productRepository, $saleQuantityPolicy);
+
+        self::assertFalse($eligibility->canAddToCartDirectly($product));
+    }
+
     public function testSimpleProductWithAnOptionalCustomerOptionIsNotDirectlyAddable(): void
     {
         $inputProduct = $this->createMock(Product::class);

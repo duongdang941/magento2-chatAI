@@ -730,11 +730,21 @@
                                     }))
                                     .filter(Boolean)
                                 : [];
+                            const singleProductAnchor = catalogProducts.length === 1
+                                && catalogProducts[0].product_ref
+                                ? {
+                                    product_ref: catalogProducts[0].product_ref,
+                                    sku: catalogProducts[0].sku
+                                }
+                                : null;
                             const catalogMemoryEnabled = config.features?.candidate_memory_enabled !== false;
                             const catalogContext = catalogMemoryEnabled && catalogProducts.length
                                 ? `[CATALOG_CONTEXT:v2]\n${JSON.stringify({
-                                    instruction: 'PRIVATE REFERENCE LEDGER, NOT CURRENT CATALOGUE EVIDENCE. Use only to resolve an unambiguous follow-up that explicitly gives product_ref/SKU, exactly names one previously shown card, or singularly refers to exactly one immediately preceding card. For a link/open-page-only follow-up, return only that card\'s recorded Magento URL without a new search; do not reuse this ledger for price, stock, options, availability, recommendation, list, count, filter, or comparison claims. For every other new search, recommendation, list, count, filter, comparison, price, option, or availability claim, call the appropriate Magento tool in the current turn. Never copy this ledger into customer prose or use it to create a text-only product list.',
-                                    products: catalogProducts
+                                    instruction: 'PRIVATE REFERENCE LEDGER, NOT CURRENT CATALOGUE EVIDENCE. Use only to resolve an unambiguous follow-up that explicitly gives product_ref/SKU, exactly names one previously shown card, or singularly refers to exactly one immediately preceding card. When single_product_anchor exists, it is the sole product target for an immediate semantically continuative but linguistically underspecified follow-up about that product\'s options, configuration, price, availability, purchase suitability, or comparison. This co-reference decision is semantic and language-neutral; do not depend on a fixed pronoun or translated phrase. For any factual claim about that anchor, call searchProducts in the current turn with query set to its SKU, exactIdentity=true, and followUpProductRef set to its product_ref. Do not run category/attribute discovery or broaden to a product set for that anchored follow-up. For a link/open-page-only follow-up, return only that card\'s recorded Magento URL without a new search; do not reuse this ledger for price, stock, options, availability, recommendation, list, count, filter, or comparison claims. A request that clearly introduces a different product or a product set is a new request and must use fresh Magento retrieval. Never copy this ledger into customer prose or use it to create a text-only product list.',
+                                    products: catalogProducts,
+                                    ...(singleProductAnchor
+                                        ? { single_product_anchor: singleProductAnchor }
+                                        : {})
                                 })}`
                                 : '';
                             // Product prose is intentionally omitted when a
@@ -898,7 +908,7 @@
                 const tool = String(activity?.tool || '');
                 if (tool === 'searchWeb') return 'travel_explore';
                 if (tool === 'searchStoreKnowledge') return 'menu_book';
-                if (tool === 'searchProducts' || tool === 'listCategories') return 'search';
+                if (tool === 'searchProducts' || tool === 'listCategories' || tool === 'listVariantAttributes') return 'search';
                 if (tool === 'getProductAvailability') return 'inventory_2';
                 if (tool === 'compareProducts') return 'compare_arrows';
                 if (tool === 'addToCart') return 'shopping_bag';

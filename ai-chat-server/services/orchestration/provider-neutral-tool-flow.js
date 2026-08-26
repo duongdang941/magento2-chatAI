@@ -5,13 +5,18 @@ import { catalogCoverageInstruction } from '../catalog/catalog-agent-guidance.js
 import { logger } from '../logger.js';
 import { createCatalogQueryContinuity } from '../catalog/catalog-query-continuity.js';
 import { createCatalogRetrievalPolicy } from '../catalog/catalog-retrieval-policy.js';
+import { inferBodyFitSizeRange } from '../catalog/body-fit-advice.js';
 import {
     isResolvedCatalogIdentity,
     isTerminalCatalogMiss,
     resolvedCatalogIdentityBlock
 } from '../catalog/catalog-tool-outcome.js';
 import { buildCustomerAddressFormPayload, buildOrderAddressFormPayload } from '../customer/order-address-form.js';
-import { responseLanguageInstruction } from '../conversation/response-language-guidance.js';
+import {
+    inferResponseLanguage,
+    primaryResponseLanguageTag,
+    responseLanguageInstruction
+} from '../conversation/response-language-guidance.js';
 import { generateImage } from '../media/image-generation.js';
 import { acquireImageGenerationAdmission } from '../media/image-generation-guard.js';
 import { searchWebWithAi } from '../media/native-web-search.js';
@@ -21,6 +26,7 @@ import { executeRegisteredMagentoTool } from '../tools/magento-tool-executor.js'
 import {
     createToolActivityId,
     createToolActivityContinuationKey,
+    createToolActivityTimelineKey,
     createToolActivityPresentation,
     emitToolActivity,
     hasCompleteToolActivityPresentation,
@@ -29,7 +35,7 @@ import {
 import { reduceToolResultForModel } from './tool-context-reducer.js';
 import { createToolExecutionBudget, toolBudgetMessage } from './tool-execution-budget.js';
 
-const CATALOG_TOOLS = new Set(['searchProducts', 'listCategories']);
+const CATALOG_TOOLS = new Set(['searchProducts', 'listCategories', 'listVariantAttributes']);
 const ORDER_TOOLS = new Set([
     'getRecentOrders',
     'getGuestOrders',
@@ -64,6 +70,12 @@ export function createProviderNeutralToolFlow({
     isCancelled = () => false
 } = {}) {
     const shopperMessage = String(currentUserMessage?.text || currentUserMessage?.content || '');
+    // This is derived once from the current customer message, never from a
+    // tool argument or from earlier transcript text.  It is an enforcement
+    // key only: the model still writes every visible action label itself.
+    const turnResponseLanguage = primaryResponseLanguageTag(inferResponseLanguage(shopperMessage));
+    const singleProductAnchor = normalizeSingleProductAnchor(options.singleProductAnchor);
+    const bodyFitSizeRange = inferBodyFitSizeRange(shopperMessage);
     const catalogRetrievalPolicy = createCatalogRetrievalPolicy({ shopperMessage });
     const catalogQueryContinuity = createCatalogQueryContinuity();
     const toolBudget = createToolExecutionBudget(agentConfig);
@@ -83,18 +95,32 @@ export function createProviderNeutralToolFlow({
         pendingProductPresentation: null,
         terminalCatalog: false,
         taxonomyOverviewResolved: false,
+        attributeConstraintRequested: false,
+        attributeAlternativeRequired: false,
+        attributeAlternativeDiscoveryComplete: false,
+        similarityFallbackUsed: false,
+        // A body-profile search has a mandatory final catalogue retrieval
+        // after Magento has exposed a real selectable size.  Keeping this as
+        // state (rather than trusting a prose prompt) lets every provider
+        // force that one useful call when it would otherwise stop after
+        // attribute discovery.
+        bodyFitSearchRequired: false,
         productPageRequiredCart: null,
         toolErrorMessage: ''
     };
+    // This is constructed only from the immediately preceding Magento
+    // listVariantAttributes response. It is never inferred from a translated
+    // label, a model argument, or a previous conversation turn.
+    let verifiedBodyFitConstraint = null;
     // A tool has returned data, but the model may still use that evidence to
     // choose the next action. Keep its customer-visible row running until a
     // following action actually starts, or until the assistant turn ends.
     let pendingCompletedActivity = null;
 
-    const completePendingActivity = ({ exceptContinuationKey = '' } = {}) => {
+    const completePendingActivity = ({ exceptTimelineKey = '' } = {}) => {
         const pending = pendingCompletedActivity;
         if (!pending) return false;
-        if (exceptContinuationKey && pending.continuationKey === exceptContinuationKey) return false;
+        if (exceptTimelineKey && pending.timelineKey === exceptTimelineKey) return false;
         pendingCompletedActivity = null;
         emitToolActivity(ws, pending);
         return true;
@@ -139,7 +165,10 @@ export function createProviderNeutralToolFlow({
     };
 
     return Object.freeze({
-        shouldForceProductSearch: () => catalogRetrievalPolicy.shouldForceProductSearch(),
+        shouldForceProductSearch: () => (
+            catalogRetrievalPolicy.shouldForceProductSearch()
+            || state.bodyFitSearchRequired
+        ),
         getState,
         reconcile,
         completePendingActivity,
@@ -150,12 +179,88 @@ export function createProviderNeutralToolFlow({
                 return result;
             };
             const toolName = String(name || '');
-            const rawArgs = args && typeof args === 'object' ? args : {};
+            let rawArgs = args && typeof args === 'object' ? args : {};
+            const languageMismatch = toolPresentationLanguageMismatch(rawArgs, turnResponseLanguage);
+            if (languageMismatch) {
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: withoutToolActivityPresentation(rawArgs),
+                    content: {
+                        status: 'blocked',
+                        reason: 'response_language_mismatch',
+                        instruction: `Repeat this exact ${toolName} call. The shopper selected ${turnResponseLanguage} for this turn, so responseLanguage and activityPresentation.language must use that same BCP-47 language. Generate every action label and summary in that language; retain product and category names exactly as Magento data.`
+                    },
+                    blocked: true,
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
+            }
+            const followUpProductRef = requestedFollowUpProductRef(rawArgs);
+            if (followUpProductRef) {
+                if (toolName !== 'searchProducts'
+                    || !singleProductAnchor
+                    || followUpProductRef !== singleProductAnchor.productRef) {
+                    return saveResult(registerResult({
+                        name: toolName,
+                        args: rawArgs,
+                        content: {
+                            status: 'blocked',
+                            reason: 'single_product_anchor_unavailable',
+                            instruction: 'The product follow-up anchor is unavailable or does not match the latest single product card. Do not guess or broaden the search. Resolve a clearly named product with a fresh search, or ask the shopper to choose from the shown products.'
+                        },
+                        blocked: true,
+                        state,
+                        catalogQueryContinuity,
+                        shopperMessage,
+                        agentConfig,
+                        options
+                    }));
+                }
+                rawArgs = anchorExactProductSearch(rawArgs, singleProductAnchor);
+            }
+
             const normalizedArgs = catalogQueryContinuity.normalize(
                 toolName,
                 withoutToolActivityPresentation(rawArgs)
             );
             catalogRetrievalPolicy.observeToolCall(toolName);
+
+            // Height and weight are sufficient for a useful first shopping
+            // estimate.  They must however become a real Magento size filter
+            // before any cards can be presented.  This prevents a broad
+            // jacket category from leaking products such as a one-size safety
+            // vest into a size-based recommendation.
+            if (bodyFitSizeRange && toolName === 'searchProducts' && !followUpProductRef) {
+                const bodyFitConstraintIssue = validateBodyFitSearchConstraint(
+                    normalizedArgs,
+                    verifiedBodyFitConstraint,
+                    bodyFitSizeRange
+                );
+                if (bodyFitConstraintIssue) {
+                    return saveResult(registerResult({
+                        name: toolName,
+                        args: normalizedArgs,
+                        content: {
+                            status: 'blocked',
+                            reason: bodyFitConstraintIssue.reason,
+                            instruction: bodyFitConstraintIssue.instruction
+                        },
+                        blocked: true,
+                        state,
+                        catalogQueryContinuity,
+                        shopperMessage,
+                        agentConfig,
+                        options
+                    }));
+                }
+                // The required retrieval has now been admitted. Do not force
+                // another search merely because the model is synthesizing its
+                // answer after it receives this result.
+                state.bodyFitSearchRequired = false;
+            }
 
             // A product-page configuration is a terminal shopper action for
             // this turn. The model may receive the result and try the cart
@@ -191,6 +296,29 @@ export function createProviderNeutralToolFlow({
                         status: 'blocked',
                         reason: guardrail.reason,
                         message: 'This action requires additional verified authorization or confirmation before it can continue.'
+                    },
+                    blocked: true,
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
+            }
+
+            // A similarity fallback is deliberately a single, verified
+            // terminal retrieval. Letting the model continue with another
+            // broad catalogue request after seeing its cards would undo the
+            // same-product-family guarantee and reintroduce unrelated
+            // recommendations.
+            if (state.similarityFallbackUsed && CATALOG_TOOLS.has(toolName)) {
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: normalizedArgs,
+                    content: {
+                        status: 'blocked',
+                        reason: 'similarity_fallback_complete',
+                        instruction: 'The one verified closest-product search is complete. Answer only from its Magento result, including an honest statement that the unavailable requested characteristic was not found. Do not search, browse, or substitute another product.'
                     },
                     blocked: true,
                     state,
@@ -237,6 +365,98 @@ export function createProviderNeutralToolFlow({
                 }));
             }
 
+            if (toolName === 'searchProducts'
+                && (requiresVariantAttribute(rawArgs) || state.attributeConstraintRequested)
+                && !hasRequiredVariantOptionConstraint(normalizedArgs)
+                && !isExactIdentitySearch(normalizedArgs)
+                && !(state.attributeAlternativeRequired
+                    && state.attributeAlternativeDiscoveryComplete
+                    && hasRequiredVariantAttributeCode(normalizedArgs))
+                && !isSimilarityFallbackSearch(rawArgs, normalizedArgs)) {
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: normalizedArgs,
+                    content: {
+                        status: 'blocked',
+                        reason: 'variant_option_constraint_required',
+                        instruction: 'A requested selectable characteristic must be a verified hard constraint. First call listCategories with lookupPurpose=product_discovery and requiresVariantAttribute=true. Select one returned category, call listVariantAttributes for it, then call searchProducts with the returned requiredVariantAttributeCode and exact requiredVariantOptionValues. Keep only the core product family in query; do not rely on a broad fulltext query for the requested option.'
+                    },
+                    blocked: true,
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
+            }
+
+            if (toolName === 'searchProducts'
+                && isSimilarityFallbackSearch(rawArgs, normalizedArgs)
+                && (state.similarityFallbackUsed
+                    || (state.attributeAlternativeRequired && !state.attributeAlternativeDiscoveryComplete))) {
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: normalizedArgs,
+                    content: {
+                        status: 'blocked',
+                        reason: state.similarityFallbackUsed
+                            ? 'similarity_fallback_already_attempted'
+                            : 'variant_attribute_discovery_required',
+                        instruction: state.similarityFallbackUsed
+                            ? 'The verified similarity fallback has already been attempted for this shopper turn. Answer only from the previous Magento results; do not broaden or repeat the product search.'
+                            : 'Before a similarity fallback, call listVariantAttributes with a verified category ID. This confirms whether the requested characteristic can remain a hard Magento constraint.'
+                    },
+                    blocked: true,
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
+            }
+
+            if (toolName === 'searchProducts'
+                && state.attributeAlternativeRequired
+                && state.attributeAlternativeDiscoveryComplete
+                && !hasRequiredVariantAttributeCode(normalizedArgs)
+                && !isSimilarityFallbackSearch(rawArgs, normalizedArgs)) {
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: normalizedArgs,
+                    content: {
+                        status: 'blocked',
+                        reason: 'similarity_fallback_contract_required',
+                        instruction: 'Attribute discovery is complete. Either search with a returned requiredVariantAttributeCode, or make one similarityFallback search in that same verified category with a non-empty core-product query. Do not browse the category or substitute an unrelated product.'
+                    },
+                    blocked: true,
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
+            }
+
+            if (toolName === 'searchProducts'
+                && state.attributeAlternativeRequired
+                && isUnfilteredCategoryBrowse(normalizedArgs)) {
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: normalizedArgs,
+                    content: {
+                        status: 'blocked',
+                        reason: 'variant_attribute_discovery_required',
+                        instruction: 'The previous attribute-constrained product search had no result. Do not show an unfiltered category grid. Call listVariantAttributes with a verified category ID, then searchProducts again using the returned requiredVariantAttributeCode and only returned option values.'
+                    },
+                    blocked: true,
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
+            }
+
             // The model declares why it is asking for taxonomy. A product
             // request follows one canonical, language-neutral sequence: try a
             // direct product search first, then resolve a verified category
@@ -246,7 +466,9 @@ export function createProviderNeutralToolFlow({
             // cannot bypass the stable visible ordering.
             if (toolName === 'listCategories'
                 && String(normalizedArgs.lookupPurpose || '') !== 'taxonomy_question'
-                && !state.catalogSearchAttempted) {
+                && !state.catalogSearchAttempted
+                && !requiresVariantAttribute(rawArgs)
+                && !bodyFitSizeRange) {
                 return saveResult(registerResult({
                     name: toolName,
                     args: normalizedArgs,
@@ -254,6 +476,45 @@ export function createProviderNeutralToolFlow({
                         status: 'blocked',
                         reason: 'catalog_product_search_required',
                         instruction: 'For a request to find or show products, call searchProducts first with a concise shopper-intent query. Use listCategories with lookupPurpose=product_discovery only afterwards if that search needs a verified category scope.'
+                    },
+                    blocked: true,
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
+            }
+
+            if (toolName === 'listVariantAttributes'
+                && !state.catalogSearchAttempted
+                && !state.attributeConstraintRequested) {
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: normalizedArgs,
+                    content: {
+                        status: 'blocked',
+                        reason: 'catalog_product_search_required',
+                        instruction: 'For an attribute-constrained product request, call searchProducts first. If it cannot find the requested characteristic, inspect verified categories before calling listVariantAttributes.'
+                    },
+                    blocked: true,
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
+            }
+
+            if (toolName === 'listVariantAttributes'
+                && !knownCategoryNameForArgs(verifiedCategoryNames, normalizedArgs)) {
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: normalizedArgs,
+                    content: {
+                        status: 'blocked',
+                        reason: 'verified_category_required',
+                        instruction: 'Call listCategories first and use one returned category ID. Do not inspect configurable attributes for a category the store has not verified in this shopper turn.'
                     },
                     blocked: true,
                     state,
@@ -347,6 +608,15 @@ export function createProviderNeutralToolFlow({
                 toolName,
                 args: normalizedArgs
             });
+            // The per-execution fingerprint above is intentionally precise.
+            // The shopper timeline is broader for catalogue refinements: two
+            // searches of the same verified scope remain one visible action
+            // until another operation starts.
+            const timelineKey = createToolActivityTimelineKey({
+                toolName,
+                args: normalizedArgs,
+                continuationKey
+            });
             const activityPresentation = createToolActivityPresentation({
                 toolName,
                 args: rawArgs,
@@ -357,11 +627,12 @@ export function createProviderNeutralToolFlow({
             // The previous action becomes complete exactly when this new
             // action starts. This avoids claiming a search is finished while
             // the model is still deciding what to do with its data.
-            completePendingActivity({ exceptContinuationKey: continuationKey });
+            completePendingActivity({ exceptTimelineKey: timelineKey });
             if (publishedActivity) {
                 emitToolActivity(ws, {
                     activityId,
                     continuationKey,
+                    timelineKey,
                     toolName,
                     state: 'running',
                     presentation: activityPresentation
@@ -387,8 +658,57 @@ export function createProviderNeutralToolFlow({
                 content = { status: 'error', error: error?.message || 'Tool execution failed.' };
             }
 
+            const similarityFallback = toolName === 'searchProducts'
+                && isSimilarityFallbackSearch(rawArgs, normalizedArgs);
+            if (similarityFallback) {
+                content = markSimilarityFallbackResult(content);
+            }
+
             rememberVerifiedCategoryNames(verifiedCategoryNames, toolName, content);
             rememberProductPageRequiredCart(state, toolName, content);
+            if (toolName === 'searchProducts') {
+                const requestedVariantAttribute = requiresVariantAttribute(rawArgs);
+                if (similarityFallback) {
+                    state.attributeConstraintRequested = false;
+                    state.attributeAlternativeRequired = false;
+                    state.attributeAlternativeDiscoveryComplete = false;
+                    state.similarityFallbackUsed = true;
+                } else if (hasRequiredVariantOptionConstraint(normalizedArgs)) {
+                    state.attributeConstraintRequested = false;
+                    state.attributeAlternativeRequired = catalogSearchReturnedNoProducts(content);
+                    state.attributeAlternativeDiscoveryComplete = state.attributeAlternativeRequired;
+                } else if (hasRequiredVariantAttributeCode(normalizedArgs)) {
+                    state.attributeConstraintRequested = false;
+                    state.attributeAlternativeRequired = false;
+                    state.attributeAlternativeDiscoveryComplete = false;
+                } else if (requestedVariantAttribute && catalogSearchReturnedNoProducts(content)) {
+                    state.attributeAlternativeRequired = true;
+                    state.attributeAlternativeDiscoveryComplete = false;
+                } else if (Array.isArray(content?.data) && content.data.length > 0) {
+                    state.attributeAlternativeRequired = false;
+                    state.attributeAlternativeDiscoveryComplete = false;
+                }
+            }
+            if (toolName === 'listVariantAttributes'
+                && (state.attributeAlternativeRequired || state.attributeConstraintRequested)
+                && !content?.error
+                && String(content?.status || '').toLowerCase() !== 'error') {
+                state.attributeAlternativeDiscoveryComplete = true;
+            }
+            if (toolName === 'listVariantAttributes' && bodyFitSizeRange) {
+                verifiedBodyFitConstraint = bodyFitConstraintFromDiscovery(
+                    normalizedArgs,
+                    content,
+                    bodyFitSizeRange
+                );
+                state.bodyFitSearchRequired = Boolean(verifiedBodyFitConstraint);
+            }
+            if (toolName === 'listCategories'
+                && (requiresVariantAttribute(rawArgs) || bodyFitSizeRange)
+                && !content?.error
+                && String(content?.status || '').toLowerCase() !== 'error') {
+                state.attributeConstraintRequested = true;
+            }
             if (toolName === 'listCategories'
                 && String(normalizedArgs.lookupPurpose || '') === 'taxonomy_question'
                 && Array.isArray(content?.data)
@@ -419,6 +739,7 @@ export function createProviderNeutralToolFlow({
                 pendingCompletedActivity = {
                     activityId,
                     continuationKey,
+                    timelineKey,
                     toolName,
                     state: activityState,
                     result: content,
@@ -428,6 +749,7 @@ export function createProviderNeutralToolFlow({
                 emitToolActivity(ws, {
                     activityId,
                     continuationKey,
+                    timelineKey,
                     toolName,
                     state: activityState,
                     result: content,
@@ -450,9 +772,264 @@ export function createProviderNeutralToolFlow({
     });
 }
 
+function toolPresentationLanguageMismatch(args = {}, expectedLanguage = '') {
+    if (!expectedLanguage || !args || typeof args !== 'object') return false;
+
+    const presentation = args.activityPresentation ?? args.activity_presentation;
+    const candidates = [
+        args.responseLanguage ?? args.response_language,
+        presentation && typeof presentation === 'object' && !Array.isArray(presentation)
+            ? presentation.language
+            : undefined
+    ]
+        .map(value => String(value ?? '').trim())
+        .filter(Boolean);
+
+    return candidates.some(value => primaryResponseLanguageTag(value) !== expectedLanguage);
+}
+
 function knownCategoryNameForArgs(categoryNames, args = {}) {
     const categoryId = Math.max(0, Math.trunc(Number(args?.categoryId || args?.category_id) || 0));
     return categoryId > 0 ? String(categoryNames?.get(categoryId) || '') : '';
+}
+
+function hasRequiredVariantAttributeCode(args = {}) {
+    return /^[a-z][a-z0-9_]{0,63}$/i.test(String(
+        args?.requiredVariantAttributeCode ?? args?.required_variant_attribute_code ?? ''
+    ).trim());
+}
+
+function requiresVariantAttribute(args = {}) {
+    return args?.requiresVariantAttribute === true
+        || args?.requires_variant_attribute === true
+        || ['1', 'true'].includes(String(
+            args?.requiresVariantAttribute ?? args?.requires_variant_attribute ?? ''
+        ).toLowerCase());
+}
+
+function hasRequiredVariantOptionValues(args = {}) {
+    const value = args?.requiredVariantOptionValues ?? args?.required_variant_option_values;
+    if (Array.isArray(value)) {
+        return value.some(item => String(item || '').trim().length > 0);
+    }
+    if (typeof value !== 'string') return false;
+    try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) && parsed.some(item => String(item || '').trim().length > 0);
+    } catch {
+        return false;
+    }
+}
+
+function hasRequiredVariantOptionConstraint(args = {}) {
+    return hasRequiredVariantAttributeCode(args) && hasRequiredVariantOptionValues(args);
+}
+
+function normalizedOptionValues(args = {}) {
+    const raw = args?.requiredVariantOptionValues ?? args?.required_variant_option_values;
+    const values = Array.isArray(raw)
+        ? raw
+        : (typeof raw === 'string' ? safelyParseOptionValues(raw) : []);
+
+    return [...new Set(values
+        .map((value) => String(value || '').trim())
+        .filter(Boolean))];
+}
+
+function safelyParseOptionValues(value) {
+    try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function optionKey(value) {
+    return String(value || '').trim().toLocaleLowerCase();
+}
+
+/**
+ * Convert one Magento attribute-discovery response into a body-fit contract.
+ * Standard sizes are deliberately matched by the exact Magento option values,
+ * not an English, German, or Vietnamese attribute-label dictionary. This
+ * keeps the mechanism safe for each store language and catalog structure.
+ */
+function bodyFitConstraintFromDiscovery(args = {}, content = {}, bodyFitSizeRange = null) {
+    if (!bodyFitSizeRange || !content || typeof content !== 'object') return null;
+
+    const categoryId = Math.max(0, Math.trunc(Number(args.categoryId ?? args.category_id) || 0));
+    if (!categoryId) return null;
+
+    const candidates = new Set((bodyFitSizeRange.candidates || []).map(optionKey));
+    if (candidates.size === 0) return null;
+
+    for (const attribute of Array.isArray(content.data) ? content.data : []) {
+        const attributeCode = String(attribute?.code || '').trim().toLowerCase();
+        if (!/^[a-z][a-z0-9_]{0,63}$/.test(attributeCode)) continue;
+
+        const matchingOptionValues = [...new Map((Array.isArray(attribute?.values) ? attribute.values : [])
+            .map((value) => String(value || '').trim())
+            .filter((value) => value && candidates.has(optionKey(value)))
+            .map((value) => [optionKey(value), value]))
+            .values()];
+
+        if (matchingOptionValues.length > 0) {
+            return Object.freeze({
+                categoryId,
+                attributeCode,
+                optionValues: Object.freeze(matchingOptionValues)
+            });
+        }
+    }
+
+    return null;
+}
+
+/**
+ * A height/weight recommendation must become an actual catalog constraint,
+ * but it must not require the shopper to provide any more measurements. Once
+ * Magento has exposed the viable dimension, validate the provider's final
+ * search against that exact discovery response before allowing product cards.
+ */
+function validateBodyFitSearchConstraint(args = {}, verifiedConstraint = null, bodyFitSizeRange = null) {
+    if (!verifiedConstraint) {
+        return {
+            reason: 'body_fit_size_constraint_required',
+            instruction: `The shopper supplied a body profile. Use the estimated size range ${(bodyFitSizeRange?.candidates || []).join(' or ')} as a discovery hypothesis, not a fit guarantee. Do not ask for extra body measurements before searching. First call listCategories with lookupPurpose=product_discovery and requiresVariantAttribute=true, then call listVariantAttributes for a returned relevant category. Search only with its returned size attribute code and exact returned option value(s) from that estimated range. Do not show an unfiltered category grid or any product without the verified size constraint.`
+        };
+    }
+
+    const categoryId = Math.max(0, Math.trunc(Number(args?.categoryId ?? args?.category_id) || 0));
+    const attributeCode = String(
+        args?.requiredVariantAttributeCode ?? args?.required_variant_attribute_code ?? ''
+    ).trim().toLowerCase();
+    const selectedOptionValues = normalizedOptionValues(args);
+    const allowedValues = new Set(verifiedConstraint.optionValues.map(optionKey));
+    const validOptions = selectedOptionValues.length > 0
+        && selectedOptionValues.every((value) => allowedValues.has(optionKey(value)));
+
+    if (categoryId !== verifiedConstraint.categoryId
+        || attributeCode !== verifiedConstraint.attributeCode
+        || !validOptions) {
+        return {
+            reason: 'body_fit_verified_size_constraint_required',
+            instruction: `The body-profile size discovery is complete. Call searchProducts now with categoryId=${verifiedConstraint.categoryId}, requiredVariantAttributeCode=${verifiedConstraint.attributeCode}, and requiredVariantOptionValues containing only these exact Magento values: ${verifiedConstraint.optionValues.join(', ')}. Keep the shopper's product family in query. Do not ask for more body measurements and do not use a broad or different attribute search.`
+        };
+    }
+
+    return null;
+}
+
+function isExactIdentitySearch(args = {}) {
+    return args?.exactIdentity === true
+        || args?.exact_identity === true
+        || ['1', 'true'].includes(String(args?.exactIdentity ?? args?.exact_identity ?? '').toLowerCase());
+}
+
+function requestedFollowUpProductRef(args = {}) {
+    return String(args?.followUpProductRef ?? args?.follow_up_product_ref ?? '').trim();
+}
+
+function normalizeSingleProductAnchor(anchor) {
+    const productRef = String(anchor?.productRef ?? anchor?.product_ref ?? '').trim();
+    const sku = String(anchor?.sku || '').trim();
+    return /^product:\d{1,12}$/.test(productRef) && sku && sku.length <= 128
+        ? Object.freeze({ productRef, sku })
+        : null;
+}
+
+/**
+ * A model-selected reference is never catalogue evidence on its own. It is
+ * only a correlation key for one latest card, which the gateway resolves by
+ * fresh SKU search. Clearing discovery filters prevents a request such as an
+ * option follow-up from leaking back into a category-wide product set.
+ */
+function anchorExactProductSearch(args, anchor) {
+    const {
+        categoryId,
+        category_id,
+        minPrice,
+        min_price,
+        maxPrice,
+        max_price,
+        priceCurrency,
+        price_currency,
+        directAddOnly,
+        direct_add_only,
+        requiresVariantAttribute,
+        requires_variant_attribute,
+        similarityFallback,
+        similarity_fallback,
+        excludedTerms,
+        excluded_terms,
+        requiredVariantAttributeCode,
+        required_variant_attribute_code,
+        requiredVariantOptionValues,
+        required_variant_option_values,
+        excludedVariantOptionValues,
+        excluded_variant_option_values,
+        followUpProductRef,
+        follow_up_product_ref,
+        ...passthrough
+    } = args;
+    return {
+        ...passthrough,
+        query: anchor.sku,
+        exactIdentity: true
+    };
+}
+
+function isUnfilteredCategoryBrowse(args = {}) {
+    const categoryId = Math.max(0, Math.trunc(Number(args?.categoryId ?? args?.category_id) || 0));
+    return categoryId > 0
+        && String(args?.query || '').trim() === ''
+        && !hasRequiredVariantAttributeCode(args);
+}
+
+function isSimilarityFallbackSearch(rawArgs = {}, normalizedArgs = {}) {
+    const requested = rawArgs?.similarityFallback === true
+        || rawArgs?.similarity_fallback === true
+        || ['1', 'true'].includes(String(
+            rawArgs?.similarityFallback ?? rawArgs?.similarity_fallback ?? ''
+        ).toLowerCase());
+    const categoryId = Math.max(0, Math.trunc(Number(
+        normalizedArgs?.categoryId ?? normalizedArgs?.category_id
+    ) || 0));
+
+    return requested
+        && categoryId > 0
+        && String(normalizedArgs?.query || '').trim() !== ''
+        && !hasRequiredVariantAttributeCode(normalizedArgs);
+}
+
+function markSimilarityFallbackResult(content) {
+    if (!content || typeof content !== 'object' || Array.isArray(content)) return content;
+
+    const meta = content.meta && typeof content.meta === 'object' && !Array.isArray(content.meta)
+        ? content.meta
+        : {};
+    const scope = meta.scope && typeof meta.scope === 'object' && !Array.isArray(meta.scope)
+        ? meta.scope
+        : {};
+
+    return {
+        ...content,
+        meta: {
+            ...meta,
+            scope: {
+                ...scope,
+                similarity_fallback: true
+            }
+        }
+    };
+}
+
+function catalogSearchReturnedNoProducts(content) {
+    if (!content || typeof content !== 'object' || content.error) return false;
+    const total = Number(content?.meta?.pagination?.total);
+    if (Number.isFinite(total)) return total === 0;
+    return Array.isArray(content.data) && content.data.length === 0;
 }
 
 function rememberSignedPageCategoryName(categoryNames, pageContext) {
@@ -710,16 +1287,24 @@ function presentToolResult({ name, args, content, shopperMessage, options }) {
     } else if (name === 'searchProducts') {
         const presentation = createCatalogToolPresentation(content, args);
         const { items, pagination, scope } = presentation.catalog;
+        productPresentation = presentation.event;
+        const isVerifiedAlternative = scope.similarity_fallback === true
+            || hasRequiredVariantAttributeCode(args);
+        const productCardInstruction = productPresentation !== null
+            ? 'The verified product cards for this page are already rendered separately. Do not repeat them as an item-by-item list in prose: do not enumerate names, prices, URLs, SKUs, or every option value. Give one concise direct answer and at most one short sentence introducing the cards. '
+            : '';
         const currency = content?.meta?.currency && typeof content.meta.currency === 'object'
             ? content.meta.currency
             : {};
-        productPresentation = presentation.event;
         modelContext = content?.error ? { error: content.error } : {
             query: String(args.query || ''),
             products_found: items.length,
             total_products: pagination.total,
             pagination,
             category: scope,
+            similarity_fallback: scope.similarity_fallback === true,
+            verified_alternatives: isVerifiedAlternative,
+            product_cards_rendered: productPresentation !== null,
             price_filter: currency,
             products: items.map((item) => ({
                 id: item.id,
@@ -747,7 +1332,9 @@ function presentToolResult({ name, args, content, shopperMessage, options }) {
                 : (scope.unavailable_query_match
                 ? 'A close catalogue identity exists but is disabled. Stop retrieval. Do not browse a similar-sounding category and do not substitute another product. State that no currently available exact match was found.'
                 : (items.length > 0
-                    ? `Only mention products returned in this page. This non-empty final grid is the complete allowed product set for this shopper response: do not add, suggest, recommend, compare to, or name any other product, category, or alternative. direct_addable is Magento-validated: state that a product can be added immediately only when it is true. For a purchase request, any item with direct_addable=false, requires_variant_selection=true, or non-empty variant_options must be configured on its returned product URL: do not collect, list, or validate option choices in chat and do not call addToCart. A default_add_qty above 1 must be stated as the minimum directly addable quantity, with qty_increment when relevant. When this search used directAddOnly, every returned product meets that requirement. ${catalogCoverageInstruction(pagination)} Do not invent products from later pages.`
+                    ? `${productCardInstruction}${isVerifiedAlternative
+                        ? 'This is a verified alternative grid after an exact requested characteristic was unavailable. State that absence plainly, then introduce only these cards as the closest verified alternatives. Do not claim a returned product has the unavailable characteristic. '
+                        : ''}When citing a returned catalogue product or option label, preserve its exact label; do not translate it and append the catalogue label in parentheses. Only mention products returned in this page. This non-empty final grid is the complete allowed product set for this shopper response: do not add, suggest, recommend, compare to, or name any other product, category, or alternative. direct_addable is Magento-validated: state that a product can be added immediately only when it is true. For a purchase request, any item with direct_addable=false, requires_variant_selection=true, or non-empty variant_options must be configured on its returned product URL: do not collect, list, or validate option choices in chat and do not call addToCart. A default_add_qty above 1 must be stated as the minimum directly addable quantity, with qty_increment when relevant. When this search used directAddOnly, every returned product meets that requirement. ${catalogCoverageInstruction(pagination)} Do not invent products from later pages.`
                     : 'No products matched this retrieval. Before concluding there is no match, inspect categories or retry a meaningfully different query/category when that can resolve the request.'))
         };
     } else if (name === 'listCategories') {
@@ -782,6 +1369,26 @@ function presentToolResult({ name, args, content, shopperMessage, options }) {
             instruction: isTaxonomyOverview
                 ? 'This is the complete verified category hierarchy for a general store overview. Answer in the shopper language from these categories only. Do not select a category, name individual products, call another catalogue tool, add parent/child counts together, or imply that one category count is the total store catalogue.'
                 : 'Only describe the exact returned Magento categories. A category count is not a list of products.'
+        };
+    } else if (name === 'listVariantAttributes') {
+        const attributes = Array.isArray(content?.data) ? content.data : [];
+        modelContext = content?.error ? { error: content.error } : {
+            category: content?.meta?.scope || {},
+            attributes: attributes.map((attribute) => ({
+                code: String(attribute?.code || ''),
+                label: String(attribute?.label || ''),
+                values: Array.isArray(attribute?.values) ? attribute.values.map(value => String(value)) : [],
+                sampled_product_count: Math.max(0, Number(attribute?.sampled_product_count) || 0)
+            })).filter(attribute => attribute.code && attribute.label),
+            response_language_instruction: responseLanguageInstruction(
+                args.responseLanguage,
+                args.responseLanguageEvidence,
+                shopperMessage,
+                ''
+            ),
+            instruction: attributes.length > 0
+                ? 'This is attribute discovery, not a product result. For a failed requested characteristic, choose an attribute only by its returned label, then call searchProducts with its exact code in requiredVariantAttributeCode. Use excludedVariantOptionValues only with values returned here. If no returned label represents the requested characteristic, make exactly one similarityFallback search in this same category with a non-empty concise query for the remaining core product intent. Do not show or name products until one of those verified searches returns a final grid.'
+                : 'No configurable attributes were found in this verified category. Make exactly one similarityFallback search in this same category with a non-empty concise query for the remaining core product intent. Do not show unrelated category products.'
         };
     } else if (name === 'compareProducts') {
         modelContext = content?.error ? { error: content.error } : {

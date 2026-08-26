@@ -10,6 +10,7 @@ test('restores only bounded customer-visible guest history', () => {
         { role: 'user', content: 'find posters\n[CATALOG_CONTEXT:{"hidden":true}]' },
         {
             role: 'assistant',
+            workedForMs: 12_345,
             parts: [
                 { type: 'text', raw: 'Here are posters.' },
                 { type: 'image', url: 'http://afd.test/media/example.png', prompt: 'poster' },
@@ -22,6 +23,7 @@ test('restores only bounded customer-visible guest history', () => {
     assert.equal(restored[0].content, 'find posters');
     assert.equal(restored[1].parts[1].type, 'image');
     assert.deepEqual(restored[1].parts[2], { type: 'guest_order_access', state: 'email', purpose: 'order' });
+    assert.equal(restored[1].workedForMs, 12_345);
 });
 
 test('preserves safe support-agent metadata and support verification purpose', () => {
@@ -168,11 +170,13 @@ test('persists customer-safe tool progress and activity for the completed-turn t
     const stored = JSON.parse(codec.buildAssistantStoragePayload([
         {
             type: 'reasoning',
+            elapsedMs: 12_345,
             events: [
                 {
                     id: 'availability', type: 'activity', tool: 'getProductAvailability', state: 'completed', result_count: 1,
                     label: 'Disponibilidad del producto comprobada', language: 'es-MX',
-                    turn_summary: 'Trabajo completado en {duration}'
+                    turn_summary: 'Trabajo completado en {duration}',
+                    timeline_key: 'timeline-catalog-availability'
                 },
                 {
                     id: 'progress-availability',
@@ -189,6 +193,7 @@ test('persists customer-safe tool progress and activity for the completed-turn t
     assert.equal(stored.worked_for_ms, 12_345);
 
     const reasoning = stored.parts.find((part) => part.type === 'reasoning');
+    assert.equal(reasoning.elapsedMs, 12_345);
     assert.equal(reasoning.events.length, 2);
     assert.deepEqual(reasoning.activities[0], {
         id: 'availability',
@@ -198,7 +203,8 @@ test('persists customer-safe tool progress and activity for the completed-turn t
         result_count: 1,
         label: 'Disponibilidad del producto comprobada',
         language: 'es-MX',
-        turn_summary: 'Trabajo completado en {duration}'
+        turn_summary: 'Trabajo completado en {duration}',
+        timeline_key: 'timeline-catalog-availability'
     });
     assert.deepEqual(reasoning.steps[0], {
         id: 'progress-availability',
@@ -218,6 +224,8 @@ test('persists customer-safe tool progress and activity for the completed-turn t
     assert.equal(restored.parts[0].activities[0].label, 'Disponibilidad del producto comprobada');
     assert.equal(restored.parts[0].activities[0].language, 'es-MX');
     assert.equal(restored.parts[0].activities[0].turn_summary, 'Trabajo completado en {duration}');
+    assert.equal(restored.parts[0].activities[0].timeline_key, 'timeline-catalog-availability');
+    assert.equal(restored.parts[0].elapsedMs, 12_345);
     assert.equal(restored.workedForMs, 12_345);
     assert.equal(restored.parts[0].steps[0].source, 'tool_progress');
 });
@@ -259,6 +267,29 @@ test('keeps only the latest catalogue memory outside the recent-turn budget', ()
     assert.doesNotMatch(JSON.stringify(history), /"sku":"OLD"/);
     assert.equal((JSON.stringify(history).match(/CATALOG_CONTEXT/g) || []).length, 1);
     assert.match(JSON.stringify(history), /Second answer/);
+});
+
+test('extracts only a validated latest single-product anchor from catalog history', () => {
+    const codec = createConversationHistoryCodec({ maxModelHistoryMessages: 16 });
+    const singleAnchor = codec.latestSingleProductAnchor([
+        {
+            role: 'model',
+            parts: [{
+                text: '[CATALOG_CONTEXT:v2]\n{"products":[{"product_ref":"product:986","sku":"N042.A104"}],"single_product_anchor":{"product_ref":"product:986","sku":"N042.A104"}}'
+            }]
+        }
+    ]);
+    assert.deepEqual(singleAnchor, { productRef: 'product:986', sku: 'N042.A104' });
+
+    const multipleProducts = codec.latestSingleProductAnchor([
+        {
+            role: 'model',
+            parts: [{
+                text: '[CATALOG_CONTEXT:v2]\n{"products":[{"product_ref":"product:986","sku":"N042.A104"},{"product_ref":"product:987","sku":"N042.A105"}]}'
+            }]
+        }
+    ]);
+    assert.equal(multipleProducts, null);
 });
 
 test('reports history context reduction without changing stored history', () => {

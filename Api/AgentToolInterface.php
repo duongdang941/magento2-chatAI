@@ -20,6 +20,9 @@ interface AgentToolInterface
      * @param bool|null $directAddOnly
      * @param bool|null $exactIdentity
      * @param string|null $excludedTerms JSON list of product-name terms explicitly rejected by the shopper
+     * @param string|null $requiredVariantAttributeCode Configurable attribute code returned by Magento discovery
+     * @param string|null $requiredVariantOptionValues JSON list of exact option labels required for that attribute
+     * @param string|null $excludedVariantOptionValues JSON list of configurable values the shopper does not want
      * @param int|null $customerGroupId Magento-signed shopper customer group used for indexed prices
      * @param int|null $customerId Magento-signed customer identity, revalidated by Magento when present
      * @return \Afd\AI\Api\Data\ToolResponseInterface
@@ -35,6 +38,9 @@ interface AgentToolInterface
         bool $directAddOnly = false,
         bool $exactIdentity = false,
         string $excludedTerms = '',
+        string $requiredVariantAttributeCode = '',
+        string $requiredVariantOptionValues = '',
+        string $excludedVariantOptionValues = '',
         int $customerGroupId = 0,
         int $customerId = 0
     ): ToolResponseInterface;
@@ -61,6 +67,20 @@ interface AgentToolInterface
      * @return \Afd\AI\Api\Data\ToolResponseInterface
      */
     public function listCategories(int $customerGroupId = 0, int $customerId = 0): ToolResponseInterface;
+
+    /**
+     * List actual configurable attributes and values available in one verified category.
+     *
+     * @param int $categoryId
+     * @param int|null $customerGroupId Magento-signed shopper customer group used for catalogue visibility
+     * @param int|null $customerId Magento-signed customer identity, revalidated by Magento when present
+     * @return \Afd\AI\Api\Data\ToolResponseInterface
+     */
+    public function listVariantAttributes(
+        int $categoryId,
+        int $customerGroupId = 0,
+        int $customerId = 0
+    ): ToolResponseInterface;
 
     /**
      * Add product to cart

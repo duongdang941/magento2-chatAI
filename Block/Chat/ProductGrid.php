@@ -7,8 +7,8 @@ namespace Afd\AI\Block\Chat;
 use Afd\AI\Model\Product\DirectAddEligibility;
 use Afd\AI\Model\Product\SaleQuantityPolicy;
 use Magento\Catalog\Model\Product;
+use Magento\Catalog\Model\Product\Media\Config as ProductMediaConfig;
 use Magento\Catalog\Pricing\Price\FinalPrice;
-use Magento\Catalog\Helper\Product as ProductHelper;
 use Magento\Catalog\Model\ResourceModel\Product\Collection;
 use Magento\Framework\Data\Helper\PostHelper;
 use Magento\Framework\Pricing\Render;
@@ -25,7 +25,7 @@ class ProductGrid extends Template
 
     public function __construct(
         Template\Context $context,
-        private readonly ProductHelper $productHelper,
+        private readonly ProductMediaConfig $productMediaConfig,
         private readonly PostHelper $postHelper,
         private readonly DirectAddEligibility $directAddEligibility,
         private readonly SaleQuantityPolicy $saleQuantityPolicy,
@@ -53,7 +53,20 @@ class ProductGrid extends Template
 
     public function getProductImageUrl($product): string
     {
-        return (string)$this->productHelper->getSmallImageUrl($product);
+        // This chat response is rendered by a REST request, not a catalog page.
+        // Magento's ProductHelper would attempt an on-demand resize here; when
+        // the selected adapter is unavailable it throws once per card and can
+        // keep the catalogue request alive after its client has timed out.
+        // The original, store-scoped media URL is already selected by the
+        // product collection and needs no image-adapter work.
+        foreach (['small_image', 'image', 'thumbnail'] as $attribute) {
+            $image = trim((string)$product->getData($attribute));
+            if ($image !== '' && $image !== 'no_selection') {
+                return $this->productMediaConfig->getMediaUrl($image);
+            }
+        }
+
+        return $this->getViewFileUrl('Magento_Catalog::images/product/placeholder/small_image.jpg');
     }
 
     public function canAddToCartDirectly($product): bool

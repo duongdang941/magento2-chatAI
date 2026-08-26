@@ -8,7 +8,7 @@ export function isTerminalCatalogMiss(content) {
 }
 
 /**
- * A single product whose normalized name equals the search identity is
+ * A single product whose normalized name or SKU equals the search identity is
  * sufficient catalogue evidence. Once resolved, a provider must synthesize
  * the answer instead of issuing a later category search that can erase the
  * correct card with an unrelated zero-result page.
@@ -20,9 +20,15 @@ export function isResolvedCatalogIdentity(outcome) {
 
     const query = normalizeIdentity(outcome.query);
     const productName = normalizeIdentity(items[0]?.name);
-    if (query.length < 5 || productName.length < 5) return false;
-    const longest = Math.max(query.length, productName.length);
-    return editDistance(query, productName) <= Math.max(1, Math.floor(longest * 0.08));
+    const productSku = normalizeIdentity(items[0]?.sku);
+    if (query.length < 3) return false;
+
+    return [productName, productSku]
+        .filter(identity => identity.length >= 3)
+        .some((identity) => {
+            const longest = Math.max(query.length, identity.length);
+            return editDistance(query, identity) <= Math.max(1, Math.floor(longest * 0.08));
+        });
 }
 
 export function resolvedCatalogIdentityBlock() {

@@ -65,6 +65,26 @@ test('does not drop a missed query for a broad parent category', () => {
     );
 });
 
+test('keeps an attribute-filtered alternative browse separate from the prior miss', () => {
+    const continuity = createCatalogQueryContinuity();
+    continuity.observe('searchProducts', { query: 'áo màu đỏ' }, {
+        data: [],
+        meta: { pagination: { total: 0 } }
+    });
+
+    assert.deepEqual(continuity.normalize('searchProducts', {
+        query: '',
+        categoryId: 101,
+        requiredVariantAttributeCode: 'farbe',
+        excludedVariantOptionValues: ['rot']
+    }), {
+        query: '',
+        categoryId: 101,
+        requiredVariantAttributeCode: 'farbe',
+        excludedVariantOptionValues: ['rot']
+    });
+});
+
 test('does not rewrite a deliberate first category browse', () => {
     const continuity = createCatalogQueryContinuity();
 

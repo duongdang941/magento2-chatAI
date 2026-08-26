@@ -12,10 +12,10 @@ import {
 test('keeps canonical tool names unique and provider schemas derived from one registry', () => {
     const names = TOOL_DEFINITIONS.map((tool) => tool.name);
     assert.equal(new Set(names).size, names.length);
-    assert.equal(openAiToolDefinitions().length, 22);
-    assert.equal(geminiToolDefinitions()[0].functionDeclarations.length, 22);
+    assert.equal(openAiToolDefinitions().length, 23);
+    assert.equal(geminiToolDefinitions()[0].functionDeclarations.length, 23);
     for (const provider of ['gemini', 'openai', 'cockpit', 'openrouter', '9router']) {
-        assert.equal(toolDefinitionsForProvider(provider).length, 22, provider);
+        assert.equal(toolDefinitionsForProvider(provider).length, 23, provider);
     }
     for (const definition of TOOL_DEFINITIONS) {
         const activity = definition.parameters.properties.activityPresentation;
@@ -38,6 +38,10 @@ test('keeps canonical tool names unique and provider schemas derived from one re
         'taxonomy_question'
     ]);
     assert.equal(categoryLookup.parameters.required.includes('lookupPurpose'), true);
+    assert.ok(categoryLookup.parameters.properties.requiresVariantAttribute);
+
+    const productSearch = TOOL_DEFINITIONS.find(definition => definition.name === 'searchProducts');
+    assert.ok(productSearch.parameters.properties.requiredVariantOptionValues);
 });
 
 test('marks destructive and verified tools explicitly', () => {

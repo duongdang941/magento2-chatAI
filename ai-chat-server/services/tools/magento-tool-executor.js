@@ -7,7 +7,8 @@ import {
     normalizeAddToCartArguments,
     normalizeAvailabilityArguments,
     normalizeRemoveFromCartArguments,
-    normalizeSearchArguments
+    normalizeSearchArguments,
+    normalizeVariantAttributeDiscoveryArguments
 } from '../catalog/catalog-tool-arguments.js';
 import { executeCustomerAddressAction } from '../customer/customer-address-client.js';
 import { executeCustomerOrderAction } from '../customer/customer-order-client.js';
@@ -95,6 +96,19 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
                 const url = catalogRestUrl(getMagentoUrl(), 'afd-ai/categories', catalogScope);
                 const response = await secureMagentoGet(url, params, magentoOauth);
                 return normalizeMagentoToolResponse(response.data);
+            }
+
+            case 'listVariantAttributes': {
+                const params = normalizeVariantAttributeDiscoveryArguments(args);
+                if (!params.categoryId) {
+                    return { status: 'error', reason: 'category_required', message: 'A verified category is required to inspect selectable product attributes.' };
+                }
+                Object.assign(params, catalogScopeRequestParams(catalogScope, customerId));
+                const url = catalogRestUrl(getMagentoUrl(), 'afd-ai/categories/variant-attributes', catalogScope);
+                return cachedMagentoRead(runtime, 'catalog-variant-attributes', { params, token, catalogScope, customerId }, 60000, async () => {
+                    const response = await secureMagentoGet(url, params, magentoOauth);
+                    return normalizeMagentoToolResponse(response.data);
+                });
             }
 
             case 'addToCart':

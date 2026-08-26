@@ -81,6 +81,70 @@ test('editing a customer turn stops an active response before opening the editor
     assert.equal(context.editingMessageDraft, 'Find a jacket');
 });
 
+test('restores the visible branch and rehydrates when a replacement anchor is stale', () => {
+    const originalMessages = [
+        { entity_id: 11, role: 'user', content: 'Original question' },
+        { entity_id: 12, role: 'assistant', content: 'Original answer' }
+    ];
+    const reloads = [];
+    const context = {
+        pendingBranchReplacement: {
+            requestId: 'replace-1',
+            conversationId: 9,
+            anchorMessageId: 11,
+            messages: originalMessages,
+            hasStartedChat: true,
+            messageFeedback: { 12: 'positive' },
+            copiedMessageIndex: 1
+        },
+        messages: [{ role: 'user', content: 'Edited question', request_id: 'replace-1' }],
+        hasStartedChat: true,
+        messageFeedback: {},
+        copiedMessageIndex: null,
+        currentAiMessageIndex: 0,
+        statusMessage: 'Thinking',
+        isLoading: true,
+        activeRequestId: 'replace-1',
+        responseStartedAt: Date.now(),
+        pendingProductParts: [{}],
+        pendingOrderAddressFormParts: [{}],
+        pendingGuestOrderAccessParts: [{}],
+        clearResponseWatchdog: () => {},
+        $nextTick: callback => callback(),
+        switchConversation: (...args) => reloads.push(args)
+    };
+
+    assert.equal(methods.restoreFailedBranchReplacement.call(context, 'replace-1', true), true);
+    assert.equal(context.messages, originalMessages);
+    assert.equal(context.pendingBranchReplacement, null);
+    assert.equal(context.activeRequestId, null);
+    assert.equal(reloads.length, 1);
+    assert.equal(reloads[0][0], 9);
+    assert.equal(reloads[0][1], true);
+    assert.equal(reloads[0][2].replaceVisibleMessages, true);
+});
+
+test('does not render a service error card for a stale replacement anchor', () => {
+    let restored = 0;
+    const context = {
+        shouldIgnoreStreamMessage: () => false,
+        restoreFailedBranchReplacement: (requestId, reload) => {
+            restored += 1;
+            assert.equal(requestId, 'replace-1');
+            assert.equal(reload, true);
+            return true;
+        }
+    };
+
+    methods.handleStreamMessage.call(context, {
+        type: 'error',
+        request_id: 'replace-1',
+        error_code: 'REPLACE_ANCHOR_UNAVAILABLE'
+    });
+
+    assert.equal(restored, 1);
+});
+
 test('accepts pagination responses without a chat request id', () => {
     const context = {
         activeRequestId: null,
@@ -410,6 +474,60 @@ test('ignores a cross-tab snapshot while the current turn is streaming', () => {
     assert.equal(result, true);
     assert.equal(context.messages[0].parts[0], liveReasoning);
     assert.equal(context.messages[0].parts[0].activities[0].state, 'running');
+});
+
+test('keeps the completed-turn duration in a guest snapshot after reload', () => {
+    const context = {
+        messages: [{
+            role: 'assistant',
+            workedForMs: 12_345,
+            parts: [{
+                type: 'reasoning',
+                elapsedMs: 12_345,
+                events: [{ id: 'catalog-search', type: 'activity', tool: 'searchProducts', state: 'completed' }],
+                steps: [],
+                activities: []
+            }]
+        }],
+        serializeCrossTabPayload: value => value
+    };
+
+    const snapshot = connectionMethods.crossTabMessageSnapshot.call(context);
+    assert.equal(snapshot[0].workedForMs, 12_345);
+    assert.equal(snapshot[0].parts[0].elapsedMs, 12_345);
+});
+
+test('uses Magento history rather than a divergent cross-tab branch snapshot', () => {
+    const switches = [];
+    const context = {
+        chatSyncTabId: 'tab-current',
+        chatSyncScope: 'guest-scope',
+        messages: [
+            { entity_id: 101, role: 'user' },
+            { entity_id: 102, role: 'assistant' }
+        ],
+        loadConversations: () => {},
+        applyCrossTabMessageSnapshot: () => {
+            throw new Error('A divergent snapshot must not overwrite durable ids.');
+        },
+        switchConversation: (...args) => switches.push(args)
+    };
+
+    connectionMethods.handleCrossTabEvent.call(context, {
+        type: 'conversation_sync',
+        source: 'tab-other',
+        scope: 'guest-scope',
+        conversationId: 9,
+        messages: [
+            { entity_id: 101, role: 'user' },
+            { entity_id: 203, role: 'assistant' }
+        ]
+    });
+
+    assert.equal(switches.length, 1);
+    assert.equal(switches[0][0], 9);
+    assert.equal(switches[0][1], true);
+    assert.equal(switches[0][2].replaceVisibleMessages, true);
 });
 
 test('removes stale and persisted duplicates while refreshing guest product history', () => {

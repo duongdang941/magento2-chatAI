@@ -13,6 +13,23 @@ const attachmentSource = fs.readFileSync(
 const sandbox = { window: { AfdAiChat: {} } };
 vm.runInNewContext(attachmentSource, sandbox);
 
+function catalogContextPayload(text) {
+    const marker = '[CATALOG_CONTEXT:';
+    const start = String(text).indexOf(marker);
+    const payloadStart = String(text).indexOf('\n', start);
+    return JSON.parse(String(text).slice(payloadStart + 1));
+}
+
+test('uses the catalogue search icon while checking variant attributes', () => {
+    const methods = sandbox.window.AfdAiChat.attachmentMethods({
+        config: {},
+        urls: {},
+        helpers: { MAX_MODEL_HISTORY_MESSAGES: 16 }
+    });
+
+    assert.equal(methods.toolActivityIcon({ tool: 'listVariantAttributes' }), 'search');
+});
+
 test('catalog context preserves configurable attribute machine codes', () => {
     const methods = sandbox.window.AfdAiChat.attachmentMethods({
         config: {},
@@ -55,6 +72,42 @@ test('catalog context preserves configurable attribute machine codes', () => {
     assert.match(context, /"url":"https:\/\/afd\.test\/t-shirt-jetzafd-2\.html"/);
     assert.match(context, /exactly names one previously shown card/i);
     assert.match(context, /link\/open-page-only follow-up/i);
+    const payload = catalogContextPayload(context);
+    assert.deepEqual(payload.single_product_anchor, {
+        product_ref: 'product:890',
+        sku: 'N012.A0'
+    });
+    assert.match(payload.instruction, /language-neutral/i);
+    assert.match(payload.instruction, /followUpProductRef/);
+});
+
+test('catalog context creates no anchor when a grid contains multiple products', () => {
+    const methods = sandbox.window.AfdAiChat.attachmentMethods({
+        config: {},
+        urls: {},
+        helpers: { MAX_MODEL_HISTORY_MESSAGES: 16 }
+    });
+    const history = methods.buildModelHistory.call({
+        messages: [
+            {
+                role: 'assistant',
+                parts: [{
+                    type: 'products',
+                    payload: {
+                        items: [
+                            { id: 1, sku: 'FIRST-1', name: 'First product' },
+                            { id: 2, sku: 'SECOND-2', name: 'Second product' }
+                        ]
+                    }
+                }]
+            },
+            { role: 'user', content: 'Does it come in another size?' }
+        ],
+        htmlToText: () => ''
+    });
+
+    const payload = catalogContextPayload(history[0].parts[0].text);
+    assert.equal(Object.hasOwn(payload, 'single_product_anchor'), false);
 });
 
 test('catalog context keeps only the returned URL for an exact-title link follow-up', () => {

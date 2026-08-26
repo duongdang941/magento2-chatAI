@@ -635,6 +635,16 @@ const {
                     source: message.source === 'support_agent' ? 'support_agent' : '',
                     senderLabel: String(message.senderLabel || '').slice(0, 80),
                     content: String(message.content || ''),
+                    // The guest/cross-tab snapshot is also the first source
+                    // restored after a page reload. Keep the completed-turn
+                    // duration with it; otherwise the action timeline
+                    // survives while the header falls back to "Checked 1
+                    // action" until durable history happens to rehydrate.
+                    workedForMs: Math.max(
+                        0,
+                        Number(message.workedForMs) || 0,
+                        Number(message.worked_for_ms) || 0
+                    ),
                     ...(message.provider_meta && typeof message.provider_meta === 'object' ? {
                         provider_meta: this.serializeCrossTabPayload(message.provider_meta)
                     } : {}),
@@ -866,6 +876,26 @@ const {
                 if (event.type !== 'conversation_sync' || !event.conversationId) return;
 
                 this.loadConversations();
+                const incomingMessageIds = new Set((Array.isArray(event.messages) ? event.messages : [])
+                    .map(message => Number(message?.entity_id) || 0)
+                    .filter(Boolean));
+                const currentMessageIds = new Set((Array.isArray(this.messages) ? this.messages : [])
+                    .map(message => Number(message?.entity_id) || 0)
+                    .filter(Boolean));
+                const replacesDurableBranch = incomingMessageIds.size > 0
+                    && currentMessageIds.size > 0
+                    && [...incomingMessageIds].some(id => !currentMessageIds.has(id))
+                    && [...currentMessageIds].some(id => !incomingMessageIds.has(id));
+
+                // A same-origin snapshot may have been emitted by a tab that
+                // still holds the branch before an edit. Do not let it replace
+                // durable ids in this tab; rehydrate from Magento instead.
+                if (replacesDurableBranch) {
+                    this.switchConversation(event.conversationId, true, {
+                        replaceVisibleMessages: true
+                    });
+                    return;
+                }
                 if (this.applyCrossTabMessageSnapshot(event.messages, event.conversationId)) return;
                 this.switchConversation(event.conversationId, true, {
                     preserveVisibleMessages: true

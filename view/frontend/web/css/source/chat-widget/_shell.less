@@ -2,12 +2,17 @@
     position: fixed;
     inset: 0;
     z-index: 1;
-    // The assistant must never obscure or lock the storefront outside its
-    // own window. Frosting belongs to the chat surface, not the whole page.
-    background: transparent;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
+    // Keep the storefront visible through a calm modal veil while the chat
+    // window is open. The veil belongs outside the window, so it cannot tint
+    // streamed messages or product cards inside the assistant.
+    background: rgba(15, 23, 42, 0.22);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
     pointer-events: none;
+}
+
+.afd-ai-chat[data-ui-theme="light"] .afd-ai-chat__backdrop {
+    background: rgba(255, 255, 255, 0.42);
 }
 
 

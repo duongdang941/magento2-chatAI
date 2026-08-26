@@ -65,6 +65,7 @@ test('exposes only read-only Magento tools to a Live Voice session', () => {
         'getProductAvailability',
         'getRecentOrders',
         'listCategories',
+        'listVariantAttributes',
         'searchProducts',
         'searchStoreKnowledge'
     ]);

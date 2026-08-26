@@ -231,46 +231,7 @@
     }
 }
 
-@media (max-width: 860px) {
-    .afd-ai-chat {
-        &__header {
-            cursor: default;
-            touch-action: auto;
-        }
-
-        &__window-shell {
-            width: ~"calc(100vw - 1rem)";
-            height: ~"calc(100vh - 1rem)";
-        }
-
-        &:not(.afd-ai-chat--compact-sidebar) {
-            .afd-ai-chat__sidebar {
-                flex-basis: 210px;
-                width: 210px;
-            }
-        }
-
-        &__suggestions,
-        &__product-grid {
-            grid-template-columns: 1fr;
-        }
-
-        &__settings-panel {
-            grid-template-columns: 56px minmax(0, 1fr);
-        }
-
-        &__settings-nav-item {
-            justify-content: center;
-            padding: 0.58rem 0;
-
-            span:last-child {
-                display: none;
-            }
-        }
-    }
-}
-
-@media (max-width: 860px) and (hover: none) {
+@media (hover: none), (pointer: coarse) {
     .afd-ai-chat {
         &__sidebar-item {
             padding-right: 5.7rem;

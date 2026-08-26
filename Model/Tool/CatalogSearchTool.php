@@ -66,12 +66,18 @@ class CatalogSearchTool
         bool $directAddOnly = false,
         bool $exactIdentity = false,
         string $excludedTerms = '',
+        string $requiredVariantAttributeCode = '',
+        string $requiredVariantOptionValues = '',
+        string $excludedVariantOptionValues = '',
         int $customerGroupId = 0,
         int $customerId = 0
     ) {
         $query = trim($query);
         $shopperScope = $this->shopperScopeResolver->resolve($customerGroupId, $customerId);
         $excludedNameTerms = $this->normalizeExcludedTerms($excludedTerms);
+        $requiredVariantAttributeCode = $this->normalizeVariantAttributeCode($requiredVariantAttributeCode);
+        $requiredVariantOptionValues = $this->normalizeVariantOptionValues($requiredVariantOptionValues);
+        $excludedVariantOptionValues = $this->normalizeVariantOptionValues($excludedVariantOptionValues);
         // Five is the presentation default at the gateway. Magento accepts up
         // to ten for an explicit “show me 10” request, but never an unbounded
         // category dump.
@@ -94,10 +100,13 @@ class CatalogSearchTool
             return $this->emptyResponse($page, $limit, $shopperScope, $categoryScope, $priceConstraints['meta']);
         }
 
-        // Resolve the complete fulltext ID set once so stock, price and
-        // direct-add SQL filters can produce an exact total. Magento's normal
-        // setPageSize() no longer applies after that render step, therefore
-        // the final page boundary must be placed directly on the SQL select.
+        // Follow Magento's native full-text collection lifecycle: set the
+        // requested page before getSize() triggers the search adapter. The
+        // Elasticsearch adapter then retrieves only this page of IDs while
+        // preserving the backend total. The former implementation resolved
+        // every matching ID, ran an additional SQL COUNT and called clear(),
+        // which made the collection perform the full-text search a second
+        // time before one five-card page could be rendered.
         $collection = $this->createFilteredProductCollection(
             $query,
             $categoryIds,
@@ -105,14 +114,25 @@ class CatalogSearchTool
             $maxPrice,
             $directAddOnly,
             $excludedNameTerms,
+            $requiredVariantAttributeCode,
+            $requiredVariantOptionValues,
+            $excludedVariantOptionValues,
             $shopperScope
         );
-        $totalResults = $this->getFilteredCollectionSize($collection);
-        $collection->clear();
-        $collection->getSelect()->limitPage($page, $limit);
+        $collection->setCurPage($page);
+        $collection->setPageSize($limit);
+        $totalResults = $this->getCollectionSize($collection);
+        if ($query !== '' && $page === 1 && $totalResults > 0 && $totalResults <= $limit) {
+            // Full-text totals originate in Elasticsearch while the explicit
+            // visibility/stock policy is also applied in SQL. When the whole
+            // result set fits in this one page, count just those already
+            // selected IDs so customer prose and rendered cards cannot diverge
+            // (for example 4 indexed hits but 3 visible products). This never
+            // asks Elasticsearch for more IDs or restarts the search.
+            $totalResults = $this->getLoadedPageFilteredSize($collection);
+        }
 
         [$resultData, $productIds] = $this->collectProductResults($collection, $shopperScope);
-        $matchedVariantOptionValue = '';
         if ($exactIdentity) {
             [$resultData, $productIds] = $this->filterPresentedIdentityMatches(
                 $query,
@@ -121,31 +141,6 @@ class CatalogSearchTool
             );
             if ($resultData !== []) {
                 $totalResults = count($resultData);
-            }
-        }
-        // Fulltext indices normally contain product names and descriptions,
-        // but not the values of configurable children.  A colour such as
-        // "schwarz" can therefore be a valid selectable option while the
-        // initial fulltext query has zero rows.  Recover only from the
-        // authoritative configurable-option values; never replace it with an
-        // unfiltered category browse.
-        if ($resultData === [] && !$exactIdentity && $query !== '') {
-            [$optionResultData, $optionProductIds, $optionTotalResults] = $this->findActiveVariantOptionValueFallback(
-                $query,
-                $categoryIds,
-                $minPrice,
-                $maxPrice,
-                $directAddOnly,
-                $excludedNameTerms,
-                $shopperScope,
-                $page,
-                $limit
-            );
-            if ($optionResultData !== []) {
-                $resultData = $optionResultData;
-                $productIds = $optionProductIds;
-                $totalResults = $optionTotalResults;
-                $matchedVariantOptionValue = $query;
             }
         }
         $activeIdentityDistance = $this->bestPresentedProductIdentityDistance($query, $resultData);
@@ -158,10 +153,12 @@ class CatalogSearchTool
         // must never replace an honest empty result for a constrained or
         // paginated request; otherwise cards could violate the very
         // constraints that meta still claims were applied.
-        $identityFallbackAllowed = $categoryIds === []
+        $identityFallbackAllowed = $this->shouldAttemptIdentityFallback($query, $exactIdentity)
+            && $categoryIds === []
             && $minPrice <= 0.0
             && $maxPrice <= 0.0
             && !$directAddOnly
+            && $requiredVariantAttributeCode === ''
             && $page === 1;
         if ($resultData === []
             && $activeIdentityDistance === null
@@ -178,7 +175,7 @@ class CatalogSearchTool
             }
             $activeIdentityDistance = $this->bestPresentedProductIdentityDistance($query, $resultData);
         }
-        $disabledIdentityDistance = $query !== ''
+        $disabledIdentityDistance = $identityFallbackAllowed
             ? $this->bestUnavailableProductIdentityDistance($query, $shopperScope)
             : null;
         $unavailableQueryMatch = $disabledIdentityDistance !== null
@@ -222,7 +219,9 @@ class CatalogSearchTool
                 'exact_query_match' => $exactIdentity && $activeIdentityDistance !== null,
                 'exact_query_miss' => $exactQueryMiss,
                 'excluded_terms' => $excludedNameTerms,
-                'variant_option_value_match' => $matchedVariantOptionValue,
+                'required_variant_attribute_code' => $requiredVariantAttributeCode,
+                'required_variant_option_values' => $requiredVariantOptionValues,
+                'excluded_variant_option_values' => $excludedVariantOptionValues,
                 'unavailable_query_match' => $unavailableQueryMatch,
             ],
             'currency' => $priceConstraints['meta'],
@@ -271,6 +270,9 @@ class CatalogSearchTool
         float $maxPrice,
         bool $directAddOnly,
         array $excludedNameTerms,
+        string $requiredVariantAttributeCode,
+        array $requiredVariantOptionValues,
+        array $excludedVariantOptionValues,
         ShopperScope $shopperScope
     ) {
         // A non-empty query remains a hard product-type constraint even after
@@ -290,21 +292,43 @@ class CatalogSearchTool
         if ($directAddOnly) {
             $this->applyDirectAddOnlyFilter($collection);
         }
+        if ($requiredVariantAttributeCode !== '') {
+            $this->applyVariantAttributeRequirementFilter(
+                $collection,
+                $requiredVariantAttributeCode,
+                $requiredVariantOptionValues,
+                $excludedVariantOptionValues,
+                $shopperScope
+            );
+        }
 
         return $collection;
     }
 
     /**
-     * Return the count after stock, price and direct-add SQL filters.
+     * Resolve the total through the collection's native engine.
      *
-     * FulltextCollection::getSize() exposes the search-engine total before
-     * those SQL filters. Triggering it is still required to apply the search
-     * result IDs, then the SQL count select supplies the truthful total.
+     * For Magento full-text collections, getSize() returns the search
+     * adapter's total count and keeps the page boundary that was set before
+     * loading. For a regular category collection it issues Magento's normal
+     * count query. Do not rebuild a count select manually: after the search
+     * adapter has applied its page of IDs, that would either count an
+     * incomplete page or require loading every matching ID again.
      */
-    private function getFilteredCollectionSize($collection): int
+    private function getCollectionSize($collection): int
     {
-        $collection->getSize();
+        return (int)$collection->getSize();
+    }
 
+    /**
+     * Count only the ID selection that the loaded full-text page already owns.
+     *
+     * This is intentionally used only when the engine total fits into the
+     * first page; using it for a broad query would reintroduce the expensive
+     * full-result count that this tool avoids.
+     */
+    private function getLoadedPageFilteredSize($collection): int
+    {
         return (int)$collection->getConnection()->fetchOne(
             $collection->getSelectCountSql()
         );
@@ -402,6 +426,40 @@ class CatalogSearchTool
         }
 
         return array_values(array_unique($terms));
+    }
+
+    private function normalizeVariantAttributeCode(string $value): string
+    {
+        $code = strtolower(trim($value));
+
+        return preg_match('/^[a-z][a-z0-9_]{0,63}$/', $code) ? $code : '';
+    }
+
+    /** @return string[] */
+    private function normalizeVariantOptionValues(string $value): array
+    {
+        if ($value === '') {
+            return [];
+        }
+
+        try {
+            $decoded = json_decode($value, true, 8, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return [];
+        }
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        $values = [];
+        foreach (array_slice($decoded, 0, 12) as $item) {
+            $normalized = trim((string)$item);
+            if ($normalized !== '' && mb_strlen($normalized) <= 120) {
+                $values[] = $normalized;
+            }
+        }
+
+        return array_values(array_unique($values));
     }
 
     /**
@@ -518,73 +576,55 @@ class CatalogSearchTool
     }
 
     /**
-     * Fall back from fulltext to a real selectable value on a configurable
-     * child. This remains language-neutral: the agent supplies the current
-     * catalogue value and Magento verifies it against the active store view.
+     * Require one actual configurable dimension returned by
+     * listVariantAttributes(). The gateway supplies a Magento attribute code,
+     * never a translated semantic such as "colour", so this stays reusable
+     * across stores and prevents a no-match fallback from showing unrelated
+     * products that merely share a category.
      *
-     * @param int[] $categoryIds
-     * @param string[] $excludedNameTerms
-     * @return array{0: array<int, array<string, mixed>>, 1: int[], 2: int}
+     * @param string[] $requiredOptionValues
+     * @param string[] $excludedOptionValues
      */
-    private function findActiveVariantOptionValueFallback(
-        string $optionValue,
-        array $categoryIds,
-        float $minPrice,
-        float $maxPrice,
-        bool $directAddOnly,
-        array $excludedNameTerms,
-        ShopperScope $shopperScope,
-        int $page,
-        int $limit
-    ): array {
-        $optionValue = trim($optionValue);
-        if ($optionValue === '' || mb_strlen($optionValue) > 120) {
-            return [[], [], 0];
-        }
-
-        $collection = $this->createCategoryProductCollection($shopperScope);
-        $collection->addAttributeToFilter('type_id', ['eq' => 'configurable']);
-        if ($categoryIds !== []) {
-            $collection->addCategoriesFilter(['in' => $categoryIds]);
-        }
-        $this->applyAvailabilityAndPriceFilters($collection, $minPrice, $maxPrice);
-        $this->applyExcludedNameTerms($collection, $excludedNameTerms);
-        if ($directAddOnly) {
-            $this->applyDirectAddOnlyFilter($collection);
-        }
-        $this->applyVariantOptionValueFilter($collection, $optionValue, $shopperScope);
-
-        $totalResults = $this->getFilteredCollectionSize($collection);
-        if ($totalResults < 1) {
-            return [[], [], 0];
-        }
-
-        $collection->clear();
-        $collection->getSelect()->limitPage($page, $limit);
-        [$resultData, $productIds] = $this->collectProductResults($collection, $shopperScope);
-
-        return [$resultData, $productIds, $totalResults];
-    }
-
-    /**
-     * Restrict parent configurables to a child value registered on one of the
-     * parent configurable attributes. The store-view label takes precedence
-     * over the default label, exactly as Magento renders option labels.
-     */
-    private function applyVariantOptionValueFilter($collection, string $optionValue, ShopperScope $shopperScope): void
-    {
+    private function applyVariantAttributeRequirementFilter(
+        $collection,
+        string $attributeCode,
+        array $requiredOptionValues,
+        array $excludedOptionValues,
+        ShopperScope $shopperScope
+    ): void {
         $connection = $collection->getConnection();
         $superLinkTable = $connection->quoteIdentifier($collection->getTable('catalog_product_super_link'));
         $superAttributeTable = $connection->quoteIdentifier($collection->getTable('catalog_product_super_attribute'));
+        $attributeTable = $connection->quoteIdentifier($collection->getTable('eav_attribute'));
         $entityIntTable = $connection->quoteIdentifier($collection->getTable('catalog_product_entity_int'));
+        $entityVarcharTable = $connection->quoteIdentifier($collection->getTable('catalog_product_entity_varchar'));
         $optionValueTable = $connection->quoteIdentifier($collection->getTable('eav_attribute_option_value'));
         $storeId = max(0, $shopperScope->getStoreId());
+        $availableValue = 'LOWER(COALESCE(NULLIF(option_store.value, \'\'), option_default.value))';
+        $excludedSql = '';
+        if ($excludedOptionValues !== []) {
+            $quotedValues = array_map(
+                static fn (string $value): string => $connection->quote(mb_strtolower($value)),
+                $excludedOptionValues
+            );
+            $excludedSql = ' AND ' . $availableValue . ' NOT IN (' . implode(', ', $quotedValues) . ')';
+        }
 
-        $collection->getSelect()->where(
-            'EXISTS (SELECT 1'
+        $requiredSql = '';
+        if ($requiredOptionValues !== []) {
+            $quotedValues = array_map(
+                static fn (string $value): string => $connection->quote(mb_strtolower($value)),
+                $requiredOptionValues
+            );
+            $requiredSql = ' AND ' . $availableValue . ' IN (' . implode(', ', $quotedValues) . ')';
+        }
+
+        $variantMatch = 'EXISTS (SELECT 1'
             . ' FROM ' . $superLinkTable . ' AS variant_link'
             . ' INNER JOIN ' . $superAttributeTable . ' AS configurable_attribute'
             . ' ON configurable_attribute.product_id = variant_link.parent_id'
+            . ' INNER JOIN ' . $attributeTable . ' AS configurable_attribute_definition'
+            . ' ON configurable_attribute_definition.attribute_id = configurable_attribute.attribute_id'
             . ' INNER JOIN ' . $entityIntTable . ' AS variant_attribute'
             . ' ON variant_attribute.entity_id = variant_link.product_id'
             . ' AND variant_attribute.attribute_id = configurable_attribute.attribute_id'
@@ -596,15 +636,73 @@ class CatalogSearchTool
             . ' ON option_store.option_id = option_default.option_id'
             . ' AND option_store.store_id = ' . (int)$storeId
             . ' WHERE variant_link.parent_id = e.entity_id'
-            . ' AND LOWER(COALESCE(NULLIF(option_store.value, \'\'), option_default.value)) = LOWER(?))',
-            $optionValue
+            . ' AND configurable_attribute_definition.attribute_code = ?'
+            . $requiredSql
+            . $excludedSql
+            . ')';
+
+        if ($requiredOptionValues === []) {
+            $collection->addAttributeToFilter('type_id', ['eq' => 'configurable']);
+            $collection->getSelect()->where($variantMatch, $attributeCode);
+            return;
+        }
+
+        // A catalogue can encode a fixed characteristic in the product name
+        // instead of a configurable child. Keep it only when the exact value
+        // has already been verified for this attribute in Magento; a broad
+        // fulltext match alone must never establish the characteristic.
+        $nameValue = 'LOWER(COALESCE(NULLIF(name_store.value, \'\'), name_default.value))';
+        $nameMatches = array_map(
+            static fn (string $value): string => $nameValue . ' LIKE ' . $connection->quote('%' . mb_strtolower($value) . '%'),
+            $requiredOptionValues
         );
+        $nameMatch = 'EXISTS (SELECT 1'
+            . ' FROM ' . $entityVarcharTable . ' AS name_default'
+            . ' INNER JOIN ' . $attributeTable . ' AS name_attribute'
+            . ' ON name_attribute.attribute_id = name_default.attribute_id'
+            . ' AND name_attribute.attribute_code = \'name\''
+            . ' LEFT JOIN ' . $entityVarcharTable . ' AS name_store'
+            . ' ON name_store.entity_id = name_default.entity_id'
+            . ' AND name_store.attribute_id = name_default.attribute_id'
+            . ' AND name_store.store_id = ' . (int)$storeId
+            . ' WHERE name_default.entity_id = e.entity_id'
+            . ' AND name_default.store_id = 0'
+            . ' AND (' . implode(' OR ', $nameMatches) . ')'
+            . ')';
+
+        $collection->getSelect()->where('(' . $variantMatch . ' OR ' . $nameMatch . ')', $attributeCode);
     }
 
     private function canPresentProduct($product): bool
     {
         return $product
             && in_array($product->getTypeId(), ['simple', 'configurable'], true);
+    }
+
+    /**
+     * A full-text miss for a generic product family is not evidence of a
+     * misspelled product identity. Running LIKE '%abc%' fallbacks for every
+     * short one-word query turns normal discovery (for example, "Jacke") into
+     * a catalogue scan. Keep typo recovery for an explicit identity request,
+     * multiple meaningful identity terms, or one distinctive long term. This
+     * is deliberately language-neutral and depends only on token structure.
+     */
+    private function shouldAttemptIdentityFallback(string $query, bool $exactIdentity): bool
+    {
+        if ($exactIdentity) {
+            return true;
+        }
+
+        $tokens = preg_split('/[^\p{L}\p{N}]+/u', mb_strtolower(trim($query))) ?: [];
+        $tokens = array_values(array_filter(
+            $tokens,
+            static fn (string $token): bool => mb_strlen($token) >= 3
+        ));
+        if (count($tokens) >= 2) {
+            return true;
+        }
+
+        return isset($tokens[0]) && mb_strlen($tokens[0]) >= 8;
     }
 
     /**
@@ -862,6 +960,89 @@ class CatalogSearchTool
         $response = $this->toolResponseFactory->create();
         $response->setData($resultData);
         $response->setHtml('');
+
+        return $response;
+    }
+
+    /**
+     * Describe configurable dimensions from a verified category without
+     * presenting a product grid. This is the safe discovery step for a
+     * failed attribute request: the model can request alternatives through
+     * the exact code Magento supplies instead of guessing an attribute name.
+     */
+    public function listVariantAttributes(int $categoryId, int $customerGroupId = 0, int $customerId = 0)
+    {
+        $shopperScope = $this->shopperScopeResolver->resolve($customerGroupId, $customerId);
+        $categoryScope = $this->getCategoryScope($categoryId, $shopperScope);
+        $categoryIds = $categoryScope === []
+            ? []
+            : $this->expandCategoryIdsWithDescendants([$categoryId], $shopperScope);
+        $response = $this->toolResponseFactory->create();
+        if ($categoryIds === []) {
+            $response->setData([]);
+            $response->setHtml('');
+            $response->setMeta(['scope' => [...$shopperScope->toArray(), ...$categoryScope]]);
+            return $response;
+        }
+
+        $collection = $this->createCategoryProductCollection($shopperScope);
+        $collection->addAttributeToFilter('type_id', ['eq' => 'configurable']);
+        $collection->addCategoriesFilter(['in' => $categoryIds]);
+        $this->applyAvailabilityAndPriceFilters($collection, 0.0, 0.0);
+
+        // Attribute discovery is evidence, not a product dump. Bound the
+        // work while retaining a truthful flag for unusually large categories.
+        $sampleLimit = 200;
+        $collection->setCurPage(1);
+        $collection->setPageSize($sampleLimit);
+        $totalProducts = $this->getCollectionSize($collection);
+
+        $attributes = [];
+        foreach ($collection as $product) {
+            foreach ($this->getVariantOptions($product) as $option) {
+                $code = $this->normalizeVariantAttributeCode((string)($option['code'] ?? ''));
+                $label = trim((string)($option['label'] ?? ''));
+                if ($code === '' || $label === '') {
+                    continue;
+                }
+                if (!isset($attributes[$code])) {
+                    $attributes[$code] = [
+                        'code' => $code,
+                        'label' => $label,
+                        'values' => [],
+                        'sampled_product_count' => 0,
+                    ];
+                }
+                $attributes[$code]['sampled_product_count']++;
+                foreach (is_array($option['values'] ?? null) ? $option['values'] : [] as $value) {
+                    $value = trim((string)$value);
+                    if ($value === '') {
+                        continue;
+                    }
+                    $attributes[$code]['values'][mb_strtolower($value)] = $value;
+                }
+            }
+        }
+
+        ksort($attributes, SORT_NATURAL | SORT_FLAG_CASE);
+        $resultData = array_map(static function (array $attribute): array {
+            $values = array_values($attribute['values']);
+            sort($values, SORT_NATURAL | SORT_FLAG_CASE);
+            return [
+                'code' => $attribute['code'],
+                'label' => $attribute['label'],
+                'values' => array_slice($values, 0, 80),
+                'sampled_product_count' => (int)$attribute['sampled_product_count'],
+            ];
+        }, array_values($attributes));
+
+        $response->setData($resultData);
+        $response->setHtml('');
+        $response->setMeta([
+            'scope' => [...$shopperScope->toArray(), ...$categoryScope],
+            'sampled_configurable_products' => min($totalProducts, $sampleLimit),
+            'has_more_configurable_products' => $totalProducts > $sampleLimit,
+        ]);
 
         return $response;
     }

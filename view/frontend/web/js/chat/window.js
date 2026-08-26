@@ -86,7 +86,12 @@ const {
             },
 
             isCompactViewport() {
-                return this.getResponsiveWindowWidth() <= 820;
+                // Keep a desktop popup intact inside a narrow browser window.
+                // With the 280px desktop sidebar and two 184px product cards,
+                // 700px is the point at which the popup itself genuinely needs
+                // the compact drawer layout. The browser viewport is not a
+                // component breakpoint.
+                return this.getResponsiveWindowWidth() <= 700;
             },
 
             isNarrowViewport() {
@@ -106,9 +111,11 @@ const {
             isMobileLayout() {
                 const hasCoarsePointer = typeof window.matchMedia === 'function'
                     && window.matchMedia('(pointer: coarse)').matches;
-                // A narrow desktop chat window uses the same overlay drawer as
-                // touch devices, so its sidebar never takes space from content.
-                return this.isCompactViewport() || window.innerWidth <= 640 || hasCoarsePointer;
+                // A narrower popup uses an overlay drawer before it reaches
+                // the compact-content breakpoint. This preserves catalogue
+                // space without making Chrome's viewport itself a layout
+                // decision.
+                return this.getResponsiveWindowWidth() <= 820 || window.innerWidth <= 640 || hasCoarsePointer;
             },
 
             observeChatWindowWidth() {
@@ -131,11 +138,11 @@ const {
             },
 
             syncCompactSidebarState() {
-                if (!this.isCompactViewport()) this.closeMobileSidebar();
+                if (!this.isMobileLayout()) this.closeMobileSidebar();
             },
 
             toggleMobileSidebar() {
-                if (!this.isCompactViewport()) return;
+                if (!this.isMobileLayout()) return;
                 this.isMobileSidebarOpen = !this.isMobileSidebarOpen;
             },
 

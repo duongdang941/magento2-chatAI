@@ -124,6 +124,51 @@ test('persists consecutive executions with the same opaque continuation key as o
     );
 });
 
+test('persists consecutive catalogue refinements with one gateway timeline key as one action', () => {
+    const parts = [];
+    const timelineKey = 'timeline-catalog-search-store';
+
+    recordOutboundAssistantPart(parts, {
+        type: 'tool_activity',
+        activity_id: 'search-1',
+        continuation_key: 'activity-0123456789abcdef01234567',
+        timeline_key: timelineKey,
+        tool: 'searchProducts',
+        state: 'running',
+        label: 'Đang tìm kiếm sản phẩm trên toàn bộ cửa hàng'
+    });
+    recordOutboundAssistantPart(parts, {
+        type: 'tool_activity',
+        activity_id: 'search-2',
+        continuation_key: 'activity-abcdef0123456789abcdef01',
+        timeline_key: timelineKey,
+        tool: 'searchProducts',
+        state: 'running',
+        label: 'Đang tìm kiếm sản phẩm trên toàn bộ cửa hàng'
+    });
+    recordOutboundAssistantPart(parts, {
+        type: 'tool_activity',
+        activity_id: 'search-2',
+        continuation_key: 'activity-abcdef0123456789abcdef01',
+        timeline_key: timelineKey,
+        tool: 'searchProducts',
+        state: 'completed',
+        result_count: 1,
+        label: 'Đã tìm kiếm sản phẩm trên toàn bộ cửa hàng'
+    });
+
+    assert.deepEqual(parts[0].events, [{
+        id: 'search-1',
+        type: 'activity',
+        tool: 'searchProducts',
+        state: 'completed',
+        result_count: 1,
+        label: 'Đã tìm kiếm sản phẩm trên toàn bộ cửa hàng',
+        continuation_key: 'activity-abcdef0123456789abcdef01',
+        timeline_key: timelineKey
+    }]);
+});
+
 test('buildUserMessageDescriptor keeps uploaded image parts for the model', () => {
     const message = buildUserMessageDescriptor({
         text: 'Đã gửi hình ảnh',

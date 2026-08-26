@@ -32,6 +32,13 @@ function normalizeActivityTurnSummary(value) {
         : '';
 }
 
+function normalizeActivityTimelineKey(value) {
+    const key = String(value || '').trim();
+    return /^(?:timeline-[a-z0-9][a-z0-9_-]{0,90}|activity-[a-f0-9]{24})$/.test(key)
+        ? key
+        : '';
+}
+
 export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } = {}) {
     function extractTextFromParts(parts) {
         return parts
@@ -108,9 +115,11 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
             return { role: 'user', content: text, attachments: [] };
         }
 
+        const workedForMs = normalizeWorkedForMs(message?.workedForMs ?? message?.worked_for_ms);
         return {
             role: 'assistant',
             content: text,
+            ...(workedForMs > 0 ? { workedForMs } : {}),
             ...(interrupted ? {
                 interrupted: true,
                 stopped_after_seconds: Math.max(0, Math.floor(Number(message?.stopped_after_seconds) || 0)),
@@ -392,6 +401,44 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
         return modelHistory;
     }
 
+    /**
+     * Extract the only product that can safely be resolved from a previous
+     * grid without interpreting shopper prose. The browser creates this
+     * anchor only when the latest grid has exactly one item; this function
+     * merely validates its bounded identifiers before the tool gateway uses
+     * it to force a fresh Magento lookup.
+     */
+    function latestSingleProductAnchor(history) {
+        if (!Array.isArray(history)) return null;
+
+        let catalogContext = '';
+        history.forEach((message) => {
+            if (!message || !['assistant', 'model'].includes(message.role)) return;
+            const text = Array.isArray(message.parts)
+                ? message.parts.map((part) => part?.text || part?.raw || '').filter(Boolean).join('\n\n')
+                : String(message.content || message.text || '');
+            const split = splitCatalogContext(text);
+            if (split.catalogContext) catalogContext = split.catalogContext;
+        });
+
+        if (!catalogContext) return null;
+        const payloadStart = catalogContext.indexOf('\n');
+        if (payloadStart < 0) return null;
+
+        try {
+            const context = JSON.parse(catalogContext.slice(payloadStart + 1));
+            const anchor = context?.single_product_anchor;
+            const productRef = String(anchor?.product_ref || '').trim();
+            const sku = String(anchor?.sku || '').trim();
+            if (!/^product:\d{1,12}$/.test(productRef) || !sku || sku.length > 128) {
+                return null;
+            }
+            return Object.freeze({ productRef, sku });
+        } catch {
+            return null;
+        }
+    }
+
     function splitCatalogContext(value) {
         const text = String(value || '');
         const markerIndex = text.lastIndexOf(CATALOG_CONTEXT_MARKER);
@@ -510,6 +557,7 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
                 const label = String(source.label || '').replace(/\s+/g, ' ').trim().slice(0, 240);
                 const language = normalizeActivityLanguage(source.language);
                 const turnSummary = normalizeActivityTurnSummary(source.turn_summary);
+                const timelineKey = normalizeActivityTimelineKey(source.timeline_key ?? source.timelineKey);
                 events.push({
                     id,
                     type,
@@ -522,7 +570,8 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
                         : {}),
                     ...(label ? { label } : {}),
                     ...(language ? { language } : {}),
-                    ...(turnSummary ? { turn_summary: turnSummary } : {})
+                    ...(turnSummary ? { turn_summary: turnSummary } : {}),
+                    ...(timelineKey ? { timeline_key: timelineKey } : {})
                 });
                 continue;
             }
@@ -544,7 +593,14 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
         if (events.length === 0) return null;
         const steps = events.filter(event => event.type === 'step');
         const activities = events.filter(event => event.type === 'activity');
-        return { type: 'reasoning', events, steps, activities };
+        const elapsedMs = normalizeWorkedForMs(part?.elapsedMs);
+        return {
+            type: 'reasoning',
+            events,
+            steps,
+            activities,
+            ...(elapsedMs > 0 ? { elapsedMs } : {})
+        };
     }
 
     function buildConversationTitle(sourceText, options = {}) {
@@ -570,6 +626,7 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
         extractTextFromParts,
         guestHistoryMessagesFromClient,
         normalizeStoredAssistantMessage,
-        trimHistoryForModel
+        trimHistoryForModel,
+        latestSingleProductAnchor
     };
 }

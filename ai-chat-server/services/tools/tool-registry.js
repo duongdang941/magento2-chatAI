@@ -56,7 +56,7 @@ const productSearchActivityPresentationSchema = Object.freeze(objectSchema({
     ...activityPresentationSchema.properties,
     searchScope: {
         type: 'string',
-        description: 'Required short shopper-language phrase stating where this product search runs. When categoryId is absent, explicitly say the whole store (for example an equivalent of "in the store"). When categoryId is present, use the literal token {category} exactly once (for example an equivalent of "in category {category}"). Do not invent or write a category name yourself.'
+        description: 'Required short shopper-language phrase stating where this product search runs. When categoryId is absent, explicitly say the whole store (for example an equivalent of "in the store"). When categoryId is present, use the literal token {category} exactly once (for example an equivalent of "in category {category}"). The gateway replaces it with the exact Magento category name; never write, translate, or combine a category name yourself.'
     }
 }, [...activityPresentationSchema.required, 'searchScope']));
 
@@ -99,7 +99,33 @@ export const TOOL_DEFINITIONS = Object.freeze([
         priceCurrency: { type: 'string', description: 'ISO 4217 currency explicitly written by the shopper, for example USD.' },
         directAddOnly: { type: 'boolean' },
         exactIdentity: { type: 'boolean' },
+        followUpProductRef: {
+            type: 'string',
+            description: 'Use only for an immediate product-specific follow-up when CATALOG_CONTEXT supplies single_product_anchor. Copy its product_ref exactly. The gateway verifies this reference and forces a fresh exact-SKU lookup.'
+        },
+        requiresVariantAttribute: {
+            type: 'boolean',
+            description: 'Set true when the shopper explicitly requires a selectable product characteristic such as a colour, size, material, format, capacity, or style. This is semantic intent metadata only; it is not sent to Magento as a search filter.'
+        },
+        similarityFallback: {
+            type: 'boolean',
+            description: 'Use only after listVariantAttributes has confirmed that the requested selectable characteristic is unavailable. Keep the verified categoryId and provide a non-empty query for the remaining core product intent. This retrieves the closest verified product family; it is semantic gateway metadata and is not sent to Magento.'
+        },
         excludedTerms: { type: 'array', items: { type: 'string' } },
+        requiredVariantAttributeCode: {
+            type: 'string',
+            description: 'Exact configurable attribute code previously returned by listVariantAttributes. Never invent this code.'
+        },
+        requiredVariantOptionValues: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Exact option labels returned for requiredVariantAttributeCode. These are hard constraints: use them for every requested colour, size, material, format, capacity, or style; never put the requested option value only in query.'
+        },
+        excludedVariantOptionValues: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional exact option labels from listVariantAttributes that must not be offered. Use only with requiredVariantAttributeCode.'
+        },
         responseLanguage: { type: 'string' },
         responseLanguageEvidence: { type: 'array', items: { type: 'string' } }
     }, ['query', 'exactIdentity', 'responseLanguage', 'responseLanguageEvidence']), {
@@ -119,9 +145,18 @@ export const TOOL_DEFINITIONS = Object.freeze([
             enum: ['product_discovery', 'taxonomy_question'],
             description: 'product_discovery when taxonomy is needed to find/show a requested product; taxonomy_question for category structure or a broad store-range overview without a requested product type.'
         },
+        requiresVariantAttribute: {
+            type: 'boolean',
+            description: 'Set true when the shopper requires a selectable characteristic. This allows category and attribute discovery before the final constrained product search.'
+        },
         responseLanguage: { type: 'string' },
         responseLanguageEvidence: { type: 'array', items: { type: 'string' } }
     }, ['lookupPurpose', 'responseLanguage', 'responseLanguageEvidence'])),
+    tool('listVariantAttributes', 'Inspect real configurable attributes and their selectable values in one category, without showing products. Use after an unsuccessful attribute-constrained product request to find a Magento-provided attribute code for a safe alternative search.', objectSchema({
+        categoryId: { type: 'integer', description: 'A verified category ID returned by listCategories for this shopper request.' },
+        responseLanguage: { type: 'string' },
+        responseLanguageEvidence: { type: 'array', items: { type: 'string' } }
+    }, ['categoryId', 'responseLanguage', 'responseLanguageEvidence'])),
     tool('addToCart', 'Add a verified product selection using Magento quantity rules to checkout or explicit Quote Cart.', objectSchema({
         sku: { type: 'string' },
         qty: { type: 'integer' },

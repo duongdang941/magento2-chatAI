@@ -12,6 +12,7 @@ const LIVE_VOICE_TOOL_NAMES = new Set([
     'compareProducts',
     'getProductAvailability',
     'listCategories',
+    'listVariantAttributes',
     'searchStoreKnowledge',
     'getRecentOrders',
     'getGuestOrders',

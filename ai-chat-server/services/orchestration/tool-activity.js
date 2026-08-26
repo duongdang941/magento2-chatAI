@@ -38,6 +38,35 @@ export function createToolActivityContinuationKey({ toolName, args = {} } = {}) 
 }
 
 /**
+ * The timeline has a deliberately broader identity than execution dedupe.
+ *
+ * One shopper-facing catalogue operation may refine its query several times
+ * without becoming a second row.  The key is owned by the gateway and is
+ * never derived from translated labels, so it is safe across languages and
+ * providers.  Only catalogue operations use this broader key; mutations and
+ * other tools retain their precise opaque continuation identity.
+ */
+export function createToolActivityTimelineKey({ toolName, args = {}, continuationKey = '' } = {}) {
+    const name = String(toolName || 'unknown');
+    const categoryId = categoryIdForActivity(args);
+
+    if (name === 'searchProducts') {
+        return `timeline-${compactDisplayKey(name, categoryId)}`;
+    }
+
+    if (name === 'listCategories') return 'timeline-catalog-categories';
+
+    if (name === 'listVariantAttributes') {
+        return categoryId > 0
+            ? `timeline-catalog-variant-attributes-category-${categoryId}`
+            : 'timeline-catalog-variant-attributes';
+    }
+
+    return normalizeActivityContinuationKey(continuationKey)
+        || createToolActivityContinuationKey({ toolName: name, args });
+}
+
+/**
  * An opaque execution key for the per-turn duplicate-call guard.
  *
  * This is intentionally separate from the customer-visible continuation key.
@@ -112,6 +141,7 @@ export function hasCompleteToolActivityPresentation({
         knownCategoryName,
         state: 'failed'
     });
+    const categoryId = categoryIdForActivity(args);
 
     return Boolean(
         running.language
@@ -120,6 +150,7 @@ export function hasCompleteToolActivityPresentation({
         && completed.label
         && completed.turnSummary
         && failed.label
+        && hasValidProductSearchScope(toolName, args, categoryId)
     );
 }
 
@@ -139,6 +170,7 @@ export function withoutToolActivityPresentation(args = {}) {
 export function emitToolActivity(ws, {
     activityId,
     continuationKey = '',
+    timelineKey = '',
     toolName,
     state,
     result,
@@ -156,11 +188,13 @@ export function emitToolActivity(ws, {
 
     if (resultCount !== null) payload.result_count = resultCount;
     const safeContinuationKey = normalizeActivityContinuationKey(continuationKey);
+    const safeTimelineKey = normalizeActivityTimelineKey(timelineKey);
     const displayKey = String(presentation?.displayKey || '').trim().slice(0, 100);
     const label = safeCustomerActivityLabel(presentation?.label);
     const language = normalizeActivityLanguage(presentation?.language);
     const turnSummary = safeTurnSummary(presentation?.turnSummary);
     if (safeContinuationKey) payload.continuation_key = safeContinuationKey;
+    if (safeTimelineKey) payload.timeline_key = safeTimelineKey;
     if (displayKey) payload.display_key = displayKey;
     if (label) payload.label = label;
     if (language) payload.language = language;
@@ -283,6 +317,13 @@ function normalizeActivityContinuationKey(value) {
     return /^activity-[a-f0-9]{24}$/u.test(key) ? key : '';
 }
 
+function normalizeActivityTimelineKey(value) {
+    const key = String(value || '').trim();
+    return /^(?:timeline-[a-z0-9][a-z0-9_-]{0,90}|activity-[a-f0-9]{24})$/u.test(key)
+        ? key
+        : '';
+}
+
 function compactDisplayKey(toolName, categoryId = 0) {
     if (toolName === 'searchProducts') {
         return categoryId > 0 ? `catalog-search-category-${categoryId}` : 'catalog-search-store';
@@ -330,8 +371,15 @@ function safeCustomerActivityLabel(value) {
 function materializeSearchScopeLabel(label, searchScope, toolName, categoryId, categoryName) {
     if (!label || toolName !== 'searchProducts') return withoutUnresolvedActivityTokens(label);
 
+    const rawScope = safeSearchScopeLabel(searchScope);
+    // Category names belong to Magento catalogue data. A model may localize
+    // surrounding prose, but it must leave a single token for the gateway to
+    // replace with the verified name instead of writing a translation and
+    // having the source name appended after it.
+    if (categoryId > 0 && (!hasSingleCategoryToken(rawScope) || !label.includes('{scope}'))) return '';
+
     const scope = materializeCategoryToken(
-        safeSearchScopeLabel(searchScope),
+        rawScope,
         categoryId,
         categoryName
     );
@@ -376,6 +424,18 @@ function safeSearchScopeLabel(value) {
     if (/\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b/u.test(scope)) return '';
     if (/\b(?:searchProducts|listCategories|getProductAvailability|compareProducts|addToCart|removeFromCart|searchWeb|searchStoreKnowledge)\b/iu.test(scope)) return '';
     return scope;
+}
+
+function hasValidProductSearchScope(toolName, args = {}, categoryId = 0) {
+    if (toolName !== 'searchProducts') return true;
+
+    const scope = safeSearchScopeLabel(getActivityPresentation(args)?.searchScope);
+    if (!scope) return false;
+    return categoryId > 0 ? hasSingleCategoryToken(scope) : !scope.includes('{category}');
+}
+
+function hasSingleCategoryToken(value) {
+    return (String(value || '').match(/\{category\}/g) || []).length === 1;
 }
 
 function withoutUnresolvedActivityTokens(value) {

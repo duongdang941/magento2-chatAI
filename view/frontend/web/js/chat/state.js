@@ -97,6 +97,11 @@
             wsReconnectTimer: null,
             transportNotice: null,
             activeRequestId: null,
+            // Kept only while an edit/regenerate request is awaiting the
+            // gateway's branch-truncation decision.  It lets the client
+            // restore the durable transcript if another tab has already
+            // replaced the selected turn.
+            pendingBranchReplacement: null,
             responseStartedAt: 0,
             cancelledRequestIds: {},
             responseWatchdogTimer: null,

@@ -39,7 +39,10 @@ export function buildCatalogProductsPayload(content = {}, args = {}) {
             minPrice: positivePrice(args.minPrice),
             maxPrice: positivePrice(args.maxPrice),
             priceCurrency: normalizePriceCurrency(args.priceCurrency),
-            directAddOnly: scope.direct_add_only
+            directAddOnly: scope.direct_add_only,
+            requiredVariantAttributeCode: normalizeVariantAttributeCode(args.requiredVariantAttributeCode),
+            requiredVariantOptionValues: normalizeVariantOptionValues(args.requiredVariantOptionValues),
+            excludedVariantOptionValues: normalizeVariantOptionValues(args.excludedVariantOptionValues)
         })
         : null;
 
@@ -73,6 +76,17 @@ export function buildCatalogProductsPayload(content = {}, args = {}) {
             ...(positivePrice(args.minPrice) ? { min_price: positivePrice(args.minPrice) } : {}),
             ...(positivePrice(args.maxPrice) ? { max_price: positivePrice(args.maxPrice) } : {}),
             ...(normalizePriceCurrency(args.priceCurrency) ? { price_currency: normalizePriceCurrency(args.priceCurrency) } : {}),
+            ...(normalizeVariantAttributeCode(args.requiredVariantAttributeCode)
+                ? { required_variant_attribute_code: normalizeVariantAttributeCode(args.requiredVariantAttributeCode) }
+                : {}),
+            ...(normalizeVariantAttributeCode(args.requiredVariantAttributeCode)
+                && normalizeVariantOptionValues(args.requiredVariantOptionValues).length > 0
+                ? { required_variant_option_values: normalizeVariantOptionValues(args.requiredVariantOptionValues) }
+                : {}),
+            ...(normalizeVariantAttributeCode(args.requiredVariantAttributeCode)
+                && normalizeVariantOptionValues(args.excludedVariantOptionValues).length > 0
+                ? { excluded_variant_option_values: normalizeVariantOptionValues(args.excludedVariantOptionValues) }
+                : {}),
             continuation
         }
     };
@@ -120,7 +134,10 @@ export function rehydrateCatalogContinuation(payload = {}) {
             minPrice: positivePrice(payload.min_price ?? payload.minPrice),
             maxPrice: positivePrice(payload.max_price ?? payload.maxPrice),
             priceCurrency: normalizePriceCurrency(payload.price_currency ?? payload.priceCurrency),
-            directAddOnly: scope.direct_add_only
+            directAddOnly: scope.direct_add_only,
+            requiredVariantAttributeCode: normalizeVariantAttributeCode(payload.required_variant_attribute_code),
+            requiredVariantOptionValues: normalizeVariantOptionValues(payload.required_variant_option_values),
+            excludedVariantOptionValues: normalizeVariantOptionValues(payload.excluded_variant_option_values)
         })
         : null;
 
@@ -148,6 +165,17 @@ export function rehydrateCatalogContinuation(payload = {}) {
         },
         scope,
         direct_add_only: scope.direct_add_only,
+        ...(normalizeVariantAttributeCode(payload.required_variant_attribute_code)
+            ? { required_variant_attribute_code: normalizeVariantAttributeCode(payload.required_variant_attribute_code) }
+            : {}),
+        ...(normalizeVariantAttributeCode(payload.required_variant_attribute_code)
+            && normalizeVariantOptionValues(payload.required_variant_option_values).length > 0
+            ? { required_variant_option_values: normalizeVariantOptionValues(payload.required_variant_option_values) }
+            : {}),
+        ...(normalizeVariantAttributeCode(payload.required_variant_attribute_code)
+            && normalizeVariantOptionValues(payload.excluded_variant_option_values).length > 0
+            ? { excluded_variant_option_values: normalizeVariantOptionValues(payload.excluded_variant_option_values) }
+            : {}),
         continuation
     };
 }
@@ -160,6 +188,9 @@ export function createCatalogPageToken(context = {}) {
     const minPrice = positivePrice(context.minPrice);
     const maxPrice = positivePrice(context.maxPrice);
     const priceCurrency = normalizePriceCurrency(context.priceCurrency);
+    const requiredVariantAttributeCode = normalizeVariantAttributeCode(context.requiredVariantAttributeCode);
+    const requiredVariantOptionValues = normalizeVariantOptionValues(context.requiredVariantOptionValues);
+    const excludedVariantOptionValues = normalizeVariantOptionValues(context.excludedVariantOptionValues);
     const payload = {
         v: 1,
         exp: Math.floor(Date.now() / 1000) + PAGINATION_TOKEN_TTL_SECONDS,
@@ -170,6 +201,13 @@ export function createCatalogPageToken(context = {}) {
         ...(minPrice ? { min_price: minPrice } : {}),
         ...(maxPrice ? { max_price: maxPrice } : {}),
         ...(priceCurrency ? { price_currency: priceCurrency } : {}),
+        ...(requiredVariantAttributeCode ? { required_variant_attribute_code: requiredVariantAttributeCode } : {}),
+        ...(requiredVariantAttributeCode && requiredVariantOptionValues.length > 0
+            ? { required_variant_option_values: requiredVariantOptionValues }
+            : {}),
+        ...(requiredVariantAttributeCode && excludedVariantOptionValues.length > 0
+            ? { excluded_variant_option_values: excludedVariantOptionValues }
+            : {}),
         ...(directAddOnly ? { direct_add_only: true } : {})
     };
     const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
@@ -209,6 +247,17 @@ export function verifyCatalogPageToken(token) {
             ...(positivePrice(parsed.min_price) ? { minPrice: positivePrice(parsed.min_price) } : {}),
             ...(positivePrice(parsed.max_price) ? { maxPrice: positivePrice(parsed.max_price) } : {}),
             ...(normalizePriceCurrency(parsed.price_currency) ? { priceCurrency: normalizePriceCurrency(parsed.price_currency) } : {}),
+            ...(normalizeVariantAttributeCode(parsed.required_variant_attribute_code)
+                ? { requiredVariantAttributeCode: normalizeVariantAttributeCode(parsed.required_variant_attribute_code) }
+                : {}),
+            ...(normalizeVariantAttributeCode(parsed.required_variant_attribute_code)
+                && normalizeVariantOptionValues(parsed.required_variant_option_values).length > 0
+                ? { requiredVariantOptionValues: normalizeVariantOptionValues(parsed.required_variant_option_values) }
+                : {}),
+            ...(normalizeVariantAttributeCode(parsed.required_variant_attribute_code)
+                && normalizeVariantOptionValues(parsed.excluded_variant_option_values).length > 0
+                ? { excludedVariantOptionValues: normalizeVariantOptionValues(parsed.excluded_variant_option_values) }
+                : {}),
             ...(parsed.direct_add_only === true ? { directAddOnly: true } : {})
         };
     } catch {
@@ -252,6 +301,7 @@ function normalizeCatalogScope(rawScope, categoryId, directAddOnly = false) {
         category_url: /^https?:\/\//i.test(categoryUrl) || categoryUrl.startsWith('/') ? categoryUrl : '',
         includes_descendants: source.includes_descendants === true,
         unavailable_query_match: source.unavailable_query_match === true,
+        similarity_fallback: source.similarity_fallback === true,
         ...(source.direct_add_only === true || directAddOnly ? { direct_add_only: true } : {})
     };
 }
@@ -270,4 +320,28 @@ function positivePrice(value) {
 function normalizePriceCurrency(value) {
     const currency = String(value || '').trim().toUpperCase();
     return /^[A-Z]{3}$/.test(currency) ? currency : '';
+}
+
+function normalizeVariantAttributeCode(value) {
+    const code = String(value || '').trim().toLowerCase();
+    return /^[a-z][a-z0-9_]{0,63}$/.test(code) ? code : '';
+}
+
+function normalizeVariantOptionValues(value) {
+    const raw = Array.isArray(value)
+        ? value
+        : (() => {
+            if (typeof value !== 'string') return [];
+            try {
+                const parsed = JSON.parse(value);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch {
+                return [];
+            }
+        })();
+
+    return [...new Set(raw
+        .map((item) => String(item || '').trim())
+        .filter((item) => item && item.length <= 120)
+        .slice(0, 12))];
 }

@@ -37,6 +37,15 @@ class DirectAddEligibility
             return $this->eligibilityByProductId[$productId];
         }
 
+        // Search results already select type_id. A configurable, bundle or
+        // grouped product always needs a shopper-owned selection step, so do
+        // not reload it from the repository and run Magento's cart
+        // preparation merely to reach that same answer.
+        $knownType = trim((string)$product->getData('type_id'));
+        if ($knownType !== '' && $knownType !== 'simple') {
+            return $this->eligibilityByProductId[$productId] = false;
+        }
+
         try {
             // Collections used by the card renderer intentionally select a
             // small attribute set. Reload the product so custom options are

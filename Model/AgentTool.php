@@ -55,6 +55,9 @@ class AgentTool implements AgentToolInterface
         bool $directAddOnly = false,
         bool $exactIdentity = false,
         string $excludedTerms = '',
+        string $requiredVariantAttributeCode = '',
+        string $requiredVariantOptionValues = '',
+        string $excludedVariantOptionValues = '',
         int $customerGroupId = 0,
         int $customerId = 0
     ): ToolResponseInterface {
@@ -70,6 +73,9 @@ class AgentTool implements AgentToolInterface
             $directAddOnly,
             $exactIdentity,
             $excludedTerms,
+            $requiredVariantAttributeCode,
+            $requiredVariantOptionValues,
+            $excludedVariantOptionValues,
             $customerGroupId,
             $customerId
         );
@@ -94,6 +100,15 @@ class AgentTool implements AgentToolInterface
     {
         $this->nodeRequestAuthorizer->assertAuthorized();
         return $this->catalogSearchTool->listCategories($customerGroupId, $customerId);
+    }
+
+    public function listVariantAttributes(
+        int $categoryId,
+        int $customerGroupId = 0,
+        int $customerId = 0
+    ): ToolResponseInterface {
+        $this->nodeRequestAuthorizer->assertAuthorized();
+        return $this->catalogSearchTool->listVariantAttributes($categoryId, $customerGroupId, $customerId);
     }
 
     public function addToCart(string $sku, int $qty = 1): ToolResponseInterface

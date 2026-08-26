@@ -650,17 +650,18 @@ export function recordOutboundAssistantPart(assistantParts, parsed) {
         const language = normalizeActivityLanguage(parsed.language);
         const turnSummary = normalizeActivityTurnSummary(parsed.turn_summary);
         const continuationKey = normalizeActivityContinuationKey(parsed.continuation_key);
+        const timelineKey = normalizeActivityTimelineKey(parsed.timeline_key);
         const executionActivityId = String(parsed.activity_id || parsed.display_key || '');
         const directExisting = reasoningPart.events.find(a => a.type === 'activity' && a.id === executionActivityId);
         const previousActivity = reasoningPart.events[reasoningPart.events.length - 1];
-        // Consecutive executions can be one logical operation. The gateway's
-        // opaque continuation key, not a translated customer label, decides
-        // whether their durable timeline row is updated or appended.
+        // Consecutive catalogue refinements are one shopper operation. The
+        // gateway sends an opaque timeline key; never compare model-written
+        // labels because they vary by language and provider.
         const continuedExisting = !directExisting
-            && continuationKey
             && previousActivity?.type === 'activity'
-            && previousActivity.state === 'running'
-            && previousActivity.continuation_key === continuationKey
+            && (timelineKey
+                ? previousActivity.timeline_key === timelineKey
+                : (continuationKey && previousActivity.continuation_key === continuationKey))
             ? previousActivity
             : null;
         const existing = directExisting || continuedExisting;
@@ -674,6 +675,7 @@ export function recordOutboundAssistantPart(assistantParts, parsed) {
             if (language) existing.language = language;
             if (turnSummary) existing.turn_summary = turnSummary;
             if (continuationKey) existing.continuation_key = continuationKey;
+            if (timelineKey) existing.timeline_key = timelineKey;
             if (isRestartedAction) {
                 reasoningPart.events = reasoningPart.events.filter(event => event !== existing);
                 reasoningPart.events.push(existing);
@@ -692,7 +694,8 @@ export function recordOutboundAssistantPart(assistantParts, parsed) {
                 ...(typeof parsed.label === 'string' ? { label: parsed.label.slice(0, 240) } : {}),
                 ...(language ? { language } : {}),
                 ...(turnSummary ? { turn_summary: turnSummary } : {}),
-                ...(continuationKey ? { continuation_key: continuationKey } : {})
+                ...(continuationKey ? { continuation_key: continuationKey } : {}),
+                ...(timelineKey ? { timeline_key: timelineKey } : {})
             };
             reasoningPart.events.push(actItem);
             if (Array.isArray(reasoningPart.activities)) reasoningPart.activities.push(actItem);
@@ -741,4 +744,11 @@ function normalizeActivityTurnSummary(value) {
 function normalizeActivityContinuationKey(value) {
     const key = String(value || '').trim();
     return /^activity-[a-f0-9]{24}$/.test(key) ? key : '';
+}
+
+function normalizeActivityTimelineKey(value) {
+    const key = String(value || '').trim();
+    return /^(?:timeline-[a-z0-9][a-z0-9_-]{0,90}|activity-[a-f0-9]{24})$/.test(key)
+        ? key
+        : '';
 }

@@ -192,7 +192,18 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                         max_tokens: thinking ? Math.max(maxOutputTokens, thinking.budget_tokens + 256) : maxOutputTokens,
                         stream: true,
                         ...(thinking ? { thinking } : {}),
-                        ...(!finalSynthesisOnly && tools.length > 0 ? { tools } : {})
+                        ...(!finalSynthesisOnly && tools.length > 0 ? {
+                            tools,
+                            // After Magento has already returned a viable
+                            // body-profile size dimension, a blank provider
+                            // turn must not silently end the shopping flow.
+                            // Force exactly the pending constrained retrieval;
+                            // provider-neutral validation still rejects any
+                            // unverified category, attribute, or option.
+                            ...(toolFlow.shouldForceProductSearch()
+                                ? { tool_choice: { type: 'tool', name: 'searchProducts' } }
+                                : {})
+                        } : {})
                     }),
                     signal: controller.signal
                 });

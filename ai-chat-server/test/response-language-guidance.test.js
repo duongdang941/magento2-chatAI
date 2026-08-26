@@ -34,6 +34,17 @@ test('locks a short English greeting even when conversation history uses another
     assert.match(buildAgentSystemInstruction({ shopperMessage: 'hello' }), /RESPONSE LANGUAGE LOCK FOR THIS TURN: English \(en\)/);
 });
 
+test('recognizes an explicit Vietnamese-without-diacritics request to answer in English', () => {
+    assert.equal(
+        inferResponseLanguage('ok hay dung tieng anh de tra loi toi. Cho toi cac san pham Han Jacken'),
+        'en'
+    );
+});
+
+test('does not mistake common Spanish accents for Vietnamese', () => {
+    assert.equal(inferResponseLanguage('Muéstrame artículos de esta categoría.'), '');
+});
+
 test('prefers verified grammatical evidence over an incorrect model language label', () => {
     const evidence = normalizeResponseLanguageEvidence(
         ['Shop', 'có', 'Strickmütze', 'không'],

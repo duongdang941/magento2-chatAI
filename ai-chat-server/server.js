@@ -123,7 +123,8 @@ const {
     extractTextFromParts,
     guestHistoryMessagesFromClient,
     normalizeStoredAssistantMessage,
-    trimHistoryForModel
+    trimHistoryForModel,
+    latestSingleProductAnchor
 } = createConversationHistoryCodec({ maxModelHistoryMessages: MAX_MODEL_HISTORY_MESSAGES });
 
 // ==================== WEBSOCKET SERVER ====================
@@ -278,6 +279,7 @@ const {
     guestAssistantHistoryMessage,
     restoreGuestHistoryFromClient,
     trimHistoryForModel,
+    latestSingleProductAnchor,
     createActiveRun,
     clearActiveRun,
     isRunCancelled,

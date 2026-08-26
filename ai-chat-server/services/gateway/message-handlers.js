@@ -62,6 +62,7 @@ export function createMessageHandlers(deps) {
         guestAssistantHistoryMessage,
         restoreGuestHistoryFromClient,
         trimHistoryForModel,
+        latestSingleProductAnchor,
         createActiveRun,
         clearActiveRun,
         isRunCancelled,
@@ -77,6 +78,16 @@ export function createMessageHandlers(deps) {
         pendingVerificationActionTtlMs: PENDING_VERIFICATION_ACTION_TTL_MS,
         customerActionFormTtlMs: CUSTOMER_ACTION_FORM_TTL_MS
     } = deps;
+
+    function sendReplacementAnchorUnavailable(ws, requestId) {
+        ws.send(attachRequestId({
+            type: 'error',
+            // This is a stable transport code. The storefront must not infer
+            // recovery behaviour from translated/error-display text.
+            error_code: 'REPLACE_ANCHOR_UNAVAILABLE',
+            content: 'This message can no longer be replaced. Reload the conversation and try again.'
+        }, requestId));
+    }
 
     async function handleProductPage(ws, data, client) {
         const productPartId = String(data.product_part_id || '').trim().slice(0, 120);
@@ -230,10 +241,7 @@ export function createMessageHandlers(deps) {
                             return;
                         }
                         if (replaceFromMessageId > 0) {
-                            ws.send(attachRequestId({
-                                type: 'error',
-                                content: 'This message can no longer be replaced. Reload the conversation and try again.'
-                            }, run.requestId));
+                            sendReplacementAnchorUnavailable(ws, run.requestId);
                             clearActiveRun(ws, run);
                             return;
                         }
@@ -243,10 +251,7 @@ export function createMessageHandlers(deps) {
                 }
 
                 if (replaceFromMessageId > 0 && !conversationId) {
-                    ws.send(attachRequestId({
-                        type: 'error',
-                        content: 'This message can no longer be replaced. Reload the conversation and try again.'
-                    }, run.requestId));
+                    sendReplacementAnchorUnavailable(ws, run.requestId);
                     clearActiveRun(ws, run);
                     return;
                 }
@@ -269,10 +274,7 @@ export function createMessageHandlers(deps) {
                         catalogScope
                     );
                     if (!truncated) {
-                        ws.send(attachRequestId({
-                            type: 'error',
-                            content: 'This message can no longer be replaced. Reload the conversation and try again.'
-                        }, run.requestId));
+                        sendReplacementAnchorUnavailable(ws, run.requestId);
                         clearActiveRun(ws, run);
                         return;
                     }
@@ -325,10 +327,7 @@ export function createMessageHandlers(deps) {
                 if (existing) {
                     conversationId = Number(existing.id);
                 } else if (replaceFromMessageId > 0) {
-                    ws.send(attachRequestId({
-                        type: 'error',
-                        content: 'This message can no longer be replaced. Reload the conversation and try again.'
-                    }, run.requestId));
+                    sendReplacementAnchorUnavailable(ws, run.requestId);
                     clearActiveRun(ws, run);
                     return;
                 } else {
@@ -359,10 +358,7 @@ export function createMessageHandlers(deps) {
                             replaceFromMessageId
                         );
                     if (!truncated) {
-                        ws.send(attachRequestId({
-                            type: 'error',
-                            content: 'This message can no longer be replaced. Reload the conversation and try again.'
-                        }, run.requestId));
+                        sendReplacementAnchorUnavailable(ws, run.requestId);
                         clearActiveRun(ws, run);
                         return;
                     }
@@ -626,18 +622,19 @@ export function createMessageHandlers(deps) {
             };
 
             // Run AI stream
+            const modelHistory = trimHistoryForModel(
+                history,
+                aiConfig.agent?.max_model_history_messages,
+                aiConfig.agent?.max_history_tokens,
+                (stats) => {
+                    metrics.observeBytes('history_context_raw', stats.rawBytes, { provider: aiConfig.provider });
+                    metrics.observeBytes('history_context_model', stats.modelBytes, { provider: aiConfig.provider });
+                }
+            );
             const streamResult = await streamChatResponse(
                 currentUser,
                 wrappedWs,
-                trimHistoryForModel(
-                    history,
-                    aiConfig.agent?.max_model_history_messages,
-                    aiConfig.agent?.max_history_tokens,
-                    (stats) => {
-                        metrics.observeBytes('history_context_raw', stats.rawBytes, { provider: aiConfig.provider });
-                        metrics.observeBytes('history_context_model', stats.modelBytes, { provider: aiConfig.provider });
-                    }
-                ),
+                modelHistory,
                 client.token,
                 aiConfig,
                 {
@@ -666,6 +663,7 @@ export function createMessageHandlers(deps) {
                 requestOrderAddressForm: isOrderAddressChangeRequest(currentUser.text),
                 requestCustomerAddressForm: isCustomerAddressChangeRequest(currentUser.text),
                 conversationId,
+                singleProductAnchor: latestSingleProductAnchor(modelHistory),
                 catalogScope: client.catalogScope || null,
                 sessionCookie: client.sessionCookie || '',
                 requestBrowserCart: (cart) => browserCartBridge.request(ws, {
