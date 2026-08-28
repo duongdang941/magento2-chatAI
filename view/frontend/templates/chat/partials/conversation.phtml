@@ -576,7 +576,7 @@
                                                             </div>
                                                             <div x-html="part.html"></div>
                                                             <div class="afd-ai-chat__product-pagination"
-                                                                 x-show="(part.payload?.pagination?.can_load_more && part.payload?.continuation) || part.payload?.scope?.category_url">
+                                                                 x-show="part.payload?.pagination?.can_load_more && part.payload?.continuation">
                                                                 <div class="afd-ai-chat__product-pagination-actions">
                                                                     <button type="button"
                                                                             class="afd-ai-chat__product-pagination-btn"
@@ -589,14 +589,6 @@
                                                                               x-text="isProductPageLoading(part) ? 'progress_activity' : 'expand_more'"></span>
                                                                         <span x-text="productLoadMoreLabel(part)"></span>
                                                                     </button>
-                                                                    <a class="afd-ai-chat__product-pagination-link"
-                                                                       x-show="part.payload?.scope?.category_url"
-                                                                       :href="part.payload?.scope?.category_url || '#'"
-                                                                        target="_blank"
-                                                                        rel="noopener noreferrer">
-                                                                        <span x-text="t('catalog_view_category')"></span>
-                                                                        <span class="afd-ai-chat__product-pagination-link-icon material-symbols-outlined" aria-hidden="true">open_in_new</span>
-                                                                    </a>
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -679,29 +671,9 @@
                                                 </button>
                                             </div>
                                             <div x-show="shouldShowMessageActions(msg, index)"
-                                                 x-cloak
-                                                 class="afd-ai-chat__msg-meta afd-ai-chat__msg-meta--assistant">
+                                                x-cloak
+                                                class="afd-ai-chat__msg-meta afd-ai-chat__msg-meta--assistant">
                                                 <div class="afd-ai-chat__msg-actions afd-ai-chat__msg-actions--assistant">
-                                                    <button type="button"
-                                                            class="afd-ai-chat__msg-action afd-ai-chat__msg-action--icon afd-ai-chat__msg-action--feedback"
-                                                            :class="{ 'afd-ai-chat__msg-action--active': msg.feedback === 'positive' }"
-                                                            :disabled="msg.feedbackBusy"
-                                                            @click.stop.prevent="setMessageFeedback(index, 'positive')"
-                                                            :aria-pressed="msg.feedback === 'positive'"
-                                                            :aria-label="msg.feedback === 'positive' ? 'Remove helpful rating' : 'Helpful response'"
-                                                            :title="msg.feedback === 'positive' ? 'Remove helpful rating' : 'Helpful response'">
-                                                        <span class="material-symbols-outlined" aria-hidden="true">thumb_up</span>
-                                                    </button>
-                                                    <button type="button"
-                                                            class="afd-ai-chat__msg-action afd-ai-chat__msg-action--icon afd-ai-chat__msg-action--feedback"
-                                                            :class="{ 'afd-ai-chat__msg-action--active': msg.feedback === 'negative' }"
-                                                            :disabled="msg.feedbackBusy"
-                                                            @click.stop.prevent="setMessageFeedback(index, 'negative')"
-                                                            :aria-pressed="msg.feedback === 'negative'"
-                                                            :aria-label="msg.feedback === 'negative' ? 'Remove unhelpful rating' : 'Unhelpful response'"
-                                                            :title="msg.feedback === 'negative' ? 'Remove unhelpful rating' : 'Unhelpful response'">
-                                                        <span class="material-symbols-outlined" aria-hidden="true">thumb_down</span>
-                                                    </button>
                                                     <button type="button"
                                                             class="afd-ai-chat__msg-action afd-ai-chat__msg-action--icon"
                                                             :class="{ 'afd-ai-chat__msg-action--active': copiedMessageIndex === index }"
@@ -725,50 +697,6 @@
                                                       x-text="messageTimeLabel(msg)"></span>
                                                 <span x-show="msg.edited" class="afd-ai-chat__msg-edited">Edited</span>
                                             </div>
-                                            <form x-show="!msg.deleted && msg.feedback === 'negative' && !msg.feedbackDetailsSaved"
-                                                  x-cloak
-                                                  x-transition.opacity.duration.150ms
-                                                  class="afd-ai-chat__feedback-details"
-                                                  @click.outside="dismissMessageFeedback(index)"
-                                                  @submit.prevent="submitMessageFeedbackDetails(index)">
-                                                <div class="afd-ai-chat__feedback-details-heading">
-                                                    <span class="afd-ai-chat__feedback-details-heading-icon material-symbols-outlined"
-                                                          aria-hidden="true">rate_review</span>
-                                                    <span>What went wrong?</span>
-                                                </div>
-                                                <label class="afd-ai-chat__feedback-details-reason">
-                                                    <span class="sr-only">Feedback reason</span>
-                                                    <select x-model="msg.feedbackReason"
-                                                            :disabled="msg.feedbackBusy"
-                                                            aria-label="Feedback reason">
-                                                        <option value="incorrect">Incorrect</option>
-                                                        <option value="irrelevant">Not relevant</option>
-                                                        <option value="outdated">Outdated</option>
-                                                        <option value="tool_failed">Action failed</option>
-                                                        <option value="unsafe">Unsafe</option>
-                                                        <option value="other">Other</option>
-                                                    </select>
-                                                </label>
-                                                <label class="afd-ai-chat__feedback-details-comment">
-                                                    <span class="sr-only">Optional feedback details</span>
-                                                    <input type="text"
-                                                           maxlength="1000"
-                                                           x-model="msg.feedbackComment"
-                                                           :disabled="msg.feedbackBusy"
-                                                           placeholder="Optional details">
-                                                </label>
-                                                <button type="submit"
-                                                        class="afd-ai-chat__feedback-details-submit"
-                                                        :disabled="msg.feedbackBusy"
-                                                        :aria-label="msg.feedbackBusy ? 'Saving feedback' : 'Send feedback'"
-                                                        :title="msg.feedbackBusy ? 'Saving feedback' : 'Send feedback'">
-                                                    <span class="material-symbols-outlined"
-                                                          :class="{ 'afd-ai-chat__feedback-details-spinner': msg.feedbackBusy }"
-                                                          x-text="msg.feedbackBusy ? 'progress_activity' : 'send'"
-                                                          aria-hidden="true"></span>
-                                                    <span class="sr-only" x-text="msg.feedbackBusy ? 'Saving feedback' : 'Send feedback'"></span>
-                                                </button>
-                                            </form>
                                         </div>
                                     </div>
                                 </div>

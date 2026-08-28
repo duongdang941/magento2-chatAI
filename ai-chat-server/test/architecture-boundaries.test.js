@@ -32,6 +32,19 @@ test('production code never logs raw model tool arguments', () => {
     }
 });
 
+test('single-product follow-up is guarded by a structured decision, not a locale matcher', () => {
+    const flow = read('services', 'orchestration', 'provider-neutral-tool-flow.js');
+    const registry = read('services', 'tools', 'tool-registry.js');
+    const guidance = read('services', 'catalog', 'catalog-agent-guidance.js');
+
+    assert.match(registry, /catalogContextDecision:[\s\S]{0,300}follow_up[\s\S]{0,120}new_search[\s\S]{0,120}clarify/);
+    assert.match(flow, /catalog_context_decision_required/);
+    assert.match(flow, /catalog_follow_up_reference_required/);
+    assert.match(guidance, /catalogContextDecision=follow_up/);
+    assert.match(guidance, /catalogContextDecision=new_search/);
+    assert.doesNotMatch(flow, /(?:FOLLOW_UP|CATALOG_CONTEXT)_(?:PRONOUNS?|LOCALES?|LANGUAGES?)\s*=/);
+});
+
 test('customer conversation touch remains bound to the verified owner', () => {
     const service = read('services', 'gateway', 'db-service.js');
     const contract = read('..', 'Api', 'ConversationManagementInterface.php');
@@ -98,6 +111,14 @@ test('storefront work history renders only verified customer action items', () =
     assert.doesNotMatch(template, /isProviderReasoningStep\(event\)/);
     assert.doesNotMatch(template, /renderStreamingMarkdown\(event\.content\)/);
     assert.doesNotMatch(template, /reasoningSteps\(part\)/);
+});
+
+test('product grids expose only pagination, never a category navigation action', () => {
+    const template = read('..', 'view', 'frontend', 'templates', 'chat', 'partials', 'conversation.phtml');
+
+    assert.match(template, /x-show="part\.payload\?\.pagination\?\.can_load_more && part\.payload\?\.continuation"/);
+    assert.doesNotMatch(template, /catalog_view_category/);
+    assert.doesNotMatch(template, /afd-ai-chat__product-pagination-link/);
 });
 
 test('assistant message actions stay hidden until their turn is hovered or focused', () => {

@@ -117,6 +117,7 @@ function reduceCatalog(value) {
             'sku',
             'name',
             'price',
+            'quantity_prices',
             'currency_code',
             'in_stock',
             'salable_qty',

@@ -292,6 +292,40 @@ test('extracts only a validated latest single-product anchor from catalog histor
     assert.equal(multipleProducts, null);
 });
 
+test('derives a private single-product anchor from a persisted product card', () => {
+    const codec = createConversationHistoryCodec({ maxModelHistoryMessages: 16 });
+    const history = [{
+        role: 'assistant',
+        content: 'The current product card is shown above.',
+        parts: [
+            { type: 'text', raw: 'The current product card is shown above.' },
+            {
+                type: 'products',
+                payload: {
+                    items: [{
+                        product_ref: 'product:701',
+                        sku: 'SKU-701',
+                        name: 'Current product',
+                        price: '12.00 EUR',
+                        url: 'https://shop.test/current-product.html'
+                    }]
+                }
+            }
+        ]
+    }];
+
+    assert.deepEqual(codec.latestSingleProductAnchor(history), {
+        productRef: 'product:701',
+        sku: 'SKU-701'
+    });
+
+    const modelHistory = codec.trimHistoryForModel(history, 16, 1024);
+    assert.match(modelHistory[0].parts[0].text, /CATALOG_CONTEXT:v2/);
+    assert.match(modelHistory[0].parts[0].text, /catalogContextDecision/);
+    assert.match(modelHistory[0].parts[0].text, /"sku":"SKU-701"/);
+    assert.doesNotMatch(modelHistory[0].parts[0].text, /12\.00 EUR/);
+});
+
 test('reports history context reduction without changing stored history', () => {
     const codec = createConversationHistoryCodec({ maxModelHistoryMessages: 40 });
     const history = Array.from({ length: 20 }, (_, index) => ({

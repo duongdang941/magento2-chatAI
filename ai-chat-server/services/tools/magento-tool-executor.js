@@ -6,6 +6,7 @@ import { DEFAULT_CATALOG_PAGE_SIZE, MAX_CATALOG_PAGE_SIZE } from '../catalog/cat
 import {
     normalizeAddToCartArguments,
     normalizeAvailabilityArguments,
+    normalizeComparisonArguments,
     normalizeRemoveFromCartArguments,
     normalizeSearchArguments,
     normalizeVariantAttributeDiscoveryArguments
@@ -78,17 +79,42 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
             }
 
             case 'compareProducts': {
+                const comparison = normalizeComparisonArguments(args);
                 const params = {
-                    sku1: String(args.sku1 || '').trim().slice(0, 64),
-                    sku2: String(args.sku2 || '').trim().slice(0, 64),
                     ...catalogScopeRequestParams(catalogScope, customerId)
                 };
-                if (!params.sku1 || !params.sku2) {
-                    return actionRequired('missing_skus', 'Choose two products to compare.');
+                if (comparison.identities.length !== 2) {
+                    return {
+                        status: 'error',
+                        reason: 'comparison_identities_required'
+                    };
                 }
+
+                const resolved = await resolveComparisonIdentities({
+                    identities: comparison.identities,
+                    runtime,
+                    token,
+                    catalogScope,
+                    customerId,
+                    shopperMessage,
+                    magentoBaseUrl: getMagentoUrl()
+                });
+                if (resolved.missingPositions.length > 0) {
+                    return {
+                        data: [{
+                            status: 'NOT_FOUND',
+                            products: resolved.products,
+                            missing_positions: resolved.missingPositions
+                        }]
+                    };
+                }
+
+                params.sku1 = resolved.skus[0];
+                params.sku2 = resolved.skus[1];
                 const url = catalogRestUrl(getMagentoUrl(), 'afd-ai/products/compare', catalogScope);
                 const response = await secureMagentoGet(url, params, magentoOauth);
-                return normalizeMagentoToolResponse(response.data);
+                const content = normalizeMagentoToolResponse(response.data);
+                return appendComparisonResolution(content, resolved.skus);
             }
 
             case 'listCategories': {
@@ -245,6 +271,71 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
             message: 'The store service could not complete this request. Please try again.'
         };
     }
+}
+
+/**
+ * Resolve exactly the two provider-declared identities via the same signed
+ * Magento product-search endpoint that powers normal cards. The values are
+ * never interpreted by Node: a SKU uses Magento equality, while a product
+ * name keeps the existing exact-identity search policy.
+ */
+async function resolveComparisonIdentities({
+    identities = [],
+    runtime = null,
+    token = null,
+    catalogScope = null,
+    customerId = null,
+    shopperMessage = '',
+    magentoBaseUrl = ''
+} = {}) {
+    const products = [];
+    const skus = [];
+    const missingPositions = [];
+    const searchUrl = catalogRestUrl(magentoBaseUrl, 'afd-ai/products/search', catalogScope);
+
+    for (const [index, identity] of identities.entries()) {
+        const params = normalizeSearchArguments({
+            query: identity.value,
+            exactIdentity: true,
+            ...(identity.kind === 'sku' ? { exactSku: true } : {})
+        }, MAX_CATALOG_PAGE_SIZE, DEFAULT_CATALOG_PAGE_SIZE, shopperMessage);
+        Object.assign(params, catalogScopeRequestParams(catalogScope, customerId));
+        const content = await cachedMagentoRead(
+            runtime,
+            'catalog-comparison-identity',
+            { params, token, catalogScope, customerId },
+            60000,
+            async () => {
+                const response = await secureMagentoGet(searchUrl, params, {});
+                return normalizeMagentoToolResponse(response.data);
+            }
+        );
+        const items = Array.isArray(content?.data) ? content.data : [];
+        const product = items.length === 1 && items[0] && typeof items[0] === 'object'
+            ? items[0]
+            : null;
+        const sku = String(product?.sku || '').trim();
+        if (!product || !sku) {
+            missingPositions.push(index + 1);
+            continue;
+        }
+        products.push(product);
+        skus.push(sku);
+    }
+
+    return { products, skus, missingPositions };
+}
+
+function appendComparisonResolution(content, skus = []) {
+    const data = Array.isArray(content?.data) ? content.data : [];
+    return {
+        ...(content && typeof content === 'object' ? content : {}),
+        data: data.map((entry) => (
+            entry && typeof entry === 'object'
+                ? { ...entry, resolved_skus: skus }
+                : entry
+        ))
+    };
 }
 
 async function cachedMagentoRead(runtime, namespace, identity, ttlMs, loader) {

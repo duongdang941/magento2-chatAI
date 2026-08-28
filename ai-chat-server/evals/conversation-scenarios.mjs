@@ -4,10 +4,22 @@ const catalogTopics = [
     { key: 'cap', query: 'mũ', title: 'Kappe', kind: 'simple' },
     { key: 'balloons', query: 'Luftballons', title: 'Luftballons', kind: 'simple' },
     { key: 'mug', query: 'Tasse', title: 'Tasse', kind: 'simple' },
-    { key: 'banner', query: 'Banner', title: 'Banner', kind: 'configurable' },
+    {
+        key: 'banner',
+        query: 'Banner',
+        title: 'Banner',
+        kind: 'configurable',
+        variantFollowUp: 'Nếu còn, kiểm tra giúp mình lựa chọn chiều rộng 85 cm. Nếu còn các tùy chọn khác thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.'
+    },
     { key: 'flag', query: 'Fahne', title: 'Fahne', kind: 'simple' },
     { key: 'hoodie', query: 'Kapuzenpulli', title: 'Kapuzenpulli', kind: 'configurable' },
-    { key: 'flyer', query: 'Faltblatt', title: 'Faltblatt', kind: 'configurable' },
+    {
+        key: 'flyer',
+        query: 'Faltblatt',
+        title: 'Faltblatt',
+        kind: 'configurable',
+        variantFollowUp: 'Nếu còn, kiểm tra giúp mình gói 500 chiếc. Nếu còn các tùy chọn khác thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.'
+    },
     { key: 'sticker', query: 'Aufkleber', title: 'Aufkleber', kind: 'simple' }
 ];
 
@@ -27,7 +39,7 @@ const dialects = [
 export const conversationScenarios = dialects.flatMap((dialect) => catalogTopics.map((topic) => {
     const id = `commerce-${dialect.key}-${topic.key}`;
     const variantFollowUp = topic.kind === 'configurable'
-        ? 'Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.'
+        ? (topic.variantFollowUp || 'Nếu còn, kiểm tra giúp mình size M. Nếu M có nhiều biến thể thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.')
         : 'Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.';
 
     return {

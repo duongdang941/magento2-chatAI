@@ -4,6 +4,7 @@ import {
 } from '../conversation/message-parts.js';
 import { summarizeError } from '../gateway/error-summary.js';
 import { createSmoothChunkEmitter } from '../conversation/smooth-chunk-emitter.js';
+import { createCustomerTurnBuffer } from '../conversation/customer-turn-buffer.js';
 import { logger } from '../logger.js';
 import { emitProductPresentation } from '../catalog/product-presentation.js';
 import {
@@ -18,11 +19,11 @@ import { getProviderCapabilities } from '../providers/provider-capabilities.js';
 import { buildAgentSystemInstruction } from './agent-system-guidance.js';
 import { pageContextInstruction } from '../catalog/page-context.js';
 import {
+    EMPTY_RESPONSE_RECOVERY_INSTRUCTION,
     FINAL_SYNTHESIS_INSTRUCTION,
     isFinalSynthesisTurn
 } from './tool-rounds.js';
 import {
-    buildFallbackMessage,
     createProviderNeutralToolFlow
 } from './provider-neutral-tool-flow.js';
 import {
@@ -137,32 +138,43 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         let lastToolOutcome = null;
         let toolErrorMessage = '';
         let pendingProductPresentation = null;
+        let forceFinalSynthesis = false;
+        let languageRepairAttempts = 0;
+        let emptyResponseRecoveryAttempts = 0;
+        let hasExecutedToolBatch = false;
 
         // Reserve one final, tool-free Gemini request after the last allowed
         // tool batch so the model can produce its customer-facing synthesis.
-        for (let iteration = 0; iteration <= maxToolRounds; iteration += 1) {
+        for (let iteration = 0; iteration <= maxToolRounds + 1; iteration += 1) {
             if (isCancelled()) {
                 return { cancelled: true };
             }
 
-            const finalSynthesisOnly = isFinalSynthesisTurn(iteration, maxToolRounds);
+            const mandatoryAvailabilityPending = toolFlow.shouldForceProductAvailability();
+            const finalSynthesisOnly = !mandatoryAvailabilityPending && (
+                forceFinalSynthesis
+                || isFinalSynthesisTurn(iteration, maxToolRounds)
+            );
             const turnNumber = iteration + 1;
             logger.debug('gemini', `Iteration ${turnNumber}, Turn: ${chatHistory[chatHistory.length - 1].role}`);
 
             // Keep tool-selection policy provider-neutral. Gemini needs its
             // own wire format, but the decision comes from the same shared
             // catalogue policy as OpenAI-compatible providers.
+            const forcedToolName = mandatoryAvailabilityPending
+                ? 'getProductAvailability'
+                : (toolFlow.shouldForceProductSearch() ? 'searchProducts' : '');
             const request = {
                 contents: chatHistory,
                 ...(finalSynthesisOnly ? {
                     toolConfig: {
                         functionCallingConfig: { mode: 'NONE' }
                     }
-                } : toolFlow.shouldForceProductSearch() ? {
+                } : forcedToolName ? {
                     toolConfig: {
                         functionCallingConfig: {
                             mode: 'ANY',
-                            allowedFunctionNames: ['searchProducts']
+                            allowedFunctionNames: [forcedToolName]
                         }
                     }
                 } : {})
@@ -178,6 +190,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 emit: content => ws.send(JSON.stringify({ type: 'chunk', content })),
                 isCancelled
             });
+            const customerTurnBuffer = createCustomerTurnBuffer();
             for await (const chunk of result.stream) {
                 if (isCancelled()) {
                     return { cancelled: true };
@@ -194,8 +207,11 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                                 // represented only by verified tool_activity events.
                                 continue;
                             } else if (part.text) {
-                                smoothEmitter.push(part.text);
-                                hasVisibleText = true;
+                                // A Gemini turn can emit narration before a
+                                // function call. Hold it until the turn is
+                                // known to be final so it can be language
+                                // checked and never flashes then disappears.
+                                customerTurnBuffer.push(part.text);
                             }
 
                         const normalizedPart = normalizeGeminiModelPart(part);
@@ -212,13 +228,6 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 } catch (e) {}
             }
 
-            if (combinedParts.length > 0) {
-                chatHistory.push({
-                    role: 'model',
-                    parts: combinedParts
-                });
-            }
-
             if (isCancelled()) {
                 return { cancelled: true };
             }
@@ -230,8 +239,44 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             }
 
             if (toolCalls.length === 0) {
+                const finalCustomerText = customerTurnBuffer.commit().trim();
+                const languageAssessment = toolFlow.assessFinalResponseLanguage(finalCustomerText);
+                if (finalCustomerText
+                    && !languageAssessment.accepted
+                    && languageRepairAttempts < 1) {
+                    languageRepairAttempts += 1;
+                    forceFinalSynthesis = true;
+                    chatHistory.push({
+                        role: 'user',
+                        parts: [{ text: toolFlow.finalResponseLanguageRepairInstruction(languageAssessment) }]
+                    });
+                    continue;
+                }
+                if (!finalCustomerText && emptyResponseRecoveryAttempts < 1) {
+                    emptyResponseRecoveryAttempts += 1;
+                    // A recovery after tools is synthesis-only, preventing a
+                    // duplicate Magento operation. Before any verified tool
+                    // result exists, the model keeps its normal tool surface.
+                    forceFinalSynthesis = hasExecutedToolBatch;
+                    chatHistory.push({
+                        role: 'user',
+                        parts: [{ text: EMPTY_RESPONSE_RECOVERY_INSTRUCTION }]
+                    });
+                    continue;
+                }
+                if (finalCustomerText) {
+                    smoothEmitter.push(finalCustomerText);
+                    hasVisibleText = true;
+                }
                 await smoothEmitter.drain();
                 break;
+            }
+            customerTurnBuffer.discard();
+            if (combinedParts.length > 0) {
+                chatHistory.push({
+                    role: 'model',
+                    parts: combinedParts
+                });
             }
                 // Gemini can return several function calls in one model turn,
                 // but the customer timeline is deliberately serial.  Starting
@@ -259,6 +304,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 }
 
                 const completedFunctionResponses = execution.responses;
+                hasExecutedToolBatch ||= completedFunctionResponses.length > 0;
                 // Preserve the model's declared order for the provider history
                 // and for choosing the final card, terminal result, or fallback.
                 const toolState = toolFlow.reconcile(completedFunctionResponses);
@@ -289,12 +335,9 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             if (isCancelled()) {
                 return { cancelled: true };
             }
-
-            await emitFinalText(
-                ws,
-                buildFallbackMessage(),
-                isCancelled
-            );
+            toolFlow.completePendingActivity();
+            ws.send(JSON.stringify({ type: 'error', error_code: 'response_empty' }));
+            return { cancelled: false, emptyResponse: true };
         }
 
         if (isCancelled()) {
@@ -422,22 +465,4 @@ function formatGeminiError(error) {
     }
 
     return 'The AI service could not complete this response. Please try again.';
-}
-
-async function emitFinalText(ws, content, isCancelled) {
-    const text = String(content || '');
-    const chunkSize = 72;
-
-    for (let offset = 0; offset < text.length; offset += chunkSize) {
-        if (isCancelled()) return;
-
-        ws.send(JSON.stringify({
-            type: 'chunk',
-            content: text.slice(offset, offset + chunkSize)
-        }));
-
-        if (offset + chunkSize < text.length) {
-            await new Promise((resolve) => setTimeout(resolve, 8));
-        }
-    }
 }

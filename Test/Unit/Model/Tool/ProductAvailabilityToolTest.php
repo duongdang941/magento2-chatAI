@@ -44,6 +44,28 @@ class ProductAvailabilityToolTest extends TestCase
         self::assertFalse($this->labelsMatch('  ', 's'));
     }
 
+    public function testMultiVariantAvailabilityDoesNotExposeChildQuantities(): void
+    {
+        $variants = $this->variantsForResponse([
+            ['sku' => 'PARENT-S', 'availability' => 'in_stock', 'salable_qty' => 12],
+            ['sku' => 'PARENT-M', 'availability' => 'low_stock', 'salable_qty' => 2],
+        ], false);
+
+        self::assertSame([
+            ['sku' => 'PARENT-S', 'availability' => 'in_stock'],
+            ['sku' => 'PARENT-M', 'availability' => 'low_stock'],
+        ], $variants);
+    }
+
+    public function testExactlyMatchedVariantKeepsItsAuthoritativeQuantity(): void
+    {
+        $variants = $this->variantsForResponse([
+            ['sku' => 'PARENT-M', 'availability' => 'in_stock', 'salable_qty' => 12],
+        ], true);
+
+        self::assertSame(12, $variants[0]['salable_qty']);
+    }
+
     private function labelsMatch(string $actual, string $requested): bool
     {
         // labelsMatch is a pure helper; building it without the constructor
@@ -52,5 +74,14 @@ class ProductAvailabilityToolTest extends TestCase
         $method = new ReflectionMethod(ProductAvailabilityTool::class, 'labelsMatch');
 
         return $method->invoke($tool, $actual, $requested);
+    }
+
+    /** @param array<int, array<string, mixed>> $variants */
+    private function variantsForResponse(array $variants, bool $exposesExactVariantQuantity): array
+    {
+        $tool = (new ReflectionClass(ProductAvailabilityTool::class))->newInstanceWithoutConstructor();
+        $method = new ReflectionMethod(ProductAvailabilityTool::class, 'variantsForResponse');
+
+        return $method->invoke($tool, $variants, $exposesExactVariantQuantity);
     }
 }

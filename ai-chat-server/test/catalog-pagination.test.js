@@ -89,12 +89,40 @@ test('keeps similarity-fallback control metadata out of Magento search parameter
     );
 });
 
+test('keeps the gateway-approved whole-store sample flag for Magento', () => {
+    assert.deepEqual(
+        normalizeSearchArguments({ query: '', browseAll: true }),
+        { query: '', browseAll: true, limit: 5, pageSize: 5, page: 1 }
+    );
+});
+
 test('keeps single-product follow-up correlation out of Magento search parameters', () => {
     assert.deepEqual(
         normalizeSearchArguments({
             query: 'N042.A104',
             exactIdentity: true,
+            catalogContextDecision: 'follow_up',
+            catalog_context_decision: 'follow_up',
             followUpProductRef: 'product:986'
+        }),
+        { query: 'N042.A104', exactIdentity: true, limit: 5, pageSize: 5, page: 1 }
+    );
+});
+
+test('preserves only the gateway-created exact-SKU retrieval flag', () => {
+    assert.deepEqual(
+        normalizeSearchArguments({
+            query: 'N042.A104',
+            exactIdentity: true,
+            exactSku: true
+        }),
+        { query: 'N042.A104', exactIdentity: true, exactSku: true, limit: 5, pageSize: 5, page: 1 }
+    );
+    assert.deepEqual(
+        normalizeSearchArguments({
+            query: 'N042.A104',
+            exactIdentity: true,
+            exact_sku: true
         }),
         { query: 'N042.A104', exactIdentity: true, limit: 5, pageSize: 5, page: 1 }
     );
@@ -301,6 +329,47 @@ test('requires non-exhaustive prose when only the first catalogue page is visibl
     assert.match(instruction, /exactly 5 of 8/i);
     assert.match(instruction, /must not imply/i);
     assert.match(instruction, /shopper's response language/i);
+});
+
+test('withholds a raw full-text total that was not verified after storefront filtering', () => {
+    const page = buildCatalogProductsPayload({
+        data: Array.from({ length: 5 }, (_, index) => ({ id: index + 1, sku: `SKU-${index + 1}` })),
+        meta: {
+            pagination: {
+                total: null,
+                total_is_verified: false,
+                page: 1,
+                page_size: 5,
+                returned: 5,
+                has_more: true,
+                next_page: 2
+            }
+        }
+    }, { query: 'AfD', limit: 5 });
+
+    assert.equal(page.payload.total, null);
+    assert.equal(page.payload.pagination.total_is_verified, false);
+    assert.equal(page.payload.coverage.remaining, null);
+    assert.match(catalogCoverageInstruction(page.payload.pagination), /do not state, estimate, or imply a total/i);
+});
+
+test('retains an unfiltered whole-store sample in a signed continuation', () => {
+    const page = buildCatalogProductsPayload({
+        data: [{ id: 1, sku: 'SKU-1' }],
+        meta: {
+            pagination: { total: 2, total_is_verified: true, page: 1, page_size: 1, returned: 1, has_more: true, next_page: 2 },
+            scope: { browse_all: true }
+        }
+    }, { query: '', browseAll: true, limit: 1 });
+
+    assert.equal(page.payload.browse_all, true);
+    assert.deepEqual(verifyCatalogPageToken(page.payload.continuation), {
+        query: '',
+        categoryId: 0,
+        page: 2,
+        pageSize: 1,
+        browseAll: true
+    });
 });
 
 test('normalizes Magento Web API positional metadata into named pagination fields', () => {

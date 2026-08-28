@@ -2,11 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-    inferResponseLanguage,
     normalizeResponseLanguage,
     normalizeResponseLanguageEvidence,
-    responseLanguageInstruction,
-    turnResponseLanguageInstruction
+    responseLanguageInstruction
 } from '../services/conversation/response-language-guidance.js';
 import { buildAgentSystemInstruction } from '../services/orchestration/agent-system-guidance.js';
 
@@ -23,26 +21,14 @@ test('locks customer prose while allowing foreign catalogue names', () => {
     assert.match(instruction, /foreign catalogue names/i);
 });
 
-test('locks a short English greeting even when conversation history uses another language', () => {
-    assert.equal(inferResponseLanguage('hello'), 'en');
-    assert.equal(inferResponseLanguage('Xin chào, bạn giúp tôi nhé'), 'vi');
-    assert.equal(inferResponseLanguage('Bitte hilf mir'), 'de');
+test('leaves response-language selection to the model instead of embedding language words or names', () => {
+    const instruction = buildAgentSystemInstruction({
+        shopperMessage: 'ok hay dung tieng anh de tra loi toi. Cho toi cac san pham Han Jacken'
+    });
 
-    const lock = turnResponseLanguageInstruction('hello');
-    assert.match(lock, /RESPONSE LANGUAGE LOCK FOR THIS TURN: English \(en\)/);
-    assert.match(lock, /Do not add a translation/i);
-    assert.match(buildAgentSystemInstruction({ shopperMessage: 'hello' }), /RESPONSE LANGUAGE LOCK FOR THIS TURN: English \(en\)/);
-});
-
-test('recognizes an explicit Vietnamese-without-diacritics request to answer in English', () => {
-    assert.equal(
-        inferResponseLanguage('ok hay dung tieng anh de tra loi toi. Cho toi cac san pham Han Jacken'),
-        'en'
-    );
-});
-
-test('does not mistake common Spanish accents for Vietnamese', () => {
-    assert.equal(inferResponseLanguage('Muéstrame artículos de esta categoría.'), '');
+    assert.match(instruction, /same language as the shopper's latest message/i);
+    assert.match(instruction, /responseLanguageEvidence/i);
+    assert.doesNotMatch(instruction, /RESPONSE LANGUAGE LOCK FOR THIS TURN/i);
 });
 
 test('prefers verified grammatical evidence over an incorrect model language label', () => {

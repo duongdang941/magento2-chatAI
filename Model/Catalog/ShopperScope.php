@@ -15,7 +15,8 @@ class ShopperScope
         private readonly int $storeId,
         private readonly string $storeCode,
         private readonly int $websiteId,
-        private readonly int $customerGroupId
+        private readonly int $customerGroupId,
+        private readonly string $catalogLanguage = ''
     ) {
     }
 
@@ -37,6 +38,15 @@ class ShopperScope
     public function getCustomerGroupId(): int
     {
         return $this->customerGroupId;
+    }
+
+    /**
+     * Store-view locale language used by catalogue names and category labels.
+     * This is deliberately separate from the shopper's response language.
+     */
+    public function getCatalogLanguage(): string
+    {
+        return $this->catalogLanguage;
     }
 
     /** @return array<string, int|string> */

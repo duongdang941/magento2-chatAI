@@ -9,6 +9,7 @@ import { conversationScenarios } from '../evals/conversation-scenarios.mjs';
 const options = parseArgs(process.argv.slice(2));
 const limit = clampNumber(options.limit, conversationScenarios.length, 1, conversationScenarios.length);
 const concurrency = clampNumber(options.concurrency || process.env.AI_EVAL_CONCURRENCY, 4, 1, 8);
+const turnTimeoutMs = clampNumber(options['turn-timeout-ms'] || process.env.AI_EVAL_TURN_TIMEOUT_MS, 120000, 5000, 120000);
 const storefrontUrl = requiredUrl('AI_EVAL_STOREFRONT_URL', /^https?:\/\//i);
 const wsUrl = requiredUrl('AI_EVAL_WS_URL', /^wss?:\/\//i);
 const reportDirectory = resolve(process.cwd(), 'evals/reports');
@@ -22,7 +23,7 @@ function requiredUrl(name, pattern) {
     return value;
 }
 
-console.log(`Running ${scenarios.length} conversation scenarios with concurrency ${concurrency}.`);
+console.log(`Running ${scenarios.length} conversation scenarios with concurrency ${concurrency} (turn timeout ${turnTimeoutMs}ms).`);
 const results = await runWithConcurrency(scenarios, concurrency, runScenario);
 const completedAt = new Date().toISOString();
 const summary = summarize(results, { completedAt, storefrontUrl, wsUrl });
@@ -82,6 +83,7 @@ async function runScenario(scenario) {
     }
 
     const failedTurns = turns.filter((turn) => !turn.evaluation.passed);
+    console.log(`[${scenario.id}] ${failedTurns.length === 0 ? 'PASS' : 'FAIL'} (${turns.length}/${scenario.turns.length} turns captured)`);
     return {
         id: scenario.id,
         title: scenario.title,
@@ -103,7 +105,20 @@ async function openGatewaySocket() {
         throw new Error('Magento did not issue a WebSocket ticket.');
     }
 
-    const socket = new WebSocket(`${wsUrl}?ticket=${encodeURIComponent(ticketPayload.websocketTicket)}`);
+    // The production reverse-proxy route is mounted at /ai-gateway/ and
+    // intentionally requires the trailing slash.  `requiredUrl()` normalizes
+    // environment values for display, so restore the route slash before
+    // appending the query string.  Without it nginx can answer 502 even though
+    // the exact widget URL (`/ai-gateway/`) is healthy.
+    const socketBaseUrl = wsUrl.endsWith('/') ? wsUrl : `${wsUrl}/`;
+    const socket = new WebSocket(`${socketBaseUrl}?ticket=${encodeURIComponent(ticketPayload.websocketTicket)}`, {
+        // Match the storefront widget's cross-origin handshake.
+        origin: storefrontUrl
+    });
+    // A reverse-proxy 502 can arrive just after auth (or while the next
+    // request is opening). Keep a listener attached so Node does not turn an
+    // expected transport failure into an unhandled process exception.
+    socket.on('error', (error) => { socket.lastTransportError = error; });
     await waitForEvent(socket, (event) => event.type === 'auth', 15000);
     return socket;
 }
@@ -117,7 +132,7 @@ async function runTurn(socket, text, history, requestId) {
         const timeout = setTimeout(() => {
             cleanup();
             reject(new Error(`Timed out waiting for ${requestId}.`));
-        }, 120000);
+        }, turnTimeoutMs);
 
         const onMessage = (raw) => {
             let event;
@@ -144,11 +159,25 @@ async function runTurn(socket, text, history, requestId) {
             }
         };
 
+        const onClose = (code, reason) => {
+            cleanup();
+            reject(new Error(`WebSocket closed before ${requestId} completed (code ${code}${reason ? `: ${reason.toString()}` : ''}).`));
+        };
+
+        const onError = (error) => {
+            cleanup();
+            reject(new Error(`WebSocket error during ${requestId}: ${error?.message || String(error)}.`));
+        };
+
         const cleanup = () => {
             clearTimeout(timeout);
             socket.off('message', onMessage);
+            socket.off('close', onClose);
+            socket.off('error', onError);
         };
         socket.on('message', onMessage);
+        socket.on('close', onClose);
+        socket.on('error', onError);
         socket.send(JSON.stringify({ action: 'chat', request_id: requestId, text, history }));
     });
 

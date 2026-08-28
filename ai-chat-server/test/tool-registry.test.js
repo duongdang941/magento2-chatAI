@@ -33,6 +33,8 @@ test('keeps canonical tool names unique and provider schemas derived from one re
         assert.deepEqual(activity.required, expectedActivityFields);
     }
     const categoryLookup = TOOL_DEFINITIONS.find(definition => definition.name === 'listCategories');
+    assert.match(categoryLookup.description, /finite product sample/i);
+    assert.match(categoryLookup.description, /catalogIntent=store_sample/i);
     assert.deepEqual(categoryLookup.parameters.properties.lookupPurpose.enum, [
         'product_discovery',
         'taxonomy_question'
@@ -42,6 +44,24 @@ test('keeps canonical tool names unique and provider schemas derived from one re
 
     const productSearch = TOOL_DEFINITIONS.find(definition => definition.name === 'searchProducts');
     assert.ok(productSearch.parameters.properties.requiredVariantOptionValues);
+    assert.deepEqual(productSearch.parameters.properties.catalogIdentityKind.enum, [
+        'sku',
+        'product_name',
+        'none'
+    ]);
+    assert.equal(productSearch.parameters.required.includes('catalogIdentityKind'), true);
+    assert.deepEqual(productSearch.parameters.properties.catalogContextDecision.enum, [
+        'follow_up',
+        'new_search',
+        'clarify'
+    ]);
+
+    const comparison = TOOL_DEFINITIONS.find(definition => definition.name === 'compareProducts');
+    assert.equal(comparison.parameters.required.includes('identities'), true);
+    assert.deepEqual(comparison.parameters.properties.identities.items.properties.kind.enum, [
+        'sku',
+        'product_name'
+    ]);
 });
 
 test('marks destructive and verified tools explicitly', () => {

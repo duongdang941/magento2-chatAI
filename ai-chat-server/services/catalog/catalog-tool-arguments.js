@@ -16,10 +16,19 @@ export function normalizeSearchArguments(
     delete normalized.response_language;
     delete normalized.responseLanguageEvidence;
     delete normalized.response_language_evidence;
-    // This is a gateway-only correlation to a structured history anchor. It
-    // must not become a Magento request parameter.
+    // These are gateway-only controls for a structured history anchor. They
+    // must not become Magento request parameters.
+    delete normalized.catalogContextDecision;
+    delete normalized.catalog_context_decision;
     delete normalized.followUpProductRef;
     delete normalized.follow_up_product_ref;
+    delete normalized.catalogIntent;
+    delete normalized.catalog_intent;
+    // The gateway consumes this structured identity metadata before sending a
+    // request to Magento. Magento receives only the verified exact-SKU flag
+    // when the provider declared an explicit SKU lookup.
+    delete normalized.catalogIdentityKind;
+    delete normalized.catalog_identity_kind;
     // Scope belongs to the signed WebSocket ticket. Never let model-provided
     // arguments select another store or customer price group.
     delete normalized.customerGroupId;
@@ -81,6 +90,18 @@ export function normalizeSearchArguments(
     }
     delete normalized.direct_add_only;
 
+    // Whole-store sampling is admitted by the provider-neutral flow only
+    // after its semantic catalog intent has been validated. It remains a
+    // scalar Magento parameter so signed page continuations retain the same
+    // result set without asking the model again.
+    const browseAll = normalized.browseAll ?? normalized.browse_all;
+    if (browseAll === true || ['1', 'true'].includes(String(browseAll).toLowerCase())) {
+        normalized.browseAll = true;
+    } else {
+        delete normalized.browseAll;
+    }
+    delete normalized.browse_all;
+
     const hasExactIdentity = Object.prototype.hasOwnProperty.call(normalized, 'exactIdentity')
         || Object.prototype.hasOwnProperty.call(normalized, 'exact_identity');
     if (hasExactIdentity) {
@@ -91,6 +112,16 @@ export function normalizeSearchArguments(
         delete normalized.exactIdentity;
     }
     delete normalized.exact_identity;
+
+    // exactSku is a gateway-created transport flag, added only after a
+    // verified single-product anchor has been rewritten to its Magento SKU.
+    // It is intentionally not part of the provider tool schema.
+    if (normalized.exactSku === true) {
+        normalized.exactSku = true;
+    } else {
+        delete normalized.exactSku;
+    }
+    delete normalized.exact_sku;
 
     // This flag governs the gateway's fallback policy. Magento receives only
     // concrete filters that it can verify itself.
@@ -160,6 +191,31 @@ export function normalizeVariantAttributeDiscoveryArguments(args = {}) {
     return Number.isFinite(categoryId) && categoryId > 0
         ? { categoryId: Math.trunc(categoryId) }
         : { categoryId: 0 };
+}
+
+/**
+ * Normalize exactly two comparison identities without interpreting their
+ * shopper-language values. The provider declares their semantic kind and the
+ * Magento executor verifies both in the active shopper scope.
+ */
+export function normalizeComparisonArguments(args = {}) {
+    const rawIdentities = Array.isArray(args.identities)
+        ? args.identities
+        : (Array.isArray(args.productIdentities) ? args.productIdentities : []);
+    const identities = rawIdentities
+        .slice(0, 2)
+        .map((identity) => {
+            const kind = String(identity?.kind || '').trim().toLowerCase();
+            const value = String(identity?.value || '').trim();
+            return ['sku', 'product_name'].includes(kind) && value && value.length <= 255
+                ? { kind, value }
+                : null;
+        })
+        .filter(Boolean);
+
+    return identities.length === 2
+        ? { identities }
+        : { identities: [] };
 }
 
 function numericTokenAppearsInMessage(number, message) {

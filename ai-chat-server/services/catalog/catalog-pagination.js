@@ -21,14 +21,19 @@ export function buildCatalogProductsPayload(content = {}, args = {}) {
         .map((item) => Number(item?.id || 0))
         .filter((id) => id > 0);
     pagination.returned = items.length;
-    const scope = normalizeCatalogScope(content.meta?.scope, args.categoryId, args.directAddOnly === true);
+    const scope = normalizeCatalogScope(
+        content.meta?.scope,
+        args.categoryId,
+        args.directAddOnly === true,
+        args.browseAll === true
+    );
     const cardsShownAfterPage = pagination.page * pagination.page_size;
     const canLoadMore = pagination.has_more && cardsShownAfterPage < MAX_CATALOG_CARDS_IN_CHAT;
     const coverage = {
         shown: items.length,
         total: pagination.total,
-        remaining: Math.max(0, pagination.total - items.length),
-        complete: !pagination.has_more && items.length >= pagination.total
+        remaining: pagination.total_is_verified ? Math.max(0, pagination.total - items.length) : null,
+        complete: !pagination.has_more
     };
     const continuation = canLoadMore
         ? createCatalogPageToken({
@@ -40,6 +45,7 @@ export function buildCatalogProductsPayload(content = {}, args = {}) {
             maxPrice: positivePrice(args.maxPrice),
             priceCurrency: normalizePriceCurrency(args.priceCurrency),
             directAddOnly: scope.direct_add_only,
+            browseAll: scope.browse_all,
             requiredVariantAttributeCode: normalizeVariantAttributeCode(args.requiredVariantAttributeCode),
             requiredVariantOptionValues: normalizeVariantOptionValues(args.requiredVariantOptionValues),
             excludedVariantOptionValues: normalizeVariantOptionValues(args.excludedVariantOptionValues)
@@ -73,6 +79,7 @@ export function buildCatalogProductsPayload(content = {}, args = {}) {
             },
             scope,
             direct_add_only: scope.direct_add_only,
+            ...(scope.browse_all ? { browse_all: true } : {}),
             ...(positivePrice(args.minPrice) ? { min_price: positivePrice(args.minPrice) } : {}),
             ...(positivePrice(args.maxPrice) ? { max_price: positivePrice(args.maxPrice) } : {}),
             ...(normalizePriceCurrency(args.priceCurrency) ? { price_currency: normalizePriceCurrency(args.priceCurrency) } : {}),
@@ -113,17 +120,22 @@ export function rehydrateCatalogContinuation(payload = {}) {
         DEFAULT_CATALOG_PAGE_SIZE
     );
     const page = clampInteger(paginationSource.page, 1, 10000, 1);
-    const total = Math.max(
-        items.length,
-        clampInteger(paginationSource.total ?? payload.total, 0, Number.MAX_SAFE_INTEGER, items.length)
-    );
-    const hasMore = paginationSource.has_more === true && total > items.length;
+    const totalIsVerified = paginationSource.total_is_verified !== false;
+    const total = totalIsVerified
+        ? Math.max(
+            items.length,
+            clampInteger(paginationSource.total ?? payload.total, 0, Number.MAX_SAFE_INTEGER, items.length)
+        )
+        : null;
+    const hasMore = paginationSource.has_more === true
+        || (totalIsVerified && (page * pageSize) < total);
     const cardsShownAfterPage = page * pageSize;
     const canLoadMore = hasMore && cardsShownAfterPage < MAX_CATALOG_CARDS_IN_CHAT;
     const scope = normalizeCatalogScope(
         payload.scope,
         Number(payload.scope?.category_id) || 0,
-        payload.direct_add_only === true || payload.scope?.direct_add_only === true
+        payload.direct_add_only === true || payload.scope?.direct_add_only === true,
+        payload.browse_all === true || payload.scope?.browse_all === true
     );
     const continuation = canLoadMore
         ? createCatalogPageToken({
@@ -135,6 +147,7 @@ export function rehydrateCatalogContinuation(payload = {}) {
             maxPrice: positivePrice(payload.max_price ?? payload.maxPrice),
             priceCurrency: normalizePriceCurrency(payload.price_currency ?? payload.priceCurrency),
             directAddOnly: scope.direct_add_only,
+            browseAll: scope.browse_all,
             requiredVariantAttributeCode: normalizeVariantAttributeCode(payload.required_variant_attribute_code),
             requiredVariantOptionValues: normalizeVariantOptionValues(payload.required_variant_option_values),
             excludedVariantOptionValues: normalizeVariantOptionValues(payload.excluded_variant_option_values)
@@ -148,14 +161,15 @@ export function rehydrateCatalogContinuation(payload = {}) {
             ...(payload.coverage && typeof payload.coverage === 'object' ? payload.coverage : {}),
             shown: items.length,
             total,
-            remaining: Math.max(0, total - items.length),
-            complete: !hasMore && items.length >= total
+            remaining: totalIsVerified ? Math.max(0, total - items.length) : null,
+            complete: !hasMore
         },
         pagination: {
             ...paginationSource,
             page,
             page_size: pageSize,
             total,
+            total_is_verified: totalIsVerified,
             returned: items.length,
             has_more: hasMore,
             next_page: hasMore ? page + 1 : null,
@@ -165,6 +179,7 @@ export function rehydrateCatalogContinuation(payload = {}) {
         },
         scope,
         direct_add_only: scope.direct_add_only,
+        ...(scope.browse_all ? { browse_all: true } : {}),
         ...(normalizeVariantAttributeCode(payload.required_variant_attribute_code)
             ? { required_variant_attribute_code: normalizeVariantAttributeCode(payload.required_variant_attribute_code) }
             : {}),
@@ -185,6 +200,7 @@ export function createCatalogPageToken(context = {}) {
     const pageSize = clampInteger(context.pageSize, 1, MAX_CATALOG_PAGE_SIZE, DEFAULT_CATALOG_PAGE_SIZE);
     const categoryId = clampInteger(context.categoryId, 0, Number.MAX_SAFE_INTEGER, 0);
     const directAddOnly = context.directAddOnly === true;
+    const browseAll = context.browseAll === true;
     const minPrice = positivePrice(context.minPrice);
     const maxPrice = positivePrice(context.maxPrice);
     const priceCurrency = normalizePriceCurrency(context.priceCurrency);
@@ -208,7 +224,8 @@ export function createCatalogPageToken(context = {}) {
         ...(requiredVariantAttributeCode && excludedVariantOptionValues.length > 0
             ? { excluded_variant_option_values: excludedVariantOptionValues }
             : {}),
-        ...(directAddOnly ? { direct_add_only: true } : {})
+        ...(directAddOnly ? { direct_add_only: true } : {}),
+        ...(browseAll ? { browse_all: true } : {})
     };
     const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
     const signature = crypto.createHmac('sha256', paginationSecret).update(encoded, 'utf8').digest('base64url');
@@ -258,7 +275,8 @@ export function verifyCatalogPageToken(token) {
                 && normalizeVariantOptionValues(parsed.excluded_variant_option_values).length > 0
                 ? { excludedVariantOptionValues: normalizeVariantOptionValues(parsed.excluded_variant_option_values) }
                 : {}),
-            ...(parsed.direct_add_only === true ? { directAddOnly: true } : {})
+            ...(parsed.direct_add_only === true ? { directAddOnly: true } : {}),
+            ...(parsed.browse_all === true ? { browseAll: true } : {})
         };
     } catch {
         return null;
@@ -275,14 +293,19 @@ function normalizeCatalogPagination(rawPagination, returned, args) {
     );
     const page = clampInteger(source.page ?? args.page, 1, 10000, 1);
     const safeReturned = Math.max(0, Number(returned) || 0);
-    const total = Math.max(
-        safeReturned,
-        clampInteger(source.total, 0, Number.MAX_SAFE_INTEGER, safeReturned)
-    );
-    const hasMore = source.has_more === true || (page * pageSize) < total;
+    const totalIsVerified = source.total_is_verified !== false;
+    const total = totalIsVerified
+        ? Math.max(
+            safeReturned,
+            clampInteger(source.total, 0, Number.MAX_SAFE_INTEGER, safeReturned)
+        )
+        : null;
+    const hasMore = source.has_more === true
+        || (totalIsVerified && (page * pageSize) < total);
 
     return {
         total,
+        total_is_verified: totalIsVerified,
         page,
         page_size: pageSize,
         returned: safeReturned,
@@ -291,7 +314,7 @@ function normalizeCatalogPagination(rawPagination, returned, args) {
     };
 }
 
-function normalizeCatalogScope(rawScope, categoryId, directAddOnly = false) {
+function normalizeCatalogScope(rawScope, categoryId, directAddOnly = false, browseAll = false) {
     const source = rawScope && typeof rawScope === 'object' ? rawScope : {};
     const categoryUrl = String(source.category_url || '').trim();
 
@@ -302,7 +325,8 @@ function normalizeCatalogScope(rawScope, categoryId, directAddOnly = false) {
         includes_descendants: source.includes_descendants === true,
         unavailable_query_match: source.unavailable_query_match === true,
         similarity_fallback: source.similarity_fallback === true,
-        ...(source.direct_add_only === true || directAddOnly ? { direct_add_only: true } : {})
+        ...(source.direct_add_only === true || directAddOnly ? { direct_add_only: true } : {}),
+        ...(source.browse_all === true || browseAll ? { browse_all: true } : {})
     };
 }
 

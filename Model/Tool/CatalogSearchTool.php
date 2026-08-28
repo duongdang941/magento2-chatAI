@@ -8,7 +8,6 @@ use Afd\AI\Api\CatalogVisibilityPolicyInterface;
 use Afd\AI\Model\Catalog\ShopperScope;
 use Afd\AI\Model\Catalog\ShopperScopeResolver;
 use Afd\AI\Model\Catalog\PriceConstraintConverter;
-use Afd\AI\Model\Config\Config;
 use Afd\AI\Model\Data\ToolResponseFactory;
 use Afd\AI\Model\Product\CatalogIdentityMatcher;
 use Afd\AI\Model\Product\DirectAddEligibility;
@@ -17,6 +16,7 @@ use Magento\Catalog\Model\ResourceModel\Category\CollectionFactory as CategoryCo
 use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory as ProductCollectionFactory;
 use Magento\CatalogInventory\Helper\Stock as StockHelper;
 use Magento\Catalog\Pricing\Price\FinalPrice;
+use Magento\Catalog\Pricing\Price\TierPrice;
 use Magento\Framework\Pricing\PriceCurrencyInterface;
 
 /**
@@ -30,6 +30,13 @@ use Magento\Framework\Pricing\PriceCurrencyInterface;
  */
 class CatalogSearchTool
 {
+    /**
+     * Full-text engines report indexed hit totals before Magento's final
+     * storefront filters are applied. For bounded result sets we verify the
+     * total against the same filtered SQL selection that supplies cards.
+     */
+    private const MAX_VERIFIED_FULLTEXT_TOTAL = 250;
+
     public function __construct(
         private readonly PriceCurrencyInterface $priceCurrency,
         private readonly ProductRendererInterface $productRenderer,
@@ -43,8 +50,7 @@ class CatalogSearchTool
         private readonly CatalogIdentityMatcher $catalogIdentityMatcher,
         private readonly ShopperScopeResolver $shopperScopeResolver,
         private readonly CatalogVisibilityPolicyInterface $catalogVisibilityPolicy,
-        private readonly PriceConstraintConverter $priceConstraintConverter,
-        private readonly Config $config
+        private readonly PriceConstraintConverter $priceConstraintConverter
     ) {
     }
 
@@ -64,7 +70,9 @@ class CatalogSearchTool
         float $maxPrice = 0.0,
         string $priceCurrency = '',
         bool $directAddOnly = false,
+        bool $browseAll = false,
         bool $exactIdentity = false,
+        bool $exactSku = false,
         string $excludedTerms = '',
         string $requiredVariantAttributeCode = '',
         string $requiredVariantOptionValues = '',
@@ -78,6 +86,10 @@ class CatalogSearchTool
         $requiredVariantAttributeCode = $this->normalizeVariantAttributeCode($requiredVariantAttributeCode);
         $requiredVariantOptionValues = $this->normalizeVariantOptionValues($requiredVariantOptionValues);
         $excludedVariantOptionValues = $this->normalizeVariantOptionValues($excludedVariantOptionValues);
+        // This transport flag is created by the gateway only after it verifies
+        // a single-product anchor. Never let a generic exact-title request
+        // change retrieval mode merely because it sets exactIdentity.
+        $exactSku = $exactIdentity && $exactSku;
         // Five is the presentation default at the gateway. Magento accepts up
         // to ten for an explicit “show me 10” request, but never an unbounded
         // category dump.
@@ -96,7 +108,7 @@ class CatalogSearchTool
         // A broad, unconstrained product dump is neither useful to the agent
         // nor safe for catalogue cost. The protocol requires listCategories()
         // first, then an explicit categoryId for category browsing.
-        if ($query === '' && $categoryIds === [] && $minPrice <= 0 && $maxPrice <= 0) {
+        if ($query === '' && $categoryIds === [] && $minPrice <= 0 && $maxPrice <= 0 && !$browseAll) {
             return $this->emptyResponse($page, $limit, $shopperScope, $categoryScope, $priceConstraints['meta']);
         }
 
@@ -117,23 +129,67 @@ class CatalogSearchTool
             $requiredVariantAttributeCode,
             $requiredVariantOptionValues,
             $excludedVariantOptionValues,
+            $exactSku,
             $shopperScope
         );
         $collection->setCurPage($page);
         $collection->setPageSize($limit);
-        $totalResults = $this->getCollectionSize($collection);
-        if ($query !== '' && $page === 1 && $totalResults > 0 && $totalResults <= $limit) {
-            // Full-text totals originate in Elasticsearch while the explicit
-            // visibility/stock policy is also applied in SQL. When the whole
-            // result set fits in this one page, count just those already
-            // selected IDs so customer prose and rendered cards cannot diverge
-            // (for example 4 indexed hits but 3 visible products). This never
-            // asks Elasticsearch for more IDs or restarts the search.
-            $totalResults = $this->getLoadedPageFilteredSize($collection);
+        $engineTotal = $this->getCollectionSize($collection);
+        $totalResults = $engineTotal;
+        $totalVerified = true;
+        if ($query !== '' && !$exactSku) {
+            if ($engineTotal <= self::MAX_VERIFIED_FULLTEXT_TOTAL) {
+                $totalResults = $this->getVerifiedFulltextTotal(
+                    $query,
+                    $categoryIds,
+                    $minPrice,
+                    $maxPrice,
+                    $directAddOnly,
+                    $excludedNameTerms,
+                    $requiredVariantAttributeCode,
+                    $requiredVariantOptionValues,
+                    $excludedVariantOptionValues,
+                    $shopperScope,
+                    $engineTotal
+                );
+            } else {
+                // Preserve raw engine pagination so a continuation cannot
+                // skip later pages, but never expose that pre-filter count as
+                // a shopper-facing total.
+                $totalVerified = false;
+            }
         }
 
         [$resultData, $productIds] = $this->collectProductResults($collection, $shopperScope);
-        if ($exactIdentity) {
+
+        // A full-text index can be stale while Magento's canonical catalogue
+        // data is already current (for example immediately after a product or
+        // option save). When the agent has supplied both a verified category
+        // and a verified variant constraint, compare the page against a
+        // bounded EAV/category query. This is deliberately not a broad
+        // fallback: the product-family text and the same storefront filters
+        // must still match, so unrelated products cannot enter the grid.
+        $categoryFallback = $this->findCategoryVariantQueryFallback(
+            $query,
+            $categoryIds,
+            $minPrice,
+            $maxPrice,
+            $directAddOnly,
+            $excludedNameTerms,
+            $requiredVariantAttributeCode,
+            $requiredVariantOptionValues,
+            $excludedVariantOptionValues,
+            $shopperScope,
+            $page,
+            $limit,
+            $totalResults
+        );
+        if ($categoryFallback !== null) {
+            [$resultData, $productIds, $totalResults, $engineTotal] = $categoryFallback;
+            $totalVerified = true;
+        }
+
+        if ($exactIdentity && !$exactSku) {
             [$resultData, $productIds] = $this->filterPresentedIdentityMatches(
                 $query,
                 $resultData,
@@ -141,9 +197,15 @@ class CatalogSearchTool
             );
             if ($resultData !== []) {
                 $totalResults = count($resultData);
+                $totalVerified = true;
             }
         }
-        $activeIdentityDistance = $this->bestPresentedProductIdentityDistance($query, $resultData);
+        // SKU equality is the exact-identity proof for an anchored follow-up;
+        // matching the SKU against a product name would incorrectly discard
+        // the card after the direct collection has found it.
+        $activeIdentityDistance = $exactSku && $resultData !== []
+            ? 0
+            : $this->bestPresentedProductIdentityDistance($query, $resultData);
         // Fulltext engines commonly return no row for a one-character typo.
         // The bounded identity fallback is safe for genuine relevance-empty
         // page-1 searches without SQL-level catalogue constraints: its matcher
@@ -153,7 +215,7 @@ class CatalogSearchTool
         // must never replace an honest empty result for a constrained or
         // paginated request; otherwise cards could violate the very
         // constraints that meta still claims were applied.
-        $identityFallbackAllowed = $this->shouldAttemptIdentityFallback($query, $exactIdentity)
+        $identityFallbackAllowed = $this->shouldAttemptIdentityFallback($query, $exactIdentity, $exactSku)
             && $categoryIds === []
             && $minPrice <= 0.0
             && $maxPrice <= 0.0
@@ -172,6 +234,7 @@ class CatalogSearchTool
             );
             if ($resultData !== []) {
                 $totalResults = count($resultData);
+                $totalVerified = true;
             }
             $activeIdentityDistance = $this->bestPresentedProductIdentityDistance($query, $resultData);
         }
@@ -188,6 +251,7 @@ class CatalogSearchTool
             $resultData = [];
             $productIds = [];
             $totalResults = 0;
+            $totalVerified = true;
         }
         $html = $productIds !== []
             ? $this->productRenderer->renderProducts(
@@ -202,20 +266,31 @@ class CatalogSearchTool
         $response->setHtml($html);
         $response->setMeta([
             'pagination' => [
-                'total' => $totalResults,
+                'total' => $totalVerified ? $totalResults : null,
+                'total_is_verified' => $totalVerified,
                 'page' => $page,
                 'page_size' => $limit,
                 'returned' => count($resultData),
-                'has_more' => ($page * $limit) < $totalResults,
-                'next_page' => ($page * $limit) < $totalResults ? $page + 1 : null,
+                // Once the canonical category fallback has verified the
+                // visible total, use that same total for pagination. The raw
+                // full-text window may contain stale IDs and must not create
+                // a phantom "load more" page after the complete result set
+                // has already been rendered.
+                'has_more' => ($page * $limit) < ($totalVerified ? $totalResults : $engineTotal),
+                'next_page' => ($page * $limit) < ($totalVerified ? $totalResults : $engineTotal)
+                    ? $page + 1
+                    : null,
             ],
             'scope' => [
                 ...$shopperScope->toArray(),
+                'catalog_language' => $shopperScope->getCatalogLanguage(),
                 ...$categoryScope,
                 'category_id' => $categoryId > 0 ? $categoryId : null,
                 'includes_descendants' => $categoryId > 0,
                 'direct_add_only' => $directAddOnly,
+                'browse_all' => $browseAll,
                 'exact_identity' => $exactIdentity,
+                'exact_sku_lookup' => $exactSku,
                 'exact_query_match' => $exactIdentity && $activeIdentityDistance !== null,
                 'exact_query_miss' => $exactQueryMiss,
                 'excluded_terms' => $excludedNameTerms,
@@ -244,13 +319,18 @@ class CatalogSearchTool
         $response->setMeta([
             'pagination' => [
                 'total' => 0,
+                'total_is_verified' => true,
                 'page' => $page,
                 'page_size' => $limit,
                 'returned' => 0,
                 'has_more' => false,
                 'next_page' => null,
             ],
-            'scope' => [...$shopperScope->toArray(), ...$categoryScope],
+            'scope' => [
+                ...$shopperScope->toArray(),
+                'catalog_language' => $shopperScope->getCatalogLanguage(),
+                ...$categoryScope,
+            ],
             'currency' => $currencyMeta,
         ]);
 
@@ -273,15 +353,18 @@ class CatalogSearchTool
         string $requiredVariantAttributeCode,
         array $requiredVariantOptionValues,
         array $excludedVariantOptionValues,
+        bool $exactSku,
         ShopperScope $shopperScope
     ) {
         // A non-empty query remains a hard product-type constraint even after
         // the agent narrows retrieval to a verified category. Using a plain
         // category collection here used to discard the query and could turn a
         // request for one product type into an unrelated category dump.
-        $collection = $query !== ''
-            ? $this->createSearchProductCollection($query, $shopperScope)
-            : $this->createCategoryProductCollection($shopperScope);
+        $collection = $exactSku
+            ? $this->createExactSkuProductCollection($query, $shopperScope)
+            : ($query !== ''
+                ? $this->createSearchProductCollection($query, $shopperScope)
+                : $this->createCategoryProductCollection($shopperScope));
 
         if ($categoryIds !== []) {
             $collection->addCategoriesFilter(['in' => $categoryIds]);
@@ -321,12 +404,58 @@ class CatalogSearchTool
     }
 
     /**
-     * Count only the ID selection that the loaded full-text page already owns.
+     * Count the result IDs which are both returned by the full-text engine and
+     * still eligible for a storefront card after Magento's SQL filters.
      *
-     * This is intentionally used only when the engine total fits into the
-     * first page; using it for a broad query would reintroduce the expensive
-     * full-result count that this tool avoids.
+     * The bounded input prevents a broad catalogue search from requesting an
+     * unbounded Elasticsearch result window merely to decorate a chat reply
+     * with a number.
+     *
+     * @param int[] $categoryIds
+     * @param string[] $excludedNameTerms
+     * @param string[] $requiredVariantOptionValues
+     * @param string[] $excludedVariantOptionValues
      */
+    private function getVerifiedFulltextTotal(
+        string $query,
+        array $categoryIds,
+        float $minPrice,
+        float $maxPrice,
+        bool $directAddOnly,
+        array $excludedNameTerms,
+        string $requiredVariantAttributeCode,
+        array $requiredVariantOptionValues,
+        array $excludedVariantOptionValues,
+        ShopperScope $shopperScope,
+        int $engineTotal
+    ): int {
+        if ($engineTotal < 1) {
+            return 0;
+        }
+
+        $countCollection = $this->createFilteredProductCollection(
+            $query,
+            $categoryIds,
+            $minPrice,
+            $maxPrice,
+            $directAddOnly,
+            $excludedNameTerms,
+            $requiredVariantAttributeCode,
+            $requiredVariantOptionValues,
+            $excludedVariantOptionValues,
+            false,
+            $shopperScope
+        );
+        $countCollection->setCurPage(1);
+        $countCollection->setPageSize($engineTotal);
+        // Populate the full-text result window before counting the filtered
+        // SQL selection. getSize() itself would return the raw index total.
+        $this->getCollectionSize($countCollection);
+
+        return $this->getLoadedPageFilteredSize($countCollection);
+    }
+
+    /** Count the ID selection that the loaded full-text page currently owns. */
     private function getLoadedPageFilteredSize($collection): int
     {
         return (int)$collection->getConnection()->fetchOne(
@@ -354,8 +483,118 @@ class CatalogSearchTool
         return $collection;
     }
 
+    /**
+     * Recover products omitted by a stale full-text index without weakening a
+     * structured catalogue request. The fallback is limited to a verified
+     * category plus variant attribute and only replaces the engine result if
+     * the canonical EAV query proves that more eligible products exist.
+     *
+     * @param int[] $categoryIds
+     * @param string[] $excludedNameTerms
+     * @param string[] $requiredVariantOptionValues
+     * @param string[] $excludedVariantOptionValues
+     * @return array{0: array<int, array<string, mixed>>, 1: int[], 2: int, 3: int}|null
+     */
+    private function findCategoryVariantQueryFallback(
+        string $query,
+        array $categoryIds,
+        float $minPrice,
+        float $maxPrice,
+        bool $directAddOnly,
+        array $excludedNameTerms,
+        string $requiredVariantAttributeCode,
+        array $requiredVariantOptionValues,
+        array $excludedVariantOptionValues,
+        ShopperScope $shopperScope,
+        int $page,
+        int $limit,
+        int $currentTotal
+    ): ?array {
+        if ($query === ''
+            || $categoryIds === []
+            || $requiredVariantAttributeCode === ''
+            || $page < 1
+        ) {
+            return null;
+        }
+
+        $collection = $this->createCategoryProductCollection($shopperScope);
+        $collection->addCategoriesFilter(['in' => $categoryIds]);
+        $this->applyAvailabilityAndPriceFilters($collection, $minPrice, $maxPrice);
+        $this->applyExcludedNameTerms($collection, $excludedNameTerms);
+        if ($directAddOnly) {
+            $this->applyDirectAddOnlyFilter($collection);
+        }
+        $this->applyVariantAttributeRequirementFilter(
+            $collection,
+            $requiredVariantAttributeCode,
+            $requiredVariantOptionValues,
+            $excludedVariantOptionValues,
+            $shopperScope
+        );
+        $this->applyCategoryQueryTextFilter($collection, $query);
+
+        // Magento's Theme collection plugin normalizes an out-of-range page
+        // back to page 1 when getCurPage() is read. Count from page 1 first,
+        // validate the requested page explicitly, then load that page so a
+        // stale continuation can never receive a duplicate first page.
+        $collection->setCurPage(1);
+        $collection->setPageSize($limit);
+        $fallbackTotal = $this->getCollectionSize($collection);
+        $lastPage = max(1, (int)ceil($fallbackTotal / $limit));
+        if ($page > $lastPage) {
+            return null;
+        }
+        $collection->setCurPage($page);
+        [$fallbackData, $fallbackIds] = $this->collectProductResults($collection, $shopperScope);
+
+        // A stale search window can report the same total while returning a
+        // different or short page. Prefer the canonical page in that case as
+        // well as when it proves a larger result set; otherwise a missing card
+        // or duplicate continuation would remain visible until reindexing.
+        if ($fallbackTotal < $currentTotal
+            || ($fallbackTotal === $currentTotal && $fallbackData === [])
+        ) {
+            return null;
+        }
+
+        return [$fallbackData, $fallbackIds, $fallbackTotal, $fallbackTotal];
+    }
+
+    /**
+     * Apply a language-neutral product-family check to the canonical category
+     * collection. The raw phrase is kept intact so punctuation and catalogue
+     * spelling are not replaced by a hard-coded language parser.
+     */
+    private function applyCategoryQueryTextFilter($collection, string $query): void
+    {
+        $pattern = '%' . trim($query) . '%';
+        $collection->addAttributeToFilter([
+            ['attribute' => 'name', 'like' => $pattern],
+            ['attribute' => 'sku', 'like' => $pattern],
+        ]);
+    }
+
+    /**
+     * A verified follow-up receives an opaque history reference which the
+     * gateway resolves to this exact Magento SKU. Full-text engines are not
+     * authoritative for SKU lookup (and may not index an SKU at all), so use
+     * the regular product collection while retaining the normal storefront
+     * visibility, permission, stock and price policies.
+     */
+    private function createExactSkuProductCollection(string $sku, ShopperScope $shopperScope)
+    {
+        $collection = $this->createCategoryProductCollection($shopperScope);
+        $collection->addAttributeToFilter('sku', ['eq' => $sku]);
+
+        return $collection;
+    }
+
     private function configureProductCollection($collection, ShopperScope $shopperScope): void
     {
+        // CatalogVisibilityPolicy is the sole eligibility authority. Do not
+        // add type, name, SKU or URL-key exclusions here: any product Magento
+        // permits this shopper to see must remain countable by the assistant.
         $this->catalogVisibilityPolicy->applyToProductCollection($collection, $shopperScope);
         $collection->addAttributeToSelect([
             'name',
@@ -371,11 +610,7 @@ class CatalogSearchTool
             'type_id',
             'required_options',
         ]);
-        $collection->addAttributeToFilter('type_id', [
-            'in' => ['simple', 'configurable'],
-        ]);
         $collection->addUrlRewrite();
-        $this->applyInternalProductFilters($collection);
     }
 
     private function applyAvailabilityAndPriceFilters($collection, float $minPrice, float $maxPrice): void
@@ -488,19 +723,33 @@ class CatalogSearchTool
         $resultData = [];
         $productIds = [];
 
+        // Load all applicable tiers in one query for this page.  Calling
+        // getTierPriceList() without this collection-level preload turns a
+        // five-card chat response into an N+1 tier-price lookup and makes the
+        // catalogue answer slower than Magento's own product view.
+        if (is_object($collection) && method_exists($collection, 'addTierPriceDataByGroupId')) {
+            $collection->addTierPriceDataByGroupId($shopperScope->getCustomerGroupId());
+        }
+
         foreach ($collection as $product) {
-            if (!$this->canPresentProduct($product)) {
+            if (!$product) {
                 continue;
             }
 
             $product->setCustomerGroupId($shopperScope->getCustomerGroupId());
             $quantityPolicy = $this->saleQuantityPolicy->getPolicy($product);
+            $displayFinalPrice = $this->getDisplayFinalPrice($product);
             $resultData[] = [
                 'id' => (int)$product->getId(),
                 'product_ref' => 'product:' . (int)$product->getId(),
                 'sku' => (string)$product->getSku(),
                 'name' => (string)$product->getName(),
-                'price' => $this->priceCurrency->format($this->getDisplayFinalPrice($product), false),
+                'price' => $this->priceCurrency->format($displayFinalPrice, false),
+                // This is Magento's customer-group and store-aware price
+                // ladder.  Include the normal one-unit price so the model can
+                // answer both "one item" and quantity-threshold questions
+                // from one verified product payload.
+                'quantity_prices' => $this->getQuantityPrices($product, $displayFinalPrice),
                 'url' => (string)$product->getProductUrl(),
                 'product_type' => (string)$product->getTypeId(),
                 'direct_addable' => $this->directAddEligibility->canAddToCartDirectly($product),
@@ -518,6 +767,58 @@ class CatalogSearchTool
         }
 
         return [$resultData, $productIds];
+    }
+
+    /**
+     * Return the exact active per-unit price for each quantity threshold.
+     *
+     * TierPrice::getTierPriceList() is the same price-info source Magento's
+     * product-view JSON configuration uses.  It already removes non-applicable
+     * customer groups, redundant tiers and tiers that are not better than the
+     * normal final price.
+     *
+     * @return array<int, array{minimum_qty: float, price: string}>
+     */
+    private function getQuantityPrices($product, float $displayFinalPrice): array
+    {
+        $prices = [[
+            'minimum_qty' => 1.0,
+            'price' => $this->priceCurrency->format($displayFinalPrice, false),
+        ]];
+
+        try {
+            $tierPriceList = $product->getPriceInfo()
+                ->getPrice(TierPrice::PRICE_CODE)
+                ->getTierPriceList();
+        } catch (\Throwable) {
+            // The normal product price remains authoritative even when an
+            // extension supplies an incompatible tier-price implementation.
+            return $prices;
+        }
+
+        foreach (is_array($tierPriceList) ? $tierPriceList : [] as $tierPrice) {
+            if (!is_array($tierPrice)) {
+                continue;
+            }
+
+            $minimumQty = (float)($tierPrice['price_qty'] ?? 0);
+            $amount = $tierPrice['price'] ?? null;
+            $value = is_object($amount) && method_exists($amount, 'getValue')
+                ? $amount->getValue()
+                : $amount;
+            if ($minimumQty <= 1.0 || !is_numeric($value)) {
+                continue;
+            }
+
+            $prices[(string)$minimumQty] = [
+                'minimum_qty' => $minimumQty,
+                'price' => $this->priceCurrency->format((float)$value, false),
+            ];
+        }
+
+        usort($prices, static fn (array $left, array $right): int => $left['minimum_qty'] <=> $right['minimum_qty']);
+
+        return array_values($prices);
     }
 
     /**
@@ -673,12 +974,6 @@ class CatalogSearchTool
         $collection->getSelect()->where('(' . $variantMatch . ' OR ' . $nameMatch . ')', $attributeCode);
     }
 
-    private function canPresentProduct($product): bool
-    {
-        return $product
-            && in_array($product->getTypeId(), ['simple', 'configurable'], true);
-    }
-
     /**
      * A full-text miss for a generic product family is not evidence of a
      * misspelled product identity. Running LIKE '%abc%' fallbacks for every
@@ -687,8 +982,13 @@ class CatalogSearchTool
      * multiple meaningful identity terms, or one distinctive long term. This
      * is deliberately language-neutral and depends only on token structure.
      */
-    private function shouldAttemptIdentityFallback(string $query, bool $exactIdentity): bool
+    private function shouldAttemptIdentityFallback(string $query, bool $exactIdentity, bool $exactSku = false): bool
     {
+        // A verified SKU lookup is terminal. A miss can mean unavailable,
+        // hidden or deleted, but must never turn into a fuzzy product search.
+        if ($exactSku) {
+            return false;
+        }
         if ($exactIdentity) {
             return true;
         }
@@ -869,18 +1169,6 @@ class CatalogSearchTool
             'category_name' => (string)$category->getName(),
             'category_url' => (string)$category->getUrl(),
         ];
-    }
-
-    private function applyInternalProductFilters($collection): void
-    {
-        foreach ($this->config->getCatalogExcludedNameTerms() as $term) {
-            $collection->addAttributeToFilter('name', ['nlike' => '%' . $term . '%']);
-        }
-
-        foreach ($this->config->getCatalogExcludedKeyPrefixes() as $prefix) {
-            $collection->addFieldToFilter('sku', ['nlike' => $prefix . '%']);
-            $collection->addAttributeToFilter('url_key', ['nlike' => $prefix . '%']);
-        }
     }
 
     /** @param array<int, int> $categoryIds */

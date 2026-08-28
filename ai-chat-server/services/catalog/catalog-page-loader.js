@@ -24,6 +24,7 @@ export async function loadCatalogPage(context, aiConfig, runtime = null) {
         maxPrice: context.maxPrice,
         priceCurrency: context.priceCurrency,
         directAddOnly: context.directAddOnly === true,
+        browseAll: context.browseAll === true,
         requiredVariantAttributeCode: context.requiredVariantAttributeCode,
         requiredVariantOptionValues: context.requiredVariantOptionValues,
         excludedVariantOptionValues: context.excludedVariantOptionValues

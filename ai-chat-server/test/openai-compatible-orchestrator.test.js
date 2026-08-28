@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-    buildFallbackMessage,
     formatProviderError,
     isBlockingToolFailure,
     isRetryableProviderError,
@@ -182,7 +181,6 @@ test('does not abort normal chat when native Web Search is unavailable', () => {
     assert.equal(isBlockingToolFailure({ status: 'error', message: 'Provider failed' }), true);
     assert.equal(isBlockingToolFailure({ error: 'Network failed' }), true);
 
-    assert.match(buildFallbackMessage(), /AI response could not be completed/i);
 });
 
 test('configures a custom OpenAI-compatible endpoint without built-in defaults', () => {
@@ -321,6 +319,362 @@ test('custom OpenAI-compatible provider streams chunks and terminates with a don
         assert.equal(done.provider_meta?.finish_reason, 'stop');
         assert.equal(done.provider_meta?.provider, 'deepseek');
         assert.equal(done.provider_meta?.model, 'deepseek-chat');
+    } finally {
+        server.closeAllConnections?.();
+        await new Promise((resolve) => server.close(resolve));
+    }
+});
+
+test('retries one final synthesis when a provider sends high-confidence prose in the wrong declared language', async () => {
+    const http = await import('node:http');
+    const activityPresentation = {
+        language: 'vi',
+        runningLabel: 'Đang tìm sản phẩm {scope}',
+        completedLabel: 'Đã tìm xong sản phẩm {scope}',
+        failedLabel: 'Không thể tìm sản phẩm {scope}',
+        runningSummary: 'Đang xử lý trong {duration}',
+        completedSummary: 'Đã xử lý trong {duration}',
+        searchScope: 'trong toàn bộ cửa hàng'
+    };
+    const toolArguments = JSON.stringify({
+        query: 'áo',
+        catalogIntent: 'product_search',
+        exactIdentity: false,
+        responseLanguage: 'vi',
+        responseLanguageEvidence: ['Tôi', 'cần', 'áo'],
+        activityPresentation
+    });
+    const providerReplies = [
+        [
+            `data: ${JSON.stringify({
+                choices: [{
+                    index: 0,
+                    delta: {
+                        tool_calls: [{
+                            index: 0,
+                            id: 'search-1',
+                            type: 'function',
+                            function: { name: 'searchProducts', arguments: toolArguments }
+                        }]
+                    },
+                    finish_reason: 'tool_calls'
+                }]
+            })}\n\n`,
+            'data: [DONE]\n\n'
+        ].join(''),
+        [
+            `data: ${JSON.stringify({
+                choices: [{
+                    index: 0,
+                    delta: { content: 'Il modello ha trovato il prodotto richiesto e la disponibilità è stata verificata correttamente per il cliente.' },
+                    finish_reason: 'stop'
+                }]
+            })}\n\n`,
+            'data: [DONE]\n\n'
+        ].join(''),
+        [
+            `data: ${JSON.stringify({
+                choices: [{
+                    index: 0,
+                    delta: { content: 'Em đã tìm thấy sản phẩm theo yêu cầu. Thông tin hiển thị bên dưới được lấy từ dữ liệu cửa hàng hiện tại.' },
+                    finish_reason: 'stop'
+                }]
+            })}\n\n`,
+            'data: [DONE]\n\n'
+        ].join('')
+    ];
+    const requests = [];
+    const server = http.createServer(async (request, response) => {
+        let body = '';
+        for await (const chunk of request) body += chunk;
+        requests.push(JSON.parse(body));
+        response.writeHead(200, { 'Content-Type': 'text/event-stream', Connection: 'close' });
+        response.end(providerReplies[requests.length - 1]);
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const baseUrl = `http://127.0.0.1:${server.address().port}/v1`;
+    const frames = [];
+    const ws = { send: (frame) => frames.push(JSON.parse(frame)) };
+
+    try {
+        const result = await streamChatResponse(
+            { text: 'Tôi cần áo', parts: [] },
+            ws,
+            [],
+            null,
+            {
+                provider: 'custom',
+                name: 'Custom',
+                base_url: baseUrl,
+                api_key: 'test-key',
+                model: 'test-model',
+                api_format: 'openai-chat-completions'
+            },
+            {
+                executeMagentoTool: async () => ({
+                    data: [{ id: 7, product_ref: 'product:7', sku: 'SHIRT-7', name: 'T-Shirt' }],
+                    html: '<div class="product-card">T-Shirt</div>',
+                    meta: { pagination: { total: 1, page: 1, page_size: 5, returned: 1, has_more: false } }
+                })
+            }
+        );
+
+        assert.equal(result.cancelled, false);
+        assert.equal(requests.length, 3);
+        assert.equal(Object.hasOwn(requests[2], 'tools'), false);
+        const visibleText = frames
+            .filter((frame) => frame.type === 'chunk')
+            .map((frame) => frame.content)
+            .join('');
+        assert.match(visibleText, /Em đã tìm thấy sản phẩm/);
+        assert.doesNotMatch(visibleText, /Il modello/);
+        assert.equal(frames.some((frame) => frame.type === 'error'), false);
+        assert.equal(frames.some((frame) => frame.type === 'done'), true);
+    } finally {
+        server.closeAllConnections?.();
+        await new Promise((resolve) => server.close(resolve));
+    }
+});
+
+test('retries one empty provider turn with a tool-free synthesis after verified retrieval', async () => {
+    const http = await import('node:http');
+    const activityPresentation = {
+        language: 'vi',
+        runningLabel: 'Đang tìm sản phẩm {scope}',
+        completedLabel: 'Đã tìm xong sản phẩm {scope}',
+        failedLabel: 'Không thể tìm sản phẩm {scope}',
+        runningSummary: 'Đang xử lý trong {duration}',
+        completedSummary: 'Đã xử lý trong {duration}',
+        searchScope: 'trong toàn bộ cửa hàng'
+    };
+    const toolArguments = JSON.stringify({
+        query: 'áo',
+        catalogIntent: 'product_search',
+        exactIdentity: false,
+        responseLanguage: 'vi',
+        responseLanguageEvidence: ['Tôi', 'cần', 'áo'],
+        activityPresentation
+    });
+    const providerReplies = [
+        [
+            `data: ${JSON.stringify({
+                choices: [{
+                    index: 0,
+                    delta: {
+                        tool_calls: [{
+                            index: 0,
+                            id: 'search-1',
+                            type: 'function',
+                            function: { name: 'searchProducts', arguments: toolArguments }
+                        }]
+                    },
+                    finish_reason: 'tool_calls'
+                }]
+            })}\n\n`,
+            'data: [DONE]\n\n'
+        ].join(''),
+        'data: [DONE]\n\n',
+        [
+            `data: ${JSON.stringify({
+                choices: [{
+                    index: 0,
+                    delta: { content: 'Em đã tìm thấy sản phẩm theo yêu cầu và hiển thị kết quả bên dưới.' },
+                    finish_reason: 'stop'
+                }]
+            })}\n\n`,
+            'data: [DONE]\n\n'
+        ].join('')
+    ];
+    const requests = [];
+    const server = http.createServer(async (request, response) => {
+        let body = '';
+        for await (const chunk of request) body += chunk;
+        requests.push(JSON.parse(body));
+        response.writeHead(200, { 'Content-Type': 'text/event-stream', Connection: 'close' });
+        response.end(providerReplies[requests.length - 1]);
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const baseUrl = `http://127.0.0.1:${server.address().port}/v1`;
+    const frames = [];
+    const ws = { send: (frame) => frames.push(JSON.parse(frame)) };
+
+    try {
+        const result = await streamChatResponse(
+            { text: 'Tôi cần áo', parts: [] },
+            ws,
+            [],
+            null,
+            {
+                provider: 'custom',
+                name: 'Custom',
+                base_url: baseUrl,
+                api_key: 'test-key',
+                model: 'test-model',
+                api_format: 'openai-chat-completions'
+            },
+            {
+                executeMagentoTool: async () => ({
+                    data: [{ id: 7, product_ref: 'product:7', sku: 'SHIRT-7', name: 'T-Shirt' }],
+                    html: '<div class="product-card">T-Shirt</div>',
+                    meta: { pagination: { total: 1, page: 1, page_size: 5, returned: 1, has_more: false } }
+                })
+            }
+        );
+
+        assert.equal(result.cancelled, false);
+        assert.equal(requests.length, 3);
+        assert.equal(Object.hasOwn(requests[2], 'tools'), false);
+        assert.match(
+            frames.filter((frame) => frame.type === 'chunk').map((frame) => frame.content).join(''),
+            /Em đã tìm thấy sản phẩm/
+        );
+        assert.equal(frames.some((frame) => frame.type === 'error'), false);
+        assert.equal(frames.some((frame) => frame.type === 'done'), true);
+    } finally {
+        server.closeAllConnections?.();
+        await new Promise((resolve) => server.close(resolve));
+    }
+});
+
+test('runs the mandatory configurable availability read after the final normal tool round, then synthesizes', async () => {
+    const http = await import('node:http');
+    const activityPresentation = {
+        language: 'en',
+        runningLabel: 'Checking product {scope}',
+        completedLabel: 'Checked product {scope}',
+        failedLabel: 'Could not check product {scope}',
+        runningSummary: 'Working for {duration}',
+        completedSummary: 'Worked for {duration}',
+        searchScope: 'in the store'
+    };
+    const searchArguments = JSON.stringify({
+        query: 'T-Shirt "2. Wahl"',
+        catalogIntent: 'product_search',
+        exactIdentity: false,
+        responseLanguage: 'en',
+        responseLanguageEvidence: ['Does', 'have', 'size'],
+        activityPresentation
+    });
+    const availabilityArguments = JSON.stringify({
+        sku: 'untrusted-sku',
+        selectedOptions: { size: 'M' }
+    });
+    const toolCallSse = (id, name, argumentsJson) => [
+        `data: ${JSON.stringify({
+            choices: [{
+                index: 0,
+                delta: {
+                    tool_calls: [{
+                        index: 0,
+                        id,
+                        type: 'function',
+                        function: { name, arguments: argumentsJson }
+                    }]
+                },
+                finish_reason: 'tool_calls'
+            }]
+        })}\n\n`,
+        'data: [DONE]\n\n'
+    ].join('');
+    const textSse = (content) => [
+        `data: ${JSON.stringify({
+            choices: [{
+                index: 0,
+                delta: { content },
+                finish_reason: 'stop'
+            }]
+        })}\n\n`,
+        'data: [DONE]\n\n'
+    ].join('');
+    const providerReplies = [
+        toolCallSse('search-1', 'searchProducts', searchArguments),
+        toolCallSse('availability-1', 'getProductAvailability', availabilityArguments),
+        textSse('Size M is currently available for this T-Shirt.')
+    ];
+    const requests = [];
+    const executedTools = [];
+    const server = http.createServer(async (request, response) => {
+        let body = '';
+        for await (const chunk of request) body += chunk;
+        requests.push(JSON.parse(body));
+        response.writeHead(200, { 'Content-Type': 'text/event-stream', Connection: 'close' });
+        response.end(providerReplies[requests.length - 1]);
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const baseUrl = `http://127.0.0.1:${server.address().port}/v1`;
+    const frames = [];
+    const ws = { send: (frame) => frames.push(JSON.parse(frame)) };
+
+    try {
+        const result = await streamChatResponse(
+            { text: 'Does T-Shirt "2. Wahl" have size M?', parts: [] },
+            ws,
+            [],
+            null,
+            {
+                provider: 'custom',
+                name: 'Custom',
+                base_url: baseUrl,
+                api_key: 'test-key',
+                model: 'test-model',
+                api_format: 'openai-chat-completions',
+                agent: { max_tool_rounds: 1 }
+            },
+            {
+                executeMagentoTool: async (name, args) => {
+                    executedTools.push({ name, args });
+                    if (name === 'getProductAvailability') {
+                        return {
+                            data: [{
+                                sku: 'N042.A104',
+                                product_type: 'configurable',
+                                availability: 'in_stock',
+                                matching_variants: 1,
+                                available_variants: 1
+                            }]
+                        };
+                    }
+                    if (name === 'searchProducts') {
+                        return {
+                            data: [{
+                                id: 986,
+                                sku: 'N042.A104',
+                                name: 'T-Shirt "2. Wahl"',
+                                product_type: 'configurable',
+                                requires_variant_selection: true,
+                                variant_options: [{ code: 'size', label: 'Size', values: ['M', 'XL'] }]
+                            }],
+                            html: '<div class="product-card">T-Shirt</div>',
+                            meta: { pagination: { total: 1, page: 1, page_size: 5, returned: 1, has_more: false } }
+                        };
+                    }
+                    throw new Error(`Unexpected Magento tool ${name}`);
+                }
+            }
+        );
+
+        assert.equal(result.cancelled, false);
+        assert.deepEqual(executedTools.map(({ name }) => name), [
+            'searchProducts',
+            'getProductAvailability'
+        ]);
+        assert.equal(executedTools[1].args.sku, 'N042.A104');
+        assert.equal(requests.length, 3);
+        assert.equal(requests[1].tool_choice?.function?.name, 'getProductAvailability');
+        assert.equal(Object.hasOwn(requests[2], 'tools'), false);
+        assert.equal(
+            frames.some((frame) => frame.type === 'tool_activity'
+                && frame.tool === 'getProductAvailability'
+                && frame.state === 'running'
+                && frame.language === 'en'),
+            true
+        );
+        assert.match(
+            frames.filter((frame) => frame.type === 'chunk').map((frame) => frame.content).join(''),
+            /Size M is currently available/
+        );
+        assert.equal(frames.some((frame) => frame.type === 'error'), false);
+        assert.equal(frames.some((frame) => frame.type === 'done'), true);
     } finally {
         server.closeAllConnections?.();
         await new Promise((resolve) => server.close(resolve));

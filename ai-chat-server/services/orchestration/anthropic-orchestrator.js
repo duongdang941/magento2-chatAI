@@ -11,6 +11,7 @@ import { getProviderCapabilities } from '../providers/provider-capabilities.js';
 import { buildAgentSystemInstruction } from './agent-system-guidance.js';
 import { pageContextInstruction } from '../catalog/page-context.js';
 import {
+    EMPTY_RESPONSE_RECOVERY_INSTRUCTION,
     FINAL_SYNTHESIS_INSTRUCTION,
     isFinalSynthesisTurn
 } from './tool-rounds.js';
@@ -19,7 +20,6 @@ import {
     readProviderErrorResponse
 } from '../providers/provider-error.js';
 import {
-    buildFallbackMessage,
     createProviderNeutralToolFlow,
     isBlockingToolFailure
 } from './provider-neutral-tool-flow.js';
@@ -142,16 +142,24 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
     let lastToolOutcome = null;
     let toolErrorMessage = '';
     let pendingProductPresentation = null;
+    let forceFinalSynthesis = false;
+    let languageRepairAttempts = 0;
+    let emptyResponseRecoveryAttempts = 0;
+    let hasExecutedToolBatch = false;
     const progressPulse = createResponseProgressPulse({ ws, isCancelled });
 
     try {
         progressPulse.start();
         // Keep one request after the final tool batch for synthesis. Omitting
         // tool definitions on that request prevents a ninth tool execution.
-        for (let iteration = 0; iteration <= maxToolRounds; iteration += 1) {
+        for (let iteration = 0; iteration <= maxToolRounds + 1; iteration += 1) {
             if (isCancelled()) return { cancelled: true };
 
-            const finalSynthesisOnly = isFinalSynthesisTurn(iteration, maxToolRounds);
+            const mandatoryAvailabilityPending = toolFlow.shouldForceProductAvailability();
+            const finalSynthesisOnly = !mandatoryAvailabilityPending && (
+                forceFinalSynthesis
+                || isFinalSynthesisTurn(iteration, maxToolRounds)
+            );
             const requestSystemInstruction = finalSynthesisOnly
                 ? `${systemInstruction}\n\n${FINAL_SYNTHESIS_INSTRUCTION}`
                 : systemInstruction;
@@ -200,8 +208,10 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                             // Force exactly the pending constrained retrieval;
                             // provider-neutral validation still rejects any
                             // unverified category, attribute, or option.
-                            ...(toolFlow.shouldForceProductSearch()
-                                ? { tool_choice: { type: 'tool', name: 'searchProducts' } }
+                            ...(toolFlow.shouldForceProductAvailability()
+                                ? { tool_choice: { type: 'tool', name: 'getProductAvailability' } }
+                                : toolFlow.shouldForceProductSearch()
+                                    ? { tool_choice: { type: 'tool', name: 'searchProducts' } }
                                 : {})
                         } : {})
                     }),
@@ -329,6 +339,27 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             }
             if (toolCalls.length === 0) {
                 const finalText = customerTurnBuffer.commit();
+                const languageAssessment = toolFlow.assessFinalResponseLanguage(finalText);
+                if (finalText
+                    && !languageAssessment.accepted
+                    && languageRepairAttempts < 1) {
+                    languageRepairAttempts += 1;
+                    forceFinalSynthesis = true;
+                    messages.push({
+                        role: 'user',
+                        content: toolFlow.finalResponseLanguageRepairInstruction(languageAssessment)
+                    });
+                    continue;
+                }
+                if (!finalText && emptyResponseRecoveryAttempts < 1) {
+                    emptyResponseRecoveryAttempts += 1;
+                    forceFinalSynthesis = hasExecutedToolBatch;
+                    messages.push({
+                        role: 'user',
+                        content: EMPTY_RESPONSE_RECOVERY_INSTRUCTION
+                    });
+                    continue;
+                }
                 if (finalText) {
                     smoothEmitter.push(finalText);
                     hasVisibleText = true;
@@ -351,6 +382,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 role: 'assistant',
                 content: currentBlocks
             });
+            hasExecutedToolBatch = true;
 
             // Execute tool calls
             const toolResults = [];
@@ -412,10 +444,12 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         }
 
         if (!hasVisibleText) {
+            toolFlow.completePendingActivity();
             ws.send(JSON.stringify({
-                type: 'chunk',
-                content: buildFallbackMessage()
+                type: 'error',
+                error_code: 'response_empty'
             }));
+            return { cancelled: false, emptyResponse: true };
         }
         toolFlow.completePendingActivity();
         emitProductPresentation(ws, pendingProductPresentation);

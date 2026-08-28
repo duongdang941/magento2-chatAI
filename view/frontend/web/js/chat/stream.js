@@ -1503,6 +1503,9 @@ const {
                     this.pendingOrderAddressFormParts = [];
                     this.pendingGuestOrderAccessParts = [];
                     this.clearResponseWatchdog();
+                    const fallbackErrorCopy = data.error_code === 'response_empty'
+                        ? this.t('ai_response_empty_copy')
+                        : this.t('ai_service_unavailable_copy');
                     this.messages.push({
                         role: 'assistant',
                         feedbackEnabled: false,
@@ -1511,7 +1514,7 @@ const {
                             id: Date.now(),
                             type: 'text',
                             raw: '',
-                            html: '<div class="afd-ai-chat__error-card"><p class="afd-ai-chat__error-title">AI service error</p><p class="afd-ai-chat__error-text">' + escapeHtml(data.content || 'The AI service is unavailable.') + '</p></div>'
+                            html: '<div class="afd-ai-chat__error-card"><p class="afd-ai-chat__error-title">' + escapeHtml(this.t('ai_service_error_title')) + '</p><p class="afd-ai-chat__error-text">' + escapeHtml(data.content || fallbackErrorCopy) + '</p></div>'
                         }]
                     });
                     this.scrollToBottom();

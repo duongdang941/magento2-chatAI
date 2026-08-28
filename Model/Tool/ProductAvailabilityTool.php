@@ -149,6 +149,12 @@ class ProductAvailabilityTool
             $visibleVariants,
             static fn (array $variant): bool => $variant['availability'] !== 'out_of_stock'
         ));
+        // A configurable product does not have one purchasable inventory
+        // pool.  Child quantities are useful only after a selection resolves
+        // exactly one child SKU.  Do not expose the per-child values for a
+        // multi-variant result: an LLM can otherwise add independent sizes,
+        // colours, or other options and present the sum as product stock.
+        $exposesExactVariantQuantity = count($visibleVariants) === 1;
 
         $result = [
             'id' => (int)$product->getId(),
@@ -167,15 +173,40 @@ class ProductAvailabilityTool
             // material, colour, or another store-specific configurable option.
             'variant_options' => $optionDefinitions,
             'variant_options_policy' => 'A selectable characteristic is identified by its option label, not by its values. If a requested characteristic has no matching option label, say it is unavailable, then briefly introduce the actual option labels and their purpose. Do not present another option as the requested characteristic; summarize a long value list unless details are requested. Keep shopper-facing prose in the shopper language; the catalogue label itself may remain unchanged.',
-            'variants' => array_slice($visibleVariants, 0, 30),
+            'variants' => array_slice(
+                $this->variantsForResponse($visibleVariants, $exposesExactVariantQuantity),
+                0,
+                30
+            ),
             'has_more_variants' => count($visibleVariants) > 30,
         ];
 
-        if (count($visibleVariants) === 1) {
+        if ($exposesExactVariantQuantity) {
             $result['salable_qty'] = $visibleVariants[0]['salable_qty'];
         }
 
         return $result;
+    }
+
+    /**
+     * Keep variant availability and Magento option facts available for an
+     * unresolved configurable selection, but disclose a quantity only when
+     * it belongs to the one exactly matched purchasable child SKU.
+     *
+     * @param array<int, array<string, mixed>> $variants
+     * @return array<int, array<string, mixed>>
+     */
+    private function variantsForResponse(array $variants, bool $exposesExactVariantQuantity): array
+    {
+        if ($exposesExactVariantQuantity) {
+            return $variants;
+        }
+
+        return array_map(static function (array $variant): array {
+            unset($variant['salable_qty']);
+
+            return $variant;
+        }, $variants);
     }
 
     private function getVisibleProduct(string $sku, ShopperScope $shopperScope)

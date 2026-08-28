@@ -18,6 +18,21 @@ const objectSchema = (properties = {}, required = []) => ({
     ...(required.length > 0 ? { required } : {})
 });
 
+// Identity kinds are machine-readable retrieval metadata.  They never carry
+// a shopper language or a catalogue value: the selected provider supplies the
+// actual identity value and Magento verifies it in the current shopper scope.
+const catalogIdentitySchema = Object.freeze(objectSchema({
+    kind: {
+        type: 'string',
+        enum: ['sku', 'product_name'],
+        description: 'Use sku only when the shopper supplied an exact SKU. Use product_name only for one specifically named product.'
+    },
+    value: {
+        type: 'string',
+        description: 'Exact SKU or concise exact product name to resolve from the current Magento catalogue.'
+    }
+}, ['kind', 'value']));
+
 // Customer-facing action copy is supplied by the model in the shopper's own
 // language. The tool contract remains semantic and works for every locale;
 // the gateway never owns a finite translation table for these labels.
@@ -89,6 +104,11 @@ const tool = (name, description, parameters, policy = {}) => {
 export const TOOL_DEFINITIONS = Object.freeze([
     tool('searchProducts', 'Search real Magento products before answering catalogue questions.', objectSchema({
         query: { type: 'string' },
+        catalogIntent: {
+            type: 'string',
+            enum: ['product_search', 'store_sample'],
+            description: 'Declare product_search for a shopper-named product, product type, category, filter, or follow-up. Declare store_sample only when the shopper explicitly asks for a few/example products from the whole store without a product requirement. store_sample must use an empty query and no category, price, direct-add, identity, or variant constraint; the gateway retrieves an unbiased current store page instead of accepting a guessed brand or keyword.'
+        },
         categoryId: { type: 'integer' },
         limit: { type: 'integer' },
         limitEvidence: { type: 'string' },
@@ -99,9 +119,23 @@ export const TOOL_DEFINITIONS = Object.freeze([
         priceCurrency: { type: 'string', description: 'ISO 4217 currency explicitly written by the shopper, for example USD.' },
         directAddOnly: { type: 'boolean' },
         exactIdentity: { type: 'boolean' },
+        catalogIdentityKind: {
+            type: 'string',
+            enum: ['sku', 'product_name', 'none'],
+            description: 'Use sku only for an explicit shopper-provided SKU and always with exactIdentity=true. Use product_name only for one specifically named product and always with exactIdentity=true. Use none for discovery, category, filter, or general product-family searches.'
+        },
+        catalogQueryLanguage: {
+            type: 'string',
+            description: 'Only when a previous zero-result search returns catalog_query_language: copy that exact BCP-47 primary language and make query a concise catalogue-language equivalent. This is retrieval metadata, never the customer response language.'
+        },
+        catalogContextDecision: {
+            type: 'string',
+            enum: ['follow_up', 'new_search', 'clarify'],
+            description: 'When CATALOG_CONTEXT supplies single_product_anchor, declare the semantic target before every searchProducts call. Use follow_up only for that exact anchored product and include its followUpProductRef; use new_search for a clearly different product or product set and omit followUpProductRef; use clarify only when the shopper must identify which shown product they mean, then do not retrieve products.'
+        },
         followUpProductRef: {
             type: 'string',
-            description: 'Use only for an immediate product-specific follow-up when CATALOG_CONTEXT supplies single_product_anchor. Copy its product_ref exactly. The gateway verifies this reference and forces a fresh exact-SKU lookup.'
+            description: 'Use only with catalogContextDecision=follow_up when CATALOG_CONTEXT supplies single_product_anchor. Copy its product_ref exactly. The gateway verifies this reference and forces a fresh exact-SKU lookup.'
         },
         requiresVariantAttribute: {
             type: 'boolean',
@@ -128,18 +162,23 @@ export const TOOL_DEFINITIONS = Object.freeze([
         },
         responseLanguage: { type: 'string' },
         responseLanguageEvidence: { type: 'array', items: { type: 'string' } }
-    }, ['query', 'exactIdentity', 'responseLanguage', 'responseLanguageEvidence']), {
+    }, ['query', 'catalogIntent', 'exactIdentity', 'catalogIdentityKind', 'responseLanguage', 'responseLanguageEvidence']), {
         presentationSchema: productSearchActivityPresentationSchema
     }),
-    tool('compareProducts', 'Compare two returned Magento products by exact SKU.', objectSchema({
-        sku1: { type: 'string' },
-        sku2: { type: 'string' }
-    }, ['sku1', 'sku2'])),
+    tool('compareProducts', 'Compare exactly two current Magento products. Supply each product as an exact SKU or an exact product name; the gateway resolves both identities in the current shopper scope before comparing them.', objectSchema({
+        identities: {
+            type: 'array',
+            items: catalogIdentitySchema,
+            minItems: 2,
+            maxItems: 2,
+            description: 'Exactly the two products the shopper asked to compare. Do not replace, merge, or omit either identity.'
+        }
+    }, ['identities'])),
     tool('getProductAvailability', 'Check live Magento salable quantity for an exact returned SKU.', objectSchema({
         sku: { type: 'string' },
         selectedOptions: { type: 'object', additionalProperties: { type: 'string' } }
     }, ['sku'])),
-    tool('listCategories', 'Inspect the real Magento category taxonomy. Use taxonomy_question for a category-structure question or a broad request for what the store carries; do not select a product category unless the shopper asks for one.', objectSchema({
+    tool('listCategories', 'Inspect the real Magento category taxonomy. Use taxonomy_question only for a question about category structure, departments, or the types of goods the store carries. Never use it when the shopper asks to see a finite product sample: use searchProducts with catalogIntent=store_sample instead. Do not select a product category unless the shopper asks for one.', objectSchema({
         lookupPurpose: {
             type: 'string',
             enum: ['product_discovery', 'taxonomy_question'],

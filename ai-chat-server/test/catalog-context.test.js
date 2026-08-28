@@ -78,6 +78,7 @@ test('catalog context preserves configurable attribute machine codes', () => {
         sku: 'N012.A0'
     });
     assert.match(payload.instruction, /language-neutral/i);
+    assert.match(payload.instruction, /catalogContextDecision/);
     assert.match(payload.instruction, /followUpProductRef/);
 });
 

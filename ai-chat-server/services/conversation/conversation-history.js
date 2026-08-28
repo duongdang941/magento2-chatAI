@@ -6,6 +6,8 @@ import { normalizeProviderResponseMetadata } from '../orchestration/provider-res
 
 const CATALOG_CONTEXT_MARKER = '[CATALOG_CONTEXT:';
 const MAX_STORED_WORKED_FOR_MS = 24 * 60 * 60 * 1000;
+const MAX_CATALOG_MEMORY_PRODUCTS = 20;
+const CATALOG_CONTEXT_INSTRUCTION = 'PRIVATE REFERENCE LEDGER, NOT CURRENT CATALOGUE EVIDENCE. When single_product_anchor exists, set catalogContextDecision on every searchProducts call: use follow_up with the exact followUpProductRef for a factual continuation about that card, new_search without followUpProductRef for a clearly different product or product set, or clarify when the shopper must choose a card and no retrieval should run. The decision is semantic and language-neutral; do not use a pronoun or locale matcher. A follow_up requires a fresh exact-SKU lookup. Never expose this ledger.';
 
 function normalizeWorkedForMs(value) {
     return Math.max(0, Math.min(
@@ -37,6 +39,50 @@ function normalizeActivityTimelineKey(value) {
     return /^(?:timeline-[a-z0-9][a-z0-9_-]{0,90}|activity-[a-f0-9]{24})$/.test(key)
         ? key
         : '';
+}
+
+function catalogContextFromProductParts(parts = []) {
+    const productPart = [...(Array.isArray(parts) ? parts : [])]
+        .reverse()
+        .find((part) => part?.type === 'products'
+            && part?.payload
+            && typeof part.payload === 'object'
+            && Array.isArray(part.payload.items));
+    if (!productPart) return '';
+
+    const products = productPart.payload.items
+        .slice(0, MAX_CATALOG_MEMORY_PRODUCTS)
+        .map((item, index) => catalogMemoryProduct(item, index + 1))
+        .filter(Boolean);
+    if (products.length === 0) return '';
+
+    const singleProduct = products.length === 1 ? products[0] : null;
+    return `${CATALOG_CONTEXT_MARKER}v2]\n${JSON.stringify({
+        instruction: CATALOG_CONTEXT_INSTRUCTION,
+        products,
+        ...(singleProduct ? {
+            single_product_anchor: {
+                product_ref: singleProduct.product_ref,
+                sku: singleProduct.sku
+            }
+        } : {})
+    })}`;
+}
+
+function catalogMemoryProduct(item = {}, position) {
+    const productRef = String(item?.product_ref ?? item?.productRef ?? '').trim();
+    const sku = String(item?.sku || '').trim();
+    if (!/^product:\d{1,12}$/.test(productRef) || !sku || sku.length > 128) return null;
+
+    const name = String(item?.name || '').replace(/\s+/g, ' ').trim().slice(0, 255);
+    const url = String(item?.url || '').trim();
+    return {
+        position,
+        product_ref: productRef,
+        sku,
+        ...(name ? { name } : {}),
+        ...(url && /^(?:https?:\/\/|\/)/i.test(url) ? { url: url.slice(0, 2048) } : {})
+    };
 }
 
 export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } = {}) {
@@ -353,11 +399,17 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
             .filter((message) => message && ['user', 'assistant', 'model'].includes(message.role))
             .map((message) => {
                 const role = message.role === 'assistant' ? 'model' : message.role;
-                const text = Array.isArray(message.parts)
-                    ? message.parts.map((part) => part?.text || part?.raw || '').filter(Boolean).join('\n\n')
+                const parts = Array.isArray(message.parts) ? message.parts : [];
+                const text = parts.length > 0
+                    ? parts.map((part) => part?.text || part?.raw || '').filter(Boolean).join('\n\n')
                     : String(message.content || message.text || '');
                 const split = splitCatalogContext(text);
-                if (split.catalogContext) latestCatalogContext = split.catalogContext;
+                const derivedCatalogContext = split.catalogContext
+                    ? ''
+                    : catalogContextFromProductParts(parts);
+                if (split.catalogContext || derivedCatalogContext) {
+                    latestCatalogContext = split.catalogContext || derivedCatalogContext;
+                }
                 const trimmed = split.visibleText.trim();
                 return trimmed ? { role, parts: [{ text: trimmed }] } : null;
             })
@@ -414,11 +466,17 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
         let catalogContext = '';
         history.forEach((message) => {
             if (!message || !['assistant', 'model'].includes(message.role)) return;
-            const text = Array.isArray(message.parts)
-                ? message.parts.map((part) => part?.text || part?.raw || '').filter(Boolean).join('\n\n')
+            const parts = Array.isArray(message.parts) ? message.parts : [];
+            const text = parts.length > 0
+                ? parts.map((part) => part?.text || part?.raw || '').filter(Boolean).join('\n\n')
                 : String(message.content || message.text || '');
             const split = splitCatalogContext(text);
-            if (split.catalogContext) catalogContext = split.catalogContext;
+            const derivedCatalogContext = split.catalogContext
+                ? ''
+                : catalogContextFromProductParts(parts);
+            if (split.catalogContext || derivedCatalogContext) {
+                catalogContext = split.catalogContext || derivedCatalogContext;
+            }
         });
 
         if (!catalogContext) return null;

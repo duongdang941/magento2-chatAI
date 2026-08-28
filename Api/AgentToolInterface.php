@@ -18,7 +18,9 @@ interface AgentToolInterface
      * @param float|null $maxPrice
      * @param string|null $priceCurrency ISO 4217 currency of explicit price constraints
      * @param bool|null $directAddOnly
+     * @param bool|null $browseAll Internal, structured whole-store sample mode with no search query
      * @param bool|null $exactIdentity
+     * @param bool|null $exactSku Internal, verified-anchor SKU lookup that must bypass full-text search
      * @param string|null $excludedTerms JSON list of product-name terms explicitly rejected by the shopper
      * @param string|null $requiredVariantAttributeCode Configurable attribute code returned by Magento discovery
      * @param string|null $requiredVariantOptionValues JSON list of exact option labels required for that attribute
@@ -36,7 +38,9 @@ interface AgentToolInterface
         float $maxPrice = 0.0,
         string $priceCurrency = '',
         bool $directAddOnly = false,
+        bool $browseAll = false,
         bool $exactIdentity = false,
+        bool $exactSku = false,
         string $excludedTerms = '',
         string $requiredVariantAttributeCode = '',
         string $requiredVariantOptionValues = '',

@@ -17,11 +17,11 @@ import { getProviderCapabilities } from '../providers/provider-capabilities.js';
 import { buildAgentSystemInstruction } from './agent-system-guidance.js';
 import { pageContextInstruction } from '../catalog/page-context.js';
 import {
+    EMPTY_RESPONSE_RECOVERY_INSTRUCTION,
     FINAL_SYNTHESIS_INSTRUCTION,
     isFinalSynthesisTurn
 } from './tool-rounds.js';
 import {
-    buildFallbackMessage,
     createProviderNeutralToolFlow,
     isBlockingToolFailure
 } from './provider-neutral-tool-flow.js';
@@ -136,6 +136,10 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
     // iteration loop has exited, so a loop-scoped binding would throw
     // ReferenceError exactly when the turn succeeds.
     let finishReason = '';
+    let forceFinalSynthesis = false;
+    let languageRepairAttempts = 0;
+    let emptyResponseRecoveryAttempts = 0;
+    let hasExecutedToolBatch = false;
     const progressPulse = createResponseProgressPulse({ ws, isCancelled });
 
     try {
@@ -143,10 +147,14 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         // A provider turn that uses the final permitted tool batch still
         // needs one following turn to turn verified tool output into shopper
         // prose. That final turn deliberately receives no tool definitions.
-        for (let iteration = 0; iteration <= maxToolRounds; iteration += 1) {
+        for (let iteration = 0; iteration <= maxToolRounds + 1; iteration += 1) {
             if (isCancelled()) return { cancelled: true };
 
-            const finalSynthesisOnly = isFinalSynthesisTurn(iteration, maxToolRounds);
+            const mandatoryAvailabilityPending = toolFlow.shouldForceProductAvailability();
+            const finalSynthesisOnly = !mandatoryAvailabilityPending && (
+                forceFinalSynthesis
+                || isFinalSynthesisTurn(iteration, maxToolRounds)
+            );
 
             const assistantMessage = {
                 role: 'assistant',
@@ -172,19 +180,22 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                     const requestTools = useResponsesApi
                         ? tools.map(({ function: definition }) => ({ type: 'function', ...definition }))
                         : tools;
+                    const forcedToolName = mandatoryAvailabilityPending
+                        ? 'getProductAvailability'
+                        : (toolFlow.shouldForceProductSearch() ? 'searchProducts' : '');
                     const toolSelection = finalSynthesisOnly
                         ? {}
                         : useResponsesApi
                             ? {
                                 tools: requestTools,
-                                tool_choice: toolFlow.shouldForceProductSearch()
-                                    ? { type: 'function', name: 'searchProducts' }
+                                tool_choice: forcedToolName
+                                    ? { type: 'function', name: forcedToolName }
                                     : 'auto'
                             }
                             : {
                                 tools: requestTools,
-                                tool_choice: toolFlow.shouldForceProductSearch()
-                                    ? { type: 'function', function: { name: 'searchProducts' } }
+                                tool_choice: forcedToolName
+                                    ? { type: 'function', function: { name: forcedToolName } }
                                     : 'auto'
                             };
                     const response = await fetch(endpoint, {
@@ -281,23 +292,41 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             if (finalSynthesisOnly && rawToolCalls.length > 0) {
                 logger.warn('chat', 'Provider ignored the tool-free final synthesis turn.');
             }
-            if (assistantMessage.content || toolCalls.length > 0) {
-                messages.push({
-                    role: 'assistant',
-                    content: toolCalls.length > 0 ? null : (assistantMessage.content || null),
-                    ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {})
-                });
-            }
-
             if (toolCalls.length === 0) {
                 const finalCustomerText = (assistantMessage.content || '').trim();
+                const languageAssessment = toolFlow.assessFinalResponseLanguage(finalCustomerText);
+                if (finalCustomerText
+                    && !languageAssessment.accepted
+                    && languageRepairAttempts < 1) {
+                    languageRepairAttempts += 1;
+                    forceFinalSynthesis = true;
+                    messages.push({
+                        role: 'user',
+                        content: toolFlow.finalResponseLanguageRepairInstruction(languageAssessment)
+                    });
+                    continue;
+                }
+                if (!finalCustomerText && emptyResponseRecoveryAttempts < 1) {
+                    emptyResponseRecoveryAttempts += 1;
+                    forceFinalSynthesis = hasExecutedToolBatch;
+                    messages.push({ role: 'user', content: EMPTY_RESPONSE_RECOVERY_INSTRUCTION });
+                    continue;
+                }
                 if (finalCustomerText) {
+                    messages.push({ role: 'assistant', content: finalCustomerText });
                     smoothEmitter.push(finalCustomerText);
                     hasVisibleText = true;
                 }
                 await smoothEmitter.drain();
                 break;
             }
+
+            messages.push({
+                role: 'assistant',
+                content: null,
+                tool_calls: toolCalls
+            });
+            hasExecutedToolBatch = true;
 
             let stopAfterToolBatch = false;
             for (const toolCall of toolCalls) {
@@ -350,12 +379,9 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
 
         if (!hasVisibleText) {
             if (isCancelled()) return { cancelled: true };
-
-            await emitFinalText(
-                ws,
-                buildFallbackMessage(),
-                isCancelled
-            );
+            toolFlow.completePendingActivity();
+            ws.send(JSON.stringify({ type: 'error', error_code: 'response_empty' }));
+            return { cancelled: false, emptyResponse: true };
         }
 
         if (isCancelled()) return { cancelled: true };
@@ -605,28 +631,6 @@ async function readOpenAiResponsesStream(response, { onDelta, isCancelled }) {
     return { finishReason, usage, citations };
 }
 
-/**
- * Used only for deterministic fallbacks. Provider prose itself is forwarded
- * immediately in onDelta so the customer receives genuine streaming tokens.
- */
-async function emitFinalText(ws, content, isCancelled) {
-    const text = String(content || '');
-    const chunkSize = 72;
-
-    for (let offset = 0; offset < text.length; offset += chunkSize) {
-        if (isCancelled()) return;
-
-        ws.send(JSON.stringify({
-            type: 'chunk',
-            content: text.slice(offset, offset + chunkSize)
-        }));
-
-        if (offset + chunkSize < text.length) {
-            await new Promise((resolve) => setTimeout(resolve, 8));
-        }
-    }
-}
-
 function cleanThinkTags(text, onThinkingDelta) {
     if (!text) return "";
     let clean = text;
@@ -738,7 +742,6 @@ function isRetryableProviderError(error) {
 }
 
 export {
-    buildFallbackMessage,
     formatProviderError,
     isBlockingToolFailure,
     isRetryableProviderError,

@@ -42,8 +42,22 @@ class ShopperScopeResolver
             (int)$store->getId(),
             (string)$store->getCode(),
             (int)$store->getWebsiteId(),
-            $customerGroupId
+            $customerGroupId,
+            $this->resolveCatalogLanguage($store)
         );
+    }
+
+    private function resolveCatalogLanguage(object $store): string
+    {
+        try {
+            $locale = (string)$store->getConfig('general/locale/code');
+        } catch (\Throwable) {
+            $locale = '';
+        }
+
+        $language = strtolower(trim(explode('_', $locale)[0] ?? ''));
+
+        return preg_match('/^[a-z]{2,3}$/', $language) === 1 ? $language : '';
     }
 
     private function resolveGuestGroupId(int $requestedCustomerGroupId): int
