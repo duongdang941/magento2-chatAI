@@ -293,6 +293,56 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 logger.warn('chat', 'Provider ignored the tool-free final synthesis turn.');
             }
             if (toolCalls.length === 0) {
+                // Some OpenAI-compatible relays acknowledge a forced
+                // function choice but still return prose. Never let their
+                // search-card stock hint become shopper evidence: the
+                // gateway owns this one Magento availability read.
+                if (mandatoryAvailabilityPending) {
+                    const forcedToolCallId = `gateway-availability-${iteration}`;
+                    const forcedAvailability = await toolFlow.execute({
+                        id: forcedToolCallId,
+                        name: 'getProductAvailability',
+                        args: {}
+                    });
+                    lastToolOutcome = forcedAvailability.outcome || lastToolOutcome;
+                    const toolState = toolFlow.getState();
+                    hasVisibleProducts = toolState.hasVisibleProducts;
+                    hasVisibleImages = toolState.hasVisibleImages;
+                    pendingProductPresentation = toolState.pendingProductPresentation;
+                    toolErrorMessage = toolState.toolErrorMessage || forcedAvailability.error || toolErrorMessage;
+                    if (toolErrorMessage) {
+                        toolFlow.completePendingActivity();
+                        ws.send(JSON.stringify({
+                            type: 'error',
+                            content: `Magento tool failed: ${toolErrorMessage}`
+                        }));
+                        return { cancelled: false };
+                    }
+
+                    // Preserve a valid function/result pair for the next
+                    // synthesis request. The provider receives the verified
+                    // live result, not the premature prose it just emitted.
+                    messages.push({
+                        role: 'assistant',
+                        content: null,
+                        tool_calls: [{
+                            id: forcedToolCallId,
+                            type: 'function',
+                            function: {
+                                name: 'getProductAvailability',
+                                arguments: JSON.stringify(forcedAvailability.args)
+                            }
+                        }]
+                    });
+                    messages.push({
+                        role: 'tool',
+                        tool_call_id: forcedToolCallId,
+                        content: JSON.stringify(forcedAvailability.modelContext)
+                    });
+                    hasExecutedToolBatch = true;
+                    forceFinalSynthesis = true;
+                    continue;
+                }
                 const finalCustomerText = (assistantMessage.content || '').trim();
                 const languageAssessment = toolFlow.assessFinalResponseLanguage(finalCustomerText);
                 if (finalCustomerText

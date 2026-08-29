@@ -239,6 +239,51 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             }
 
             if (toolCalls.length === 0) {
+                // Do not accept a Gemini-compatible provider's text when it
+                // skipped the one availability read mandated by the verified
+                // configurable product. Run that read inside the gateway and
+                // synthesize only from its live Magento response.
+                if (mandatoryAvailabilityPending) {
+                    customerTurnBuffer.discard();
+                    const forcedAvailability = await toolFlow.execute({
+                        id: `gateway-availability-${iteration}`,
+                        name: 'getProductAvailability',
+                        args: {}
+                    });
+                    lastToolOutcome = forcedAvailability.outcome || lastToolOutcome;
+                    const toolState = toolFlow.getState();
+                    hasVisibleProducts = toolState.hasVisibleProducts;
+                    pendingProductPresentation = toolState.pendingProductPresentation;
+                    toolErrorMessage = toolState.toolErrorMessage || forcedAvailability.error || toolErrorMessage;
+                    if (toolErrorMessage) {
+                        toolFlow.completePendingActivity();
+                        ws.send(JSON.stringify({
+                            type: 'error',
+                            content: `Magento tool failed: ${toolErrorMessage}`
+                        }));
+                        return { cancelled: false };
+                    }
+
+                    chatHistory.push({
+                        role: 'model',
+                        parts: [{
+                            functionCall: {
+                                name: 'getProductAvailability',
+                                args: forcedAvailability.args
+                            }
+                        }]
+                    });
+                    chatHistory.push({
+                        role: 'function',
+                        parts: [createGeminiFunctionResponsePart(
+                            'getProductAvailability',
+                            forcedAvailability.modelContext
+                        )]
+                    });
+                    hasExecutedToolBatch = true;
+                    forceFinalSynthesis = true;
+                    continue;
+                }
                 const finalCustomerText = customerTurnBuffer.commit().trim();
                 const languageAssessment = toolFlow.assessFinalResponseLanguage(finalCustomerText);
                 if (finalCustomerText

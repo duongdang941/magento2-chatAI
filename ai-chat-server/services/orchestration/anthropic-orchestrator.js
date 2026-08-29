@@ -338,6 +338,57 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                 console.warn('[Anthropic Adapter] Provider ignored the tool-free final synthesis turn.');
             }
             if (toolCalls.length === 0) {
+                // A relay can ignore Anthropic's forced tool choice and
+                // return prose after a configurable card. Fail closed: only
+                // a live Magento availability response may release the final
+                // shopper answer, never a search result's stock hint.
+                if (mandatoryAvailabilityPending) {
+                    customerTurnBuffer.discard();
+                    const forcedToolUseId = `gateway-availability-${iteration}`;
+                    const forcedAvailability = await toolFlow.execute({
+                        id: forcedToolUseId,
+                        name: 'getProductAvailability',
+                        args: {}
+                    });
+                    lastToolOutcome = forcedAvailability.outcome || lastToolOutcome;
+                    const toolState = toolFlow.getState();
+                    hasVisibleProducts = toolState.hasVisibleProducts;
+                    hasVisibleImages = toolState.hasVisibleImages;
+                    pendingProductPresentation = toolState.pendingProductPresentation;
+                    toolErrorMessage = toolState.toolErrorMessage || forcedAvailability.error || toolErrorMessage;
+                    if (toolErrorMessage) {
+                        toolFlow.completePendingActivity();
+                        ws.send(JSON.stringify({
+                            type: 'error',
+                            content: `Magento tool failed: ${toolErrorMessage}`
+                        }));
+                        return { cancelled: false };
+                    }
+
+                    // Keep Anthropic history protocol-valid while making the
+                    // enforced gateway result available for a tool-free
+                    // synthesis turn.
+                    messages.push({
+                        role: 'assistant',
+                        content: [{
+                            type: 'tool_use',
+                            id: forcedToolUseId,
+                            name: 'getProductAvailability',
+                            input: forcedAvailability.args
+                        }]
+                    });
+                    messages.push({
+                        role: 'user',
+                        content: [{
+                            type: 'tool_result',
+                            tool_use_id: forcedToolUseId,
+                            content: JSON.stringify(forcedAvailability.modelContext)
+                        }]
+                    });
+                    hasExecutedToolBatch = true;
+                    forceFinalSynthesis = true;
+                    continue;
+                }
                 const finalText = customerTurnBuffer.commit();
                 const languageAssessment = toolFlow.assessFinalResponseLanguage(finalText);
                 if (finalText

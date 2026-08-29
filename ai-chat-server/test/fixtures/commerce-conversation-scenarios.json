@@ -8682,13 +8682,13 @@
     "turns": [
       {
         "role": "user",
-        "text": "Tôi muốn tìm Regenschrim AfD.",
+        "text": "Tôi muốn tìm Regenschrim hellblau AfD.",
         "expect": [
           "search",
           "expected_skus"
         ],
         "expected_skus": [
-          "N021.C102"
+          "N021.C103"
         ]
       },
       {
@@ -8699,7 +8699,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "N021.C102"
+          "N021.C103"
         ]
       },
       {
@@ -8710,7 +8710,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "N021.C102"
+          "N021.C103"
         ]
       },
       {
@@ -8742,13 +8742,13 @@
     "turns": [
       {
         "role": "user",
-        "text": "Tôi muốn tìm Regenschrim AfD.",
+        "text": "Tôi muốn tìm Regenschrim hellblau AfD.",
         "expect": [
           "search",
           "expected_skus"
         ],
         "expected_skus": [
-          "N021.C102"
+          "N021.C103"
         ]
       },
       {
@@ -8759,7 +8759,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "N021.C102"
+          "N021.C103"
         ]
       },
       {
@@ -8770,7 +8770,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "N021.C102"
+          "N021.C103"
         ]
       },
       {
@@ -8790,8 +8790,8 @@
     ]
   },
   {
-    "id": "grounded-continuity-typo-aschenbecher",
-    "title": "continuity: typo-aschenbecher",
+    "id": "grounded-continuity-typo-verfassungsschutz-sticker",
+    "title": "continuity: typo-verfassungsschutz-sticker",
     "locale": "vi",
     "catalog_topic": "active_typo",
     "requirements": {
@@ -8802,13 +8802,13 @@
     "turns": [
       {
         "role": "user",
-        "text": "Shop bán Aschenbescher AfD chứ?",
+        "text": "Shop có Aufkleber Verfassungschuz không?",
         "expect": [
           "search",
           "expected_skus"
         ],
         "expected_skus": [
-          "021.H901"
+          "N024.H6015"
         ]
       },
       {
@@ -8819,7 +8819,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "021.H901"
+          "N024.H6015"
         ]
       },
       {
@@ -8830,7 +8830,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "021.H901"
+          "N024.H6015"
         ]
       },
       {
@@ -8850,8 +8850,8 @@
     ]
   },
   {
-    "id": "grounded-language-switch-typo-aschenbecher",
-    "title": "language-switch: typo-aschenbecher",
+    "id": "grounded-language-switch-typo-verfassungsschutz-sticker",
+    "title": "language-switch: typo-verfassungsschutz-sticker",
     "locale": "mixed",
     "catalog_topic": "active_typo",
     "requirements": {
@@ -8862,13 +8862,13 @@
     "turns": [
       {
         "role": "user",
-        "text": "Shop bán Aschenbescher AfD chứ?",
+        "text": "Shop có Aufkleber Verfassungschuz không?",
         "expect": [
           "search",
           "expected_skus"
         ],
         "expected_skus": [
-          "021.H901"
+          "N024.H6015"
         ]
       },
       {
@@ -8879,7 +8879,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "021.H901"
+          "N024.H6015"
         ]
       },
       {
@@ -8890,7 +8890,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "021.H901"
+          "N024.H6015"
         ]
       },
       {
@@ -8910,8 +8910,8 @@
     ]
   },
   {
-    "id": "grounded-continuity-typo-osterhase",
-    "title": "continuity: typo-osterhase",
+    "id": "grounded-continuity-typo-papierfaehnchen",
+    "title": "continuity: typo-papierfaehnchen",
     "locale": "vi",
     "catalog_topic": "active_typo",
     "requirements": {
@@ -8922,13 +8922,13 @@
     "turns": [
       {
         "role": "user",
-        "text": "Tìm Schokoladen Osterhasse cho tôi.",
+        "text": "Tìm Papierfahnchen AfD cho tôi.",
         "expect": [
           "search",
           "expected_skus"
         ],
         "expected_skus": [
-          "021.E103"
+          "N021.B7014"
         ]
       },
       {
@@ -8939,7 +8939,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "021.E103"
+          "N021.B7014"
         ]
       },
       {
@@ -8950,7 +8950,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "021.E103"
+          "N021.B7014"
         ]
       },
       {
@@ -8970,8 +8970,8 @@
     ]
   },
   {
-    "id": "grounded-language-switch-typo-osterhase",
-    "title": "language-switch: typo-osterhase",
+    "id": "grounded-language-switch-typo-papierfaehnchen",
+    "title": "language-switch: typo-papierfaehnchen",
     "locale": "mixed",
     "catalog_topic": "active_typo",
     "requirements": {
@@ -8982,13 +8982,13 @@
     "turns": [
       {
         "role": "user",
-        "text": "Tìm Schokoladen Osterhasse cho tôi.",
+        "text": "Tìm Papierfahnchen AfD cho tôi.",
         "expect": [
           "search",
           "expected_skus"
         ],
         "expected_skus": [
-          "021.E103"
+          "N021.B7014"
         ]
       },
       {
@@ -8999,7 +8999,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "021.E103"
+          "N021.B7014"
         ]
       },
       {
@@ -9010,7 +9010,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "021.E103"
+          "N021.B7014"
         ]
       },
       {
