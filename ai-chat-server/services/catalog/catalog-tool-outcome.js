@@ -8,6 +8,51 @@ export function isTerminalCatalogMiss(content) {
 }
 
 /**
+ * An exact catalogue search must not turn a similarly named product into the
+ * requested one. This compares stable product identity tokens only; it has
+ * no language dictionary and does not depend on a UI label.
+ *
+ * A one-character typo is allowed per token so an exact search can still
+ * recover a genuine spelling slip (for example "Tase" -> "Tasse"), while a
+ * changed semantic token (for example "Mein" -> "Unser") is rejected.
+ */
+export function isStrictExactCatalogIdentityMatch(query, product = {}) {
+    const normalizedQuery = normalizeIdentity(query);
+    const normalizedSku = normalizeIdentity(product?.sku);
+    if (!normalizedQuery) return false;
+    if (normalizedSku && normalizedSku === normalizedQuery) return true;
+
+    const queryTokens = identityTokens(normalizedQuery);
+    const candidateTokens = identityTokens(product?.name);
+    if (queryTokens.length === 0 || candidateTokens.length === 0) return false;
+
+    return queryTokens.every((queryToken) => candidateTokens.some((candidateToken) => (
+        queryToken === candidateToken
+        || (queryToken.length >= 4
+            && candidateToken.length >= 4
+            && editDistance(queryToken, candidateToken) <= 1)
+    )));
+}
+
+/**
+ * Choose the identity that still constrains one exact-search refinement.
+ * When the two queries retain a meaningful common token, they are the same
+ * lexical identity and the original must remain authoritative. When no such
+ * evidence survives, the second query may be a genuine catalogue-language
+ * translation, so validate against that refined query instead.
+ */
+export function exactIdentityValidationQuery(rootQuery, refinedQuery) {
+    const root = String(rootQuery || '').trim();
+    const refined = String(refinedQuery || '').trim();
+    if (!root || !refined || normalizeIdentity(root) === normalizeIdentity(refined)) return root || refined;
+
+    const rootTokens = new Set(identityTokens(root));
+    const shared = identityTokens(refined).filter(token => rootTokens.has(token));
+    const preservesLexicalIdentity = shared.length >= 2 || shared.some(token => token.length >= 4);
+    return preservesLexicalIdentity ? root : refined;
+}
+
+/**
  * A single product whose normalized name or SKU equals the search identity is
  * sufficient catalogue evidence. Once resolved, a provider must synthesize
  * the answer instead of issuing a later category search that can erase the
@@ -17,6 +62,10 @@ export function isResolvedCatalogIdentity(outcome) {
     if (outcome?.name !== 'searchProducts') return false;
     const items = Array.isArray(outcome?.content?.data) ? outcome.content.data : [];
     if (items.length !== 1) return false;
+
+    if (outcome?.catalogRequest?.exactIdentity === true) {
+        return isStrictExactCatalogIdentityMatch(outcome.query, items[0]);
+    }
 
     const query = normalizeIdentity(outcome.query);
     const productName = normalizeIdentity(items[0]?.name);
@@ -46,6 +95,12 @@ function normalizeIdentity(value) {
         .toLocaleLowerCase()
         .replace(/[^\p{L}\p{N}]+/gu, ' ')
         .trim();
+}
+
+function identityTokens(value) {
+    return normalizeIdentity(value)
+        .split(' ')
+        .filter(token => token.length >= 3);
 }
 
 function editDistance(left, right) {

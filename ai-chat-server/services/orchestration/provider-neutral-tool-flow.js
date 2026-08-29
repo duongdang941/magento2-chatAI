@@ -7,7 +7,9 @@ import { createCatalogQueryContinuity } from '../catalog/catalog-query-continuit
 import { createCatalogRetrievalPolicy } from '../catalog/catalog-retrieval-policy.js';
 import { inferBodyFitSizeRange } from '../catalog/body-fit-advice.js';
 import {
+    exactIdentityValidationQuery,
     isResolvedCatalogIdentity,
+    isStrictExactCatalogIdentityMatch,
     isTerminalCatalogMiss,
     resolvedCatalogIdentityBlock
 } from '../catalog/catalog-tool-outcome.js';
@@ -132,6 +134,10 @@ export function createProviderNeutralToolFlow({
         // substitution.
         exactIdentityRefinementRequired: false,
         exactIdentityRefinementAttempts: 0,
+        // Keep the first exact identity as the truth anchor across the one
+        // permitted refinement. A model must never replace it with a merely
+        // similar product title on a later call.
+        exactIdentityRootQuery: '',
         // A shopper-language query can have no lexical overlap with a
         // catalogue maintained in another language. Allow one model-led,
         // distinct catalogue-compatible reformulation before a no-match
@@ -1079,6 +1085,19 @@ export function createProviderNeutralToolFlow({
                 content = { status: 'error', error: error?.message || 'Tool execution failed.' };
             }
 
+            if (toolName === 'searchProducts' && isExactIdentitySearch(normalizedArgs)) {
+                if (!state.exactIdentityRootQuery) {
+                    state.exactIdentityRootQuery = String(normalizedArgs.query || '').trim();
+                }
+                content = suppressUnsafeExactIdentityCandidates(
+                    content,
+                    exactIdentityValidationQuery(
+                        state.exactIdentityRootQuery,
+                        normalizedArgs.query
+                    )
+                );
+            }
+
             const similarityFallback = toolName === 'searchProducts'
                 && isSimilarityFallbackSearch(rawArgs, normalizedArgs);
             if (similarityFallback) {
@@ -1436,6 +1455,44 @@ function isExactIdentitySearch(args = {}) {
 function isExactIdentityMiss(content = {}) {
     return content?.meta?.scope?.exact_query_miss === true
         && content?.meta?.scope?.unavailable_query_match !== true;
+}
+
+/**
+ * Magento normally filters an exact lookup itself, but this gateway owns the
+ * customer-visible card. Fail closed when any returned card does not still
+ * represent the original exact identity: a refinement is evidence only, not
+ * authorization to substitute a product. The comparison is token based and
+ * language-neutral; product names are never hard-coded here.
+ */
+function suppressUnsafeExactIdentityCandidates(content = {}, exactIdentityQuery = '') {
+    const products = Array.isArray(content?.data) ? content.data : [];
+    if (products.length === 0 || !String(exactIdentityQuery || '').trim()) return content;
+    if (products.every(product => isStrictExactCatalogIdentityMatch(exactIdentityQuery, product))) {
+        return content;
+    }
+
+    const meta = content?.meta && typeof content.meta === 'object' ? content.meta : {};
+    const scope = meta?.scope && typeof meta.scope === 'object' ? meta.scope : {};
+    return {
+        ...content,
+        data: [],
+        html: '',
+        meta: {
+            ...meta,
+            pagination: {
+                ...(meta?.pagination && typeof meta.pagination === 'object' ? meta.pagination : {}),
+                total: 0,
+                returned: 0,
+                has_more: false
+            },
+            scope: {
+                ...scope,
+                exact_query_match: false,
+                exact_query_miss: true,
+                unsafe_exact_identity_candidate: true
+            }
+        }
+    };
 }
 
 function normalizeCatalogQuery(value) {

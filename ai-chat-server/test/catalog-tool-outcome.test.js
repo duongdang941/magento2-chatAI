@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+    exactIdentityValidationQuery,
     isResolvedCatalogIdentity,
+    isStrictExactCatalogIdentityMatch,
     isUnavailableQueryMatch,
     isTerminalCatalogMiss,
     resolvedCatalogIdentityBlock
@@ -48,4 +50,33 @@ test('recognizes a single exact product identity searched by SKU', () => {
         query: 'N042.A104',
         content: { data: [{ sku: 'N042.A104', name: 'T-Shirt "2. Wahl"' }] }
     }), true);
+});
+
+test('does not accept a similarly named product as an exact identity', () => {
+    assert.equal(isStrictExactCatalogIdentityMatch(
+        'Feuerzeug "Mein Herz brennt..."',
+        { sku: '021.A201', name: 'Feuerzeug "Unser Herz brennt..."' }
+    ), false);
+    assert.equal(isStrictExactCatalogIdentityMatch(
+        'Themenfaltblatt "Innere Sicherheit"',
+        { sku: '114.A5G23', name: 'Handzettel "Innere Sicherheit" - BW26' }
+    ), false);
+    assert.equal(isStrictExactCatalogIdentityMatch(
+        'Tase Freiheit',
+        { sku: 'N021.B4012', name: 'Tasse "Freiheit"' }
+    ), true);
+});
+
+test('keeps a lexical exact identity but permits a catalogue-language refinement', () => {
+    assert.equal(
+        exactIdentityValidationQuery(
+            'Feuerzeug "Mein Herz brennt..."',
+            'Feuerzeug "Unser Herz brennt..."'
+        ),
+        'Feuerzeug "Mein Herz brennt..."'
+    );
+    assert.equal(
+        exactIdentityValidationQuery('quả bóng đá AfD', 'Fußball AfD'),
+        'Fußball AfD'
+    );
 });

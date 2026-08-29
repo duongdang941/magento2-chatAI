@@ -1436,6 +1436,77 @@ test('does not render a replacement card after an anchored exact-identity miss',
     assert.equal(calls[0].args.exactSku, true);
 });
 
+test('keeps the original exact identity through a refinement and rejects a replacement card', async () => {
+    const calls = [];
+    const flow = createProviderNeutralToolFlow({
+        currentUserMessage: { text: 'Is Feuerzeug "Mein Herz brennt..." available?' },
+        options: {
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                if (calls.length === 1) {
+                    return {
+                        data: [],
+                        meta: {
+                            pagination: { total: 0, page: 1, page_size: 5, returned: 0, has_more: false },
+                            scope: { exact_query_miss: true }
+                        }
+                    };
+                }
+                return {
+                    data: [{ sku: '021.A201', name: 'Feuerzeug "Unser Herz brennt..."' }],
+                    html: '<div class="product-card">replacement</div>',
+                    meta: {
+                        pagination: { total: 1, page: 1, page_size: 5, returned: 1, has_more: false },
+                        scope: { exact_query_match: true }
+                    }
+                };
+            }
+        }
+    });
+    const activityPresentation = {
+        language: 'en',
+        runningLabel: 'Looking up products',
+        completedLabel: 'Finished looking up products',
+        failedLabel: 'Could not look up products',
+        runningSummary: 'Working for {duration}',
+        completedSummary: 'Worked for {duration}',
+        searchScope: 'in the store'
+    };
+    const first = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'Feuerzeug "Mein Herz brennt..."',
+            catalogIntent: 'product_search',
+            catalogIdentityKind: 'product_name',
+            exactIdentity: true,
+            responseLanguage: 'en',
+            responseLanguageEvidence: ['Is', 'available'],
+            activityPresentation
+        }
+    });
+    assert.equal(first.visibleProducts, false);
+
+    const refined = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'Feuerzeug "Unser Herz brennt..."',
+            catalogIntent: 'product_search',
+            catalogIdentityKind: 'product_name',
+            exactIdentity: true,
+            responseLanguage: 'en',
+            responseLanguageEvidence: ['Is', 'available'],
+            activityPresentation
+        }
+    });
+
+    assert.equal(refined.blocked, false);
+    assert.equal(refined.visibleProducts, false);
+    assert.equal(refined.productPresentation, null);
+    assert.equal(refined.outcome.content.meta.scope.exact_query_miss, true);
+    assert.equal(flow.getState().terminalCatalog, true);
+    assert.equal(calls.length, 2);
+});
+
 test('does not let a model drop the hard option constraint after attribute discovery', async () => {
     const calls = [];
     const flow = createProviderNeutralToolFlow({

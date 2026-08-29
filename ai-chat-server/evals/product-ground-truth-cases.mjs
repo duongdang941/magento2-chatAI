@@ -22,9 +22,9 @@ const activeTypos = [
     ['typo-strickmuetze', 'Shop có Strickmutze AfD không?', '022.G104'],
     ['typo-herz-keyring', 'Tìm Herz Schlusselanhanger giúp tôi.', '021.F301'],
     ['typo-tasse', 'Có Tase Freiheit không?', 'N021.B4012'],
-    ['typo-regenschirm', 'Tôi muốn tìm Regenschrim AfD.', 'N021.C102'],
-    ['typo-aschenbecher', 'Shop bán Aschenbescher AfD chứ?', '021.H901'],
-    ['typo-osterhase', 'Tìm Schokoladen Osterhasse cho tôi.', '021.E103'],
+    ['typo-regenschirm', 'Tôi muốn tìm Regenschrim hellblau AfD.', 'N021.C103'],
+    ['typo-verfassungsschutz-sticker', 'Shop có Aufkleber Verfassungschuz không?', 'N024.H6015'],
+    ['typo-papierfaehnchen', 'Tìm Papierfahnchen AfD cho tôi.', 'N021.B7014'],
     ['typo-sunglasses', 'Có Sonenbrille Deutschland im Blick không?', '021.G501'],
     ['typo-election-2026', 'Tìm Wahlprogram 2026 BW26.', '114.B5O38']
 ].map(([id, prompt, sku]) => ({ id, group: 'active_typo', prompt, expectedSkus: [sku] }));
