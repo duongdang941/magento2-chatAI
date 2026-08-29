@@ -110,6 +110,12 @@ export function createProviderNeutralToolFlow({
         terminalCatalog: false,
         taxonomyOverviewResolved: false,
         attributeConstraintRequested: false,
+        // Attribute discovery is only an intermediate step. Once Magento has
+        // returned the real attribute values, every provider must make the
+        // constrained product retrieval before it can give final prose.
+        // This is structural state from the executed tools, not a keyword or
+        // locale guess from shopper text.
+        attributeConstraintSearchRequired: false,
         attributeAlternativeRequired: false,
         attributeAlternativeDiscoveryComplete: false,
         similarityFallbackUsed: false,
@@ -214,6 +220,7 @@ export function createProviderNeutralToolFlow({
         shouldForceProductSearch: () => (
             catalogRetrievalPolicy.shouldForceProductSearch()
             || state.bodyFitSearchRequired
+            || state.attributeConstraintSearchRequired
             || state.catalogQueryRefinementRequired
         ),
         shouldForceProductAvailability: () => (
@@ -1130,15 +1137,18 @@ export function createProviderNeutralToolFlow({
                 const requestedVariantAttribute = requiresVariantAttribute(rawArgs);
                 if (similarityFallback) {
                     state.attributeConstraintRequested = false;
+                    state.attributeConstraintSearchRequired = false;
                     state.attributeAlternativeRequired = false;
                     state.attributeAlternativeDiscoveryComplete = false;
                     state.similarityFallbackUsed = true;
                 } else if (hasRequiredVariantOptionConstraint(normalizedArgs)) {
                     state.attributeConstraintRequested = false;
+                    state.attributeConstraintSearchRequired = false;
                     state.attributeAlternativeRequired = catalogSearchReturnedNoProducts(content);
                     state.attributeAlternativeDiscoveryComplete = state.attributeAlternativeRequired;
                 } else if (hasRequiredVariantAttributeCode(normalizedArgs)) {
                     state.attributeConstraintRequested = false;
+                    state.attributeConstraintSearchRequired = false;
                     state.attributeAlternativeRequired = false;
                     state.attributeAlternativeDiscoveryComplete = false;
                 } else if (requestedVariantAttribute && catalogSearchReturnedNoProducts(content)) {
@@ -1162,6 +1172,9 @@ export function createProviderNeutralToolFlow({
                 && !content?.error
                 && String(content?.status || '').toLowerCase() !== 'error') {
                 state.attributeAlternativeDiscoveryComplete = true;
+                if (state.attributeConstraintRequested) {
+                    state.attributeConstraintSearchRequired = true;
+                }
             }
             if (toolName === 'listVariantAttributes' && bodyFitSizeRange) {
                 verifiedBodyFitConstraint = bodyFitConstraintFromDiscovery(

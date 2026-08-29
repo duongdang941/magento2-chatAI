@@ -5,10 +5,10 @@ const activeExact = [
     ['active-herz-keyring', 'Tìm giúp tôi Herz-Schlüsselanhänger.', '021.F301'],
     ['active-tasse-freiheit', 'Cửa hàng có Tasse "Freiheit" không?', 'N021.B4012'],
     ['active-grillzange', 'Tôi cần tìm Grillzange "AfD".', 'N023.G302'],
-    ['active-regenschirm', 'Có bán Regenschirm "AfD" không?', 'N021.C102'],
+    ['active-regenschirm', 'Có bán Regenschirm hellblau "AfD" không?', 'N021.C103'],
     ['active-eiskratzer', 'Tìm đúng sản phẩm Eiskratzer "AfD" cho tôi.', '021.H802'],
-    ['active-aschenbecher', 'Shop có Aschenbecher "AfD" không?', '021.H901'],
-    ['active-osterhase', 'Tôi muốn mua Schokoladen-Osterhase 21er-Zylinderbox.', '021.E103'],
+    ['active-verfassungsschutz-sticker', 'Shop có Aufkleber "Verfassungsschutz" không?', 'N024.H6015'],
+    ['active-papierfaehnchen', 'Tôi muốn mua Papierfähnchen AfD.', 'N021.B7014'],
     ['active-hissfahne', 'Tìm Hissfahne geöst "AfD" 150 x 90 cm.', '023.A604-1'],
     ['active-blue-shirt', 'Có T-Shirt blau personalisierbar không?', 'N022.A00'],
     ['active-zukunftsplan', 'Tìm Faltblatt "Zukunftsplan".', 'N054.A8B47'],
@@ -30,9 +30,9 @@ const activeTypos = [
 ].map(([id, prompt, sku]) => ({ id, group: 'active_typo', prompt, expectedSkus: [sku] }));
 
 const disabledExact = [
-    ['disabled-faltfaecher', 'Tôi muốn tìm sản phẩm Faltfächer "Sonnenaufgang", cửa hàng có không?', ['021.E301', 'N021.E301']],
+    ['disabled-aschenbecher', 'Shop có Aschenbecher "AfD" không?', ['021.H901']],
     ['disabled-lighter', 'Cửa hàng có Feuerzeug "Mein Herz brennt..." không?', ['021.A204']],
-    ['disabled-candy', 'Tôi muốn tìm đúng sản phẩm Fruchtbonbons, có bán không?', ['021.A601']],
+    ['disabled-osterhase', 'Tôi muốn mua Schokoladen-Osterhase 21er-Zylinderbox.', ['021.E103']],
     ['disabled-security-leaflet', 'Shop có Themenfaltblatt "Innere Sicherheit" không?', ['024.A8B5-1']],
     ['disabled-mut-deutschland', 'Tìm Programm-Faltblatt "Mut zu Deutschland".', ['024.A8B7-1']],
     ['disabled-lockdown', 'Có Faltblatt "Corona-Lockdown" không?', ['024.A8B4-1']],

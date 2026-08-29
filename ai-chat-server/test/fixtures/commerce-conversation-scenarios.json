@@ -7002,13 +7002,13 @@
     "turns": [
       {
         "role": "user",
-        "text": "Có bán Regenschirm \"AfD\" không?",
+        "text": "Có bán Regenschirm hellblau \"AfD\" không?",
         "expect": [
           "search",
           "expected_skus"
         ],
         "expected_skus": [
-          "N021.C102"
+          "N021.C103"
         ]
       },
       {
@@ -7019,7 +7019,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "N021.C102"
+          "N021.C103"
         ]
       },
       {
@@ -7030,7 +7030,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "N021.C102"
+          "N021.C103"
         ]
       },
       {
@@ -7062,13 +7062,13 @@
     "turns": [
       {
         "role": "user",
-        "text": "Có bán Regenschirm \"AfD\" không?",
+        "text": "Có bán Regenschirm hellblau \"AfD\" không?",
         "expect": [
           "search",
           "expected_skus"
         ],
         "expected_skus": [
-          "N021.C102"
+          "N021.C103"
         ]
       },
       {
@@ -7079,7 +7079,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "N021.C102"
+          "N021.C103"
         ]
       },
       {
@@ -7090,7 +7090,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "N021.C102"
+          "N021.C103"
         ]
       },
       {
@@ -7230,8 +7230,8 @@
     ]
   },
   {
-    "id": "grounded-continuity-active-aschenbecher",
-    "title": "continuity: active-aschenbecher",
+    "id": "grounded-continuity-active-verfassungsschutz-sticker",
+    "title": "continuity: active-verfassungsschutz-sticker",
     "locale": "vi",
     "catalog_topic": "active_exact",
     "requirements": {
@@ -7242,13 +7242,13 @@
     "turns": [
       {
         "role": "user",
-        "text": "Shop có Aschenbecher \"AfD\" không?",
+        "text": "Shop có Aufkleber \"Verfassungsschutz\" không?",
         "expect": [
           "search",
           "expected_skus"
         ],
         "expected_skus": [
-          "021.H901"
+          "N024.H6015"
         ]
       },
       {
@@ -7259,7 +7259,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "021.H901"
+          "N024.H6015"
         ]
       },
       {
@@ -7270,7 +7270,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "021.H901"
+          "N024.H6015"
         ]
       },
       {
@@ -7290,8 +7290,8 @@
     ]
   },
   {
-    "id": "grounded-language-switch-active-aschenbecher",
-    "title": "language-switch: active-aschenbecher",
+    "id": "grounded-language-switch-active-verfassungsschutz-sticker",
+    "title": "language-switch: active-verfassungsschutz-sticker",
     "locale": "mixed",
     "catalog_topic": "active_exact",
     "requirements": {
@@ -7302,13 +7302,13 @@
     "turns": [
       {
         "role": "user",
-        "text": "Shop có Aschenbecher \"AfD\" không?",
+        "text": "Shop có Aufkleber \"Verfassungsschutz\" không?",
         "expect": [
           "search",
           "expected_skus"
         ],
         "expected_skus": [
-          "021.H901"
+          "N024.H6015"
         ]
       },
       {
@@ -7319,7 +7319,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "021.H901"
+          "N024.H6015"
         ]
       },
       {
@@ -7330,7 +7330,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "021.H901"
+          "N024.H6015"
         ]
       },
       {
@@ -7350,8 +7350,8 @@
     ]
   },
   {
-    "id": "grounded-continuity-active-osterhase",
-    "title": "continuity: active-osterhase",
+    "id": "grounded-continuity-active-papierfaehnchen",
+    "title": "continuity: active-papierfaehnchen",
     "locale": "vi",
     "catalog_topic": "active_exact",
     "requirements": {
@@ -7362,13 +7362,13 @@
     "turns": [
       {
         "role": "user",
-        "text": "Tôi muốn mua Schokoladen-Osterhase 21er-Zylinderbox.",
+        "text": "Tôi muốn mua Papierfähnchen AfD.",
         "expect": [
           "search",
           "expected_skus"
         ],
         "expected_skus": [
-          "021.E103"
+          "N021.B7014"
         ]
       },
       {
@@ -7379,7 +7379,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "021.E103"
+          "N021.B7014"
         ]
       },
       {
@@ -7390,7 +7390,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "021.E103"
+          "N021.B7014"
         ]
       },
       {
@@ -7410,8 +7410,8 @@
     ]
   },
   {
-    "id": "grounded-language-switch-active-osterhase",
-    "title": "language-switch: active-osterhase",
+    "id": "grounded-language-switch-active-papierfaehnchen",
+    "title": "language-switch: active-papierfaehnchen",
     "locale": "mixed",
     "catalog_topic": "active_exact",
     "requirements": {
@@ -7422,13 +7422,13 @@
     "turns": [
       {
         "role": "user",
-        "text": "Tôi muốn mua Schokoladen-Osterhase 21er-Zylinderbox.",
+        "text": "Tôi muốn mua Papierfähnchen AfD.",
         "expect": [
           "search",
           "expected_skus"
         ],
         "expected_skus": [
-          "021.E103"
+          "N021.B7014"
         ]
       },
       {
@@ -7439,7 +7439,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "021.E103"
+          "N021.B7014"
         ]
       },
       {
@@ -7450,7 +7450,7 @@
           "expected_skus"
         ],
         "expected_skus": [
-          "021.E103"
+          "N021.B7014"
         ]
       },
       {
@@ -9270,8 +9270,8 @@
     ]
   },
   {
-    "id": "grounded-continuity-disabled-faltfaecher",
-    "title": "continuity: disabled-faltfaecher",
+    "id": "grounded-continuity-disabled-aschenbecher",
+    "title": "continuity: disabled-aschenbecher",
     "locale": "vi",
     "catalog_topic": "disabled",
     "requirements": {
@@ -9283,7 +9283,7 @@
     "turns": [
       {
         "role": "user",
-        "text": "Tôi muốn tìm sản phẩm Faltfächer \"Sonnenaufgang\", cửa hàng có không?",
+        "text": "Shop có Aschenbecher \"AfD\" không?",
         "expect": [
           "unavailable_exact"
         ],
@@ -9328,8 +9328,8 @@
     ]
   },
   {
-    "id": "grounded-language-switch-disabled-faltfaecher",
-    "title": "language-switch: disabled-faltfaecher",
+    "id": "grounded-language-switch-disabled-aschenbecher",
+    "title": "language-switch: disabled-aschenbecher",
     "locale": "mixed",
     "catalog_topic": "disabled",
     "requirements": {
@@ -9341,7 +9341,7 @@
     "turns": [
       {
         "role": "user",
-        "text": "Tôi muốn tìm sản phẩm Faltfächer \"Sonnenaufgang\", cửa hàng có không?",
+        "text": "Shop có Aschenbecher \"AfD\" không?",
         "expect": [
           "unavailable_exact"
         ],
@@ -9502,8 +9502,8 @@
     ]
   },
   {
-    "id": "grounded-continuity-disabled-candy",
-    "title": "continuity: disabled-candy",
+    "id": "grounded-continuity-disabled-osterhase",
+    "title": "continuity: disabled-osterhase",
     "locale": "vi",
     "catalog_topic": "disabled",
     "requirements": {
@@ -9515,7 +9515,7 @@
     "turns": [
       {
         "role": "user",
-        "text": "Tôi muốn tìm đúng sản phẩm Fruchtbonbons, có bán không?",
+        "text": "Tôi muốn mua Schokoladen-Osterhase 21er-Zylinderbox.",
         "expect": [
           "unavailable_exact"
         ],
@@ -9560,8 +9560,8 @@
     ]
   },
   {
-    "id": "grounded-language-switch-disabled-candy",
-    "title": "language-switch: disabled-candy",
+    "id": "grounded-language-switch-disabled-osterhase",
+    "title": "language-switch: disabled-osterhase",
     "locale": "mixed",
     "catalog_topic": "disabled",
     "requirements": {
@@ -9573,7 +9573,7 @@
     "turns": [
       {
         "role": "user",
-        "text": "Tôi muốn tìm đúng sản phẩm Fruchtbonbons, có bán không?",
+        "text": "Tôi muốn mua Schokoladen-Osterhase 21er-Zylinderbox.",
         "expect": [
           "unavailable_exact"
         ],

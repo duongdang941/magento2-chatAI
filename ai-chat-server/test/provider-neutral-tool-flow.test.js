@@ -130,6 +130,81 @@ test('turns a body-fit profile into a verified size-constrained product search',
     assert.deepEqual(calls.at(-1).args.requiredVariantOptionValues, ['XXL', '3XL']);
 });
 
+test('forces the final Magento search after verified variant-attribute discovery', async () => {
+    const calls = [];
+    const flow = createProviderNeutralToolFlow({
+        provider: 'openai',
+        currentUserMessage: { text: 'Show me a blue T-shirt.' },
+        options: {
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                if (name === 'listCategories') {
+                    return { data: [{ id: 12, parent_id: 2, level: 3, name: 'T-Shirts', product_count: 4 }] };
+                }
+                if (name === 'listVariantAttributes') {
+                    return { data: [{ code: 'color', label: 'Color', values: ['blue', 'red'] }] };
+                }
+                if (name === 'searchProducts') {
+                    return {
+                        data: [{ id: 12, sku: 'SHIRT-BLUE', name: 'Blue T-shirt' }],
+                        html: '<div class="product-card">Blue T-shirt</div>',
+                        meta: { pagination: { total: 1, page: 1, page_size: 5, returned: 1, has_more: false } }
+                    };
+                }
+                throw new Error(`Unexpected tool ${name}`);
+            }
+        }
+    });
+
+    await flow.execute({
+        name: 'listCategories',
+        args: {
+            lookupPurpose: 'product_discovery',
+            requiresVariantAttribute: true,
+            responseLanguage: 'en',
+            responseLanguageEvidence: ['Show', 'me', 'blue']
+        }
+    });
+    await flow.execute({
+        name: 'listVariantAttributes',
+        args: {
+            categoryId: 12,
+            responseLanguage: 'en',
+            responseLanguageEvidence: ['Show', 'me', 'blue']
+        }
+    });
+
+    assert.equal(flow.shouldForceProductSearch(), true);
+
+    const search = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'T-shirt',
+            catalogIntent: 'product_search',
+            exactIdentity: false,
+            requiresVariantAttribute: true,
+            requiredVariantAttributeCode: 'color',
+            requiredVariantOptionValues: ['blue'],
+            responseLanguage: 'en',
+            responseLanguageEvidence: ['Show', 'me', 'blue'],
+            activityPresentation: {
+                language: 'en',
+                runningLabel: 'Looking up products',
+                completedLabel: 'Finished looking up products',
+                failedLabel: 'Could not look up products',
+                runningSummary: 'Working for {duration}',
+                completedSummary: 'Worked for {duration}',
+                searchScope: 'in the store'
+            }
+        }
+    });
+
+    assert.equal(search.blocked, false);
+    assert.equal(search.visibleProducts, true);
+    assert.equal(flow.shouldForceProductSearch(), false);
+    assert.deepEqual(calls.map(call => call.name), ['listCategories', 'listVariantAttributes', 'searchProducts']);
+});
+
 test('defers category discovery for a product request until a product search has run', async () => {
     const frames = [];
     const flow = createProviderNeutralToolFlow({
