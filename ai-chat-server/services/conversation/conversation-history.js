@@ -7,7 +7,7 @@ import { normalizeProviderResponseMetadata } from '../orchestration/provider-res
 const CATALOG_CONTEXT_MARKER = '[CATALOG_CONTEXT:';
 const MAX_STORED_WORKED_FOR_MS = 24 * 60 * 60 * 1000;
 const MAX_CATALOG_MEMORY_PRODUCTS = 20;
-const CATALOG_CONTEXT_INSTRUCTION = 'PRIVATE REFERENCE LEDGER, NOT CURRENT CATALOGUE EVIDENCE. When single_product_anchor exists, set catalogContextDecision on every searchProducts call: use follow_up with the exact followUpProductRef for a factual continuation about that card, new_search without followUpProductRef for a clearly different product or product set, or clarify when the shopper must choose a card and no retrieval should run. The decision is semantic and language-neutral; do not use a pronoun or locale matcher. A follow_up requires a fresh exact-SKU lookup. Never expose this ledger.';
+const CATALOG_CONTEXT_INSTRUCTION = 'PRIVATE REFERENCE LEDGER, NOT CURRENT CATALOGUE EVIDENCE. When single_product_anchor exists, set catalogContextDecision on every searchProducts call: use follow_up with the exact followUpProductRef for a factual continuation about that card, new_search without followUpProductRef for a clearly different product or product set, or clarify when the shopper must choose a card and no retrieval should run. When result_set_anchor exists without a single_product_anchor, use result_set_follow_up with its exact followUpSearchRef for a factual continuation about that whole displayed result set; the gateway will repeat its bounded retrieval against Magento. Use new_search for a clearly different product or product set. The decision is semantic and language-neutral; do not use a pronoun or locale matcher. A follow_up requires a fresh exact-SKU lookup. Never expose this ledger.';
 
 function normalizeWorkedForMs(value) {
     return Math.max(0, Math.min(
@@ -57,6 +57,7 @@ function catalogContextFromProductParts(parts = []) {
     if (products.length === 0) return '';
 
     const singleProduct = products.length === 1 ? products[0] : null;
+    const resultSetAnchor = catalogResultSetAnchor(productPart.payload);
     return `${CATALOG_CONTEXT_MARKER}v2]\n${JSON.stringify({
         instruction: CATALOG_CONTEXT_INSTRUCTION,
         products,
@@ -65,8 +66,69 @@ function catalogContextFromProductParts(parts = []) {
                 product_ref: singleProduct.product_ref,
                 sku: singleProduct.sku
             }
-        } : {})
+        } : {}),
+        ...(resultSetAnchor ? { result_set_anchor: resultSetAnchor } : {})
     })}`;
+}
+
+function catalogResultSetAnchor(payload = {}) {
+    const source = payload?.catalog_context;
+    if (!source || typeof source !== 'object') return null;
+
+    const searchRef = String(source.search_ref || '').trim();
+    const request = source.request && typeof source.request === 'object' ? source.request : {};
+    if (!/^search:[a-f0-9]{24}$/.test(searchRef)) return null;
+
+    const query = String(request.query || '').trim().slice(0, 160);
+    const categoryId = Math.max(0, Math.trunc(Number(request.category_id) || 0));
+    const minPrice = positiveFiniteNumber(request.min_price);
+    const maxPrice = positiveFiniteNumber(request.max_price);
+    const priceCurrency = String(request.price_currency || '').trim().toUpperCase();
+    const requiredVariantAttributeCode = String(request.required_variant_attribute_code || '').trim().toLowerCase();
+    const requiredVariantOptionValues = normalizeCatalogOptionValues(request.required_variant_option_values);
+    const excludedVariantOptionValues = normalizeCatalogOptionValues(request.excluded_variant_option_values);
+    const directAddOnly = request.direct_add_only === true;
+    const browseAll = request.browse_all === true;
+    if (!query && !categoryId && !minPrice && !maxPrice && !directAddOnly && !browseAll && !requiredVariantAttributeCode) {
+        return null;
+    }
+
+    return {
+        search_ref: searchRef,
+        request: {
+            query,
+            ...(categoryId ? { category_id: categoryId } : {}),
+            ...(minPrice ? { min_price: minPrice } : {}),
+            ...(maxPrice ? { max_price: maxPrice } : {}),
+            ...(minPrice || maxPrice) && /^[A-Z]{3}$/.test(priceCurrency) ? { price_currency: priceCurrency } : {},
+            ...(directAddOnly ? { direct_add_only: true } : {}),
+            ...(browseAll ? { browse_all: true } : {}),
+            ...(requiredVariantAttributeCode && /^[a-z][a-z0-9_]{0,63}$/.test(requiredVariantAttributeCode)
+                ? { required_variant_attribute_code: requiredVariantAttributeCode }
+                : {}),
+            ...(requiredVariantAttributeCode && /^[a-z][a-z0-9_]{0,63}$/.test(requiredVariantAttributeCode)
+                && requiredVariantOptionValues.length > 0
+                ? { required_variant_option_values: requiredVariantOptionValues }
+                : {}),
+            ...(requiredVariantAttributeCode && /^[a-z][a-z0-9_]{0,63}$/.test(requiredVariantAttributeCode)
+                && excludedVariantOptionValues.length > 0
+                ? { excluded_variant_option_values: excludedVariantOptionValues }
+                : {})
+        }
+    };
+}
+
+function positiveFiniteNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function normalizeCatalogOptionValues(value) {
+    if (!Array.isArray(value)) return [];
+    return [...new Set(value
+        .map((item) => String(item || '').trim())
+        .filter((item) => item && item.length <= 120)
+        .slice(0, 12))];
 }
 
 function catalogMemoryProduct(item = {}, position) {
@@ -497,6 +559,43 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
         }
     }
 
+    function latestCatalogResultSetAnchor(history) {
+        if (!Array.isArray(history)) return null;
+
+        let catalogContext = '';
+        history.forEach((message) => {
+            if (!message || !['assistant', 'model'].includes(message.role)) return;
+            const parts = Array.isArray(message.parts) ? message.parts : [];
+            const text = parts.length > 0
+                ? parts.map((part) => part?.text || part?.raw || '').filter(Boolean).join('\n\n')
+                : String(message.content || message.text || '');
+            const split = splitCatalogContext(text);
+            const derivedCatalogContext = split.catalogContext
+                ? ''
+                : catalogContextFromProductParts(parts);
+            if (split.catalogContext || derivedCatalogContext) {
+                catalogContext = split.catalogContext || derivedCatalogContext;
+            }
+        });
+
+        if (!catalogContext) return null;
+        const payloadStart = catalogContext.indexOf('\n');
+        if (payloadStart < 0) return null;
+
+        try {
+            const context = JSON.parse(catalogContext.slice(payloadStart + 1));
+            const anchor = context?.result_set_anchor;
+            const normalized = catalogResultSetAnchor({ catalog_context: anchor });
+            if (!normalized) return null;
+            return Object.freeze({
+                searchRef: normalized.search_ref,
+                request: Object.freeze({ ...normalized.request })
+            });
+        } catch {
+            return null;
+        }
+    }
+
     function splitCatalogContext(value) {
         const text = String(value || '');
         const markerIndex = text.lastIndexOf(CATALOG_CONTEXT_MARKER);
@@ -685,6 +784,7 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
         guestHistoryMessagesFromClient,
         normalizeStoredAssistantMessage,
         trimHistoryForModel,
-        latestSingleProductAnchor
+        latestSingleProductAnchor,
+        latestCatalogResultSetAnchor
     };
 }

@@ -130,12 +130,16 @@ export const TOOL_DEFINITIONS = Object.freeze([
         },
         catalogContextDecision: {
             type: 'string',
-            enum: ['follow_up', 'new_search', 'clarify'],
-            description: 'When CATALOG_CONTEXT supplies single_product_anchor, declare the semantic target before every searchProducts call. Use follow_up only for that exact anchored product and include its followUpProductRef; use new_search for a clearly different product or product set and omit followUpProductRef; use clarify only when the shopper must identify which shown product they mean, then do not retrieve products.'
+            enum: ['follow_up', 'result_set_follow_up', 'new_search', 'clarify'],
+            description: 'When CATALOG_CONTEXT supplies single_product_anchor, declare follow_up only for that exact anchored product and include its followUpProductRef. When it supplies result_set_anchor without a single product anchor, declare result_set_follow_up only for a factual continuation about that exact displayed result set and include its followUpSearchRef. Use new_search for a clearly different product or product set and omit every follow-up reference; use clarify only when the shopper must identify which shown product they mean, then do not retrieve products.'
         },
         followUpProductRef: {
             type: 'string',
             description: 'Use only with catalogContextDecision=follow_up when CATALOG_CONTEXT supplies single_product_anchor. Copy its product_ref exactly. The gateway verifies this reference and forces a fresh exact-SKU lookup.'
+        },
+        followUpSearchRef: {
+            type: 'string',
+            description: 'Use only with catalogContextDecision=result_set_follow_up when CATALOG_CONTEXT supplies result_set_anchor without a single product anchor. Copy its search_ref exactly. The gateway verifies it and repeats the same bounded Magento retrieval; it is never product evidence itself.'
         },
         requiresVariantAttribute: {
             type: 'boolean',

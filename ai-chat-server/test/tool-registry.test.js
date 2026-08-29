@@ -52,6 +52,7 @@ test('keeps canonical tool names unique and provider schemas derived from one re
     assert.equal(productSearch.parameters.required.includes('catalogIdentityKind'), true);
     assert.deepEqual(productSearch.parameters.properties.catalogContextDecision.enum, [
         'follow_up',
+        'result_set_follow_up',
         'new_search',
         'clarify'
     ]);

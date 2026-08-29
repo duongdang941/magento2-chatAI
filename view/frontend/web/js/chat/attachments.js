@@ -687,49 +687,60 @@
                                     .filter(Boolean)
                                     .join('\n\n')
                                 : '';
-                            const catalogProducts = m.parts
-                                ? m.parts
-                                    .filter(p => p.type === 'products' && p.payload && Array.isArray(p.payload.items))
-                                    .flatMap(p => p.payload.items.map((item, index) => {
-                                        if (!item || !item.sku || !item.name) return null;
-                                        const options = Array.isArray(item.variant_options)
-                                            ? item.variant_options
-                                                .map((option) => {
-                                                    const code = String(option?.code || '').trim();
-                                                    const label = String(option?.label || option?.code || '').trim();
-                                                    const values = Array.isArray(option?.values)
-                                                        ? option.values.map(value => String(value || '').trim()).filter(Boolean)
-                                                        : [];
-                                                    return code && values.length ? { code, label, values } : null;
-                                                })
-                                                .filter(Boolean)
-                                            : [];
-                                        const productUrl = String(item.url || '').trim();
-                                        return {
-                                            position: index + 1,
-                                            product_ref: item.product_ref || (item.id ? `product:${item.id}` : ''),
-                                            sku: String(item.sku),
-                                            // Keep the catalogue name only as a
-                                            // stable identifier for an explicit
-                                            // follow-up; price/stock/count stay
-                                            // out of the private ledger because
-                                            // they are time-sensitive evidence.
-                                            name: String(item.name),
-                                            // This URL was returned by Magento with the
-                                            // displayed card. Keep it only for an explicit
-                                            // later "open/get the link" request for this one
-                                            // card; it is not current price or availability
-                                            // evidence.
-                                            url: /^(?:https?:\/\/|\/)/i.test(productUrl)
-                                                ? productUrl.slice(0, 2048)
-                                                : '',
-                                            product_type: String(item.product_type || 'simple'),
-                                            requires_variant_selection: item.requires_variant_selection === true,
-                                            variant_options: options
-                                        };
-                                    }))
-                                    .filter(Boolean)
+                            const catalogParts = m.parts
+                                ? m.parts.filter(p => p.type === 'products' && p.payload && Array.isArray(p.payload.items))
                                 : [];
+                            const catalogProducts = catalogParts
+                                .flatMap(p => p.payload.items.map((item, index) => {
+                                    if (!item || !item.sku || !item.name) return null;
+                                    const options = Array.isArray(item.variant_options)
+                                        ? item.variant_options
+                                            .map((option) => {
+                                                const code = String(option?.code || '').trim();
+                                                const label = String(option?.label || option?.code || '').trim();
+                                                const values = Array.isArray(option?.values)
+                                                    ? option.values.map(value => String(value || '').trim()).filter(Boolean)
+                                                    : [];
+                                                return code && values.length ? { code, label, values } : null;
+                                            })
+                                            .filter(Boolean)
+                                        : [];
+                                    const productUrl = String(item.url || '').trim();
+                                    return {
+                                        position: index + 1,
+                                        product_ref: item.product_ref || (item.id ? `product:${item.id}` : ''),
+                                        sku: String(item.sku),
+                                        // Keep the catalogue name only as a
+                                        // stable identifier for an explicit
+                                        // follow-up; price/stock/count stay
+                                        // out of the private ledger because
+                                        // they are time-sensitive evidence.
+                                        name: String(item.name),
+                                        // This URL was returned by Magento with the
+                                        // displayed card. Keep it only for an explicit
+                                        // later "open/get the link" request for this one
+                                        // card; it is not current price or availability
+                                        // evidence.
+                                        url: /^(?:https?:\/\/|\/)/i.test(productUrl)
+                                            ? productUrl.slice(0, 2048)
+                                            : '',
+                                        product_type: String(item.product_type || 'simple'),
+                                        requires_variant_selection: item.requires_variant_selection === true,
+                                        variant_options: options
+                                    };
+                                }))
+                                .filter(Boolean);
+                            const rawResultSetAnchor = catalogParts.at(-1)?.payload?.catalog_context;
+                            const resultSetAnchor = rawResultSetAnchor
+                                && typeof rawResultSetAnchor === 'object'
+                                && /^search:[a-f0-9]{24}$/.test(String(rawResultSetAnchor.search_ref || ''))
+                                && rawResultSetAnchor.request
+                                && typeof rawResultSetAnchor.request === 'object'
+                                ? {
+                                    search_ref: String(rawResultSetAnchor.search_ref),
+                                    request: rawResultSetAnchor.request
+                                }
+                                : null;
                             const singleProductAnchor = catalogProducts.length === 1
                                 && catalogProducts[0].product_ref
                                 ? {
@@ -740,10 +751,13 @@
                             const catalogMemoryEnabled = config.features?.candidate_memory_enabled !== false;
                             const catalogContext = catalogMemoryEnabled && catalogProducts.length
                                 ? `[CATALOG_CONTEXT:v2]\n${JSON.stringify({
-                                    instruction: 'PRIVATE REFERENCE LEDGER, NOT CURRENT CATALOGUE EVIDENCE. Use only to resolve an unambiguous follow-up that explicitly gives product_ref/SKU, exactly names one previously shown card, or singularly refers to exactly one immediately preceding card. When single_product_anchor exists, it is the sole product target for an immediate semantically continuative but linguistically underspecified follow-up about that product\'s options, configuration, price, availability, purchase suitability, or comparison. Before every searchProducts call while this anchor exists, set catalogContextDecision to follow_up, new_search, or clarify. Use follow_up only for this anchor and copy its product_ref to followUpProductRef; the gateway will perform the fresh exact-SKU search. Use new_search for a clearly different product or product set and omit followUpProductRef. Use clarify when the shopper must choose a product, then do not retrieve products. This co-reference decision is semantic and language-neutral; do not depend on a fixed pronoun or translated phrase. Do not run category/attribute discovery or broaden to a product set for an anchored follow-up. For a link/open-page-only follow-up, return only that card\'s recorded Magento URL without a new search; do not reuse this ledger for price, stock, options, availability, recommendation, list, count, filter, or comparison claims. Never copy this ledger into customer prose or use it to create a text-only product list.',
+                                    instruction: 'PRIVATE REFERENCE LEDGER, NOT CURRENT CATALOGUE EVIDENCE. Use only to resolve an unambiguous follow-up that explicitly gives product_ref/SKU, exactly names one previously shown card, or singularly refers to exactly one immediately preceding card. When single_product_anchor exists, it is the sole product target for an immediate semantically continuative but linguistically underspecified follow-up about that product\'s options, configuration, price, availability, purchase suitability, or comparison. Before every searchProducts call while this anchor exists, set catalogContextDecision to follow_up, new_search, or clarify. Use follow_up only for this anchor and copy its product_ref to followUpProductRef; the gateway will perform the fresh exact-SKU search. When result_set_anchor exists without a single_product_anchor, use result_set_follow_up with its exact search_ref as followUpSearchRef for a factual follow-up about the whole displayed result set; the gateway will refresh the same bounded Magento retrieval. Use new_search for a clearly different product or product set and omit every follow-up reference. Use clarify when the shopper must choose a product, then do not retrieve products. This co-reference decision is semantic and language-neutral; do not depend on a fixed pronoun or translated phrase. Do not run category/attribute discovery or broaden to a product set for an anchored follow-up. For a link/open-page-only follow-up, return only that card\'s recorded Magento URL without a new search; do not reuse this ledger for price, stock, options, availability, recommendation, list, count, filter, or comparison claims. Never copy this ledger into customer prose or use it to create a text-only product list.',
                                     products: catalogProducts,
                                     ...(singleProductAnchor
                                         ? { single_product_anchor: singleProductAnchor }
+                                        : {}),
+                                    ...(resultSetAnchor
+                                        ? { result_set_anchor: resultSetAnchor }
                                         : {})
                                 })}`
                                 : '';

@@ -1066,6 +1066,199 @@ test('allows a declared new search beside an anchor without forwarding context c
     assert.equal(Object.hasOwn(calls[0].args, 'followUpProductRef'), false);
 });
 
+test('refreshes an exact multi-card result set only with its opaque search reference', async () => {
+    const anchor = {
+        searchRef: 'search:0a1b2c3d4e5f6a7b8c9d0e1f',
+        request: {
+            query: 'printed items',
+            categoryId: 17,
+            minPrice: 2.5,
+            priceCurrency: 'EUR',
+            requiredVariantAttributeCode: 'farbe',
+            requiredVariantOptionValues: ['schwarz']
+        }
+    };
+    const activityPresentation = {
+        language: 'en',
+        runningLabel: 'Looking up products {scope}',
+        completedLabel: 'Finished looking up products {scope}',
+        failedLabel: 'Could not look up products {scope}',
+        runningSummary: 'Working for {duration}',
+        completedSummary: 'Worked for {duration}',
+        searchScope: 'in {category}'
+    };
+
+    for (const followUpSearchRef of ['', 'search:ffffffffffffffffffffffff']) {
+        const calls = [];
+        const flow = createProviderNeutralToolFlow({
+            provider: 'openai',
+            currentUserMessage: { text: 'What is the current price range?' },
+            options: {
+                resultSetAnchor: anchor,
+                executeMagentoTool: async (name, args) => {
+                    calls.push({ name, args });
+                    return { data: [] };
+                }
+            }
+        });
+        const result = await flow.execute({
+            name: 'searchProducts',
+            args: {
+                query: 'unrelated products',
+                catalogIntent: 'product_search',
+                catalogIdentityKind: 'none',
+                exactIdentity: false,
+                catalogContextDecision: 'result_set_follow_up',
+                ...(followUpSearchRef ? { followUpSearchRef } : {}),
+                responseLanguage: 'en',
+                responseLanguageEvidence: ['What', 'current', 'price', 'range'],
+                activityPresentation
+            }
+        });
+        assert.equal(result.blocked, true, followUpSearchRef || 'missing reference');
+        assert.equal(result.outcome.content.reason, 'catalog_result_set_reference_required');
+        assert.deepEqual(calls, []);
+    }
+
+    const calls = [];
+    const flow = createProviderNeutralToolFlow({
+        provider: 'openai',
+        currentUserMessage: { text: 'What is the current price range?' },
+        options: {
+            resultSetAnchor: anchor,
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                return {
+                    data: [{ id: 701, sku: 'PRINT-701', name: 'Printed item' }],
+                    html: '<div class="product-card">Printed item</div>',
+                    meta: { pagination: { total: 1, page: 1, page_size: 5, returned: 1, has_more: false } }
+                };
+            }
+        }
+    });
+    const result = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'unrelated products',
+            catalogIntent: 'product_search',
+            catalogIdentityKind: 'none',
+            exactIdentity: false,
+            catalogContextDecision: 'result_set_follow_up',
+            followUpSearchRef: anchor.searchRef,
+            responseLanguage: 'en',
+            responseLanguageEvidence: ['What', 'current', 'price', 'range'],
+            activityPresentation
+        }
+    });
+
+    assert.equal(result.blocked, false);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].args.query, 'printed items');
+    assert.equal(calls[0].args.categoryId, 17);
+    assert.equal(calls[0].args.minPrice, 2.5);
+    assert.equal(calls[0].args.priceCurrency, 'EUR');
+    assert.equal(calls[0].args.requiredVariantAttributeCode, 'farbe');
+    assert.deepEqual(calls[0].args.requiredVariantOptionValues, ['schwarz']);
+    assert.equal(Object.hasOwn(calls[0].args, 'followUpSearchRef'), false);
+    assert.equal(Object.hasOwn(calls[0].args, 'catalogContextDecision'), false);
+
+    const newSearchCalls = [];
+    const newSearchFlow = createProviderNeutralToolFlow({
+        provider: 'openai',
+        currentUserMessage: { text: 'Show me posters instead.' },
+        options: {
+            resultSetAnchor: anchor,
+            executeMagentoTool: async (name, args) => {
+                newSearchCalls.push({ name, args });
+                return { data: [] };
+            }
+        }
+    });
+    const newSearch = await newSearchFlow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'posters',
+            catalogIntent: 'product_search',
+            catalogIdentityKind: 'none',
+            exactIdentity: false,
+            catalogContextDecision: 'new_search',
+            responseLanguage: 'en',
+            responseLanguageEvidence: ['Show', 'me', 'posters'],
+            activityPresentation: {
+                ...activityPresentation,
+                runningLabel: 'Looking up products {scope}',
+                completedLabel: 'Finished looking up products {scope}',
+                failedLabel: 'Could not look up products {scope}',
+                searchScope: 'in the store'
+            }
+        }
+    });
+    assert.equal(newSearch.blocked, false);
+    assert.equal(newSearchCalls[0].args.query, 'posters');
+    assert.equal(newSearchCalls[0].args.categoryId, undefined);
+});
+
+test('keeps prose and cards on the same product result set within one shopper turn', async () => {
+    const calls = [];
+    const flow = createProviderNeutralToolFlow({
+        provider: 'gemini',
+        currentUserMessage: { text: 'Are there inexpensive printed items?' },
+        options: {
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                return {
+                    data: [{ id: 11, sku: 'PRINT-LOW', name: 'Low-cost printed item', price: '1.00 EUR' }],
+                    html: '<div class="product-card">Low-cost printed item</div>',
+                    meta: { pagination: { total: 1, page: 1, page_size: 5, returned: 1, has_more: false } }
+                };
+            }
+        }
+    });
+    const activityPresentation = {
+        language: 'en',
+        runningLabel: 'Looking up products',
+        completedLabel: 'Finished looking up products',
+        failedLabel: 'Could not look up products',
+        runningSummary: 'Working for {duration}',
+        completedSummary: 'Worked for {duration}',
+        searchScope: 'in the store'
+    };
+
+    const first = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'printed items',
+            catalogIntent: 'product_search',
+            catalogIdentityKind: 'none',
+            exactIdentity: false,
+            responseLanguage: 'en',
+            responseLanguageEvidence: ['Are', 'there', 'inexpensive'],
+            activityPresentation
+        }
+    });
+    assert.equal(first.blocked, false);
+    assert.equal(first.visibleProducts, true);
+
+    const replacementAttempt = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'flyers',
+            catalogIntent: 'product_search',
+            catalogIdentityKind: 'none',
+            exactIdentity: false,
+            responseLanguage: 'en',
+            responseLanguageEvidence: ['Are', 'there', 'inexpensive'],
+            activityPresentation
+        }
+    });
+
+    assert.equal(replacementAttempt.blocked, true);
+    assert.equal(replacementAttempt.outcome.content.reason, 'catalog_result_set_already_presented');
+    assert.equal(replacementAttempt.visibleProducts, false);
+    assert.deepEqual(calls.map(call => call.args.query), ['printed items']);
+    assert.equal(flow.getState().hasVisibleProducts, true);
+});
+
 test('blocks clarification and multi-card follow-up references without a Magento search', async () => {
     const clarifyCalls = [];
     const clarifyFlow = createProviderNeutralToolFlow({

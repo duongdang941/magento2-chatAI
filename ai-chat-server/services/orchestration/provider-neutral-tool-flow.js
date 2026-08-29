@@ -39,7 +39,7 @@ import { reduceToolResultForModel } from './tool-context-reducer.js';
 import { createToolExecutionBudget, toolBudgetMessage } from './tool-execution-budget.js';
 
 const CATALOG_TOOLS = new Set(['searchProducts', 'listCategories', 'listVariantAttributes']);
-const CATALOG_CONTEXT_DECISIONS = new Set(['follow_up', 'new_search', 'clarify']);
+const CATALOG_CONTEXT_DECISIONS = new Set(['follow_up', 'result_set_follow_up', 'new_search', 'clarify']);
 const CATALOG_INTENTS = new Set(['product_search', 'store_sample']);
 const CATALOG_IDENTITY_KINDS = new Set(['sku', 'product_name', 'none']);
 const ORDER_TOOLS = new Set([
@@ -82,6 +82,7 @@ export function createProviderNeutralToolFlow({
     // BCP-47 tag consistent across one tool turn.
     let turnResponseLanguage = '';
     const singleProductAnchor = normalizeSingleProductAnchor(options.singleProductAnchor);
+    const resultSetAnchor = normalizeCatalogResultSetAnchor(options.resultSetAnchor);
     const bodyFitSizeRange = inferBodyFitSizeRange(shopperMessage);
     const catalogRetrievalPolicy = createCatalogRetrievalPolicy({ shopperMessage });
     const catalogQueryContinuity = createCatalogQueryContinuity();
@@ -246,10 +247,11 @@ export function createProviderNeutralToolFlow({
             }
             let isCatalogQueryRefinementSearch = false;
             const followUpProductRef = requestedFollowUpProductRef(rawArgs);
+            const followUpSearchRef = requestedFollowUpSearchRef(rawArgs);
             const catalogContextDecision = requestedCatalogContextDecision(rawArgs);
             const hasCatalogContextDecision = hasRequestedCatalogContextDecision(rawArgs);
-            const catalogIntent = requestedCatalogIntent(rawArgs);
-            const hasCatalogIntent = hasRequestedCatalogIntent(rawArgs);
+            let catalogIntent = requestedCatalogIntent(rawArgs);
+            let hasCatalogIntent = hasRequestedCatalogIntent(rawArgs);
             const catalogIdentityKind = requestedCatalogIdentityKind(rawArgs);
             const languageMismatch = toolPresentationLanguageMismatch(rawArgs, turnResponseLanguage);
             if (languageMismatch) {
@@ -283,6 +285,7 @@ export function createProviderNeutralToolFlow({
             }));
 
             let anchoredFollowUp = false;
+            let anchoredResultSetFollowUp = false;
             let catalogIntentIssue = null;
             if (toolName === 'searchProducts') {
                 // This exposes only bounded, semantic state. In particular it
@@ -290,10 +293,12 @@ export function createProviderNeutralToolFlow({
                 logger.debug('tool-flow', 'Evaluating catalogue context decision', {
                     tool: toolName,
                     has_single_product_anchor: Boolean(singleProductAnchor),
+                    has_result_set_anchor: Boolean(resultSetAnchor),
                     catalog_context_decision: CATALOG_CONTEXT_DECISIONS.has(catalogContextDecision)
                         ? catalogContextDecision
                         : (hasCatalogContextDecision ? 'invalid' : 'missing'),
-                    has_follow_up_reference: Boolean(followUpProductRef)
+                    has_follow_up_product_reference: Boolean(followUpProductRef),
+                    has_follow_up_search_reference: Boolean(followUpSearchRef)
                 });
 
                 if (singleProductAnchor) {
@@ -306,7 +311,7 @@ export function createProviderNeutralToolFlow({
                     if (!CATALOG_CONTEXT_DECISIONS.has(catalogContextDecision)) {
                         return blockCatalogContextDecision(
                             'catalog_context_decision_invalid',
-                            'catalogContextDecision must be exactly follow_up, new_search, or clarify. Do not search until the structured catalogue-context decision is valid.'
+                            'catalogContextDecision must be exactly follow_up, result_set_follow_up, new_search, or clarify. Do not search until the structured catalogue-context decision is valid.'
                         );
                     }
                     if (catalogContextDecision === 'clarify') {
@@ -316,12 +321,17 @@ export function createProviderNeutralToolFlow({
                         );
                     }
                     if (catalogContextDecision === 'new_search') {
-                        if (followUpProductRef) {
+                        if (followUpProductRef || followUpSearchRef) {
                             return blockCatalogContextDecision(
                                 'catalog_context_decision_conflict',
-                                'A new product or product-set search must not include followUpProductRef. Remove that correlation reference and perform the fresh retrieval from the shopper request.'
+                                'A new product or product-set search must not include a follow-up correlation reference. Remove followUpProductRef and followUpSearchRef, then perform the fresh retrieval from the shopper request.'
                             );
                         }
+                    } else if (catalogContextDecision === 'result_set_follow_up') {
+                        return blockCatalogContextDecision(
+                            'single_product_follow_up_required',
+                            'The latest catalogue context identifies one exact product card. Use catalogContextDecision=follow_up with its followUpProductRef, not result_set_follow_up.'
+                        );
                     } else {
                         // A provider-declared exact identity is a fresh
                         // retrieval contract.  Do not let it be overwritten
@@ -345,6 +355,48 @@ export function createProviderNeutralToolFlow({
                         rawArgs = anchorExactProductSearch(rawArgs, singleProductAnchor);
                         anchoredFollowUp = true;
                     }
+                } else if (resultSetAnchor) {
+                    if (!hasCatalogContextDecision || !catalogContextDecision) {
+                        return blockCatalogContextDecision(
+                            'catalog_context_decision_required',
+                            'A latest multi-card result set exists. Repeat this searchProducts call with catalogContextDecision set to result_set_follow_up, new_search, or clarify. Do not infer a search scope from prose outside this structured decision.'
+                        );
+                    }
+                    if (!CATALOG_CONTEXT_DECISIONS.has(catalogContextDecision)) {
+                        return blockCatalogContextDecision(
+                            'catalog_context_decision_invalid',
+                            'catalogContextDecision must be exactly follow_up, result_set_follow_up, new_search, or clarify. Do not search until the structured catalogue-context decision is valid.'
+                        );
+                    }
+                    if (catalogContextDecision === 'clarify') {
+                        return blockCatalogContextDecision(
+                            'catalog_context_clarification_required',
+                            'The shopper reference is ambiguous across product cards. Do not call searchProducts or select a product. Ask the shopper to identify the product, SKU, or card they mean.'
+                        );
+                    }
+                    if (catalogContextDecision === 'follow_up') {
+                        return blockCatalogContextDecision(
+                            'single_product_anchor_unavailable',
+                            'The latest catalogue context is a multi-card result set, not one exact product. Do not use follow_up or guess a card. Use result_set_follow_up for the complete displayed result set, new_search for a different request, or ask the shopper to choose a card.'
+                        );
+                    }
+                    if (catalogContextDecision === 'new_search') {
+                        if (followUpProductRef || followUpSearchRef) {
+                            return blockCatalogContextDecision(
+                                'catalog_context_decision_conflict',
+                                'A new product or product-set search must not include a follow-up correlation reference. Remove followUpProductRef and followUpSearchRef, then perform the fresh retrieval from the shopper request.'
+                            );
+                        }
+                    } else {
+                        if (followUpProductRef || !followUpSearchRef || followUpSearchRef !== resultSetAnchor.searchRef) {
+                            return blockCatalogContextDecision(
+                                'catalog_result_set_reference_required',
+                                'A result_set_follow_up search must include the exact followUpSearchRef from result_set_anchor and no followUpProductRef. Do not guess, broaden, or use a different search reference.'
+                            );
+                        }
+                        rawArgs = anchorResultSetSearch(rawArgs, resultSetAnchor);
+                        anchoredResultSetFollowUp = true;
+                    }
                 } else if (followUpProductRef || catalogContextDecision === 'follow_up') {
                     return saveResult(registerResult({
                         name: toolName,
@@ -361,6 +413,11 @@ export function createProviderNeutralToolFlow({
                         agentConfig,
                         options
                     }));
+                } else if (followUpSearchRef || catalogContextDecision === 'result_set_follow_up') {
+                    return blockCatalogContextDecision(
+                        'catalog_result_set_anchor_unavailable',
+                        'The result-set follow-up anchor is unavailable or does not match the latest displayed grid. Do not guess or broaden the search. Make a clearly new product search, or ask the shopper to choose a card.'
+                    );
                 } else if (catalogContextDecision === 'clarify') {
                     return blockCatalogContextDecision(
                         'catalog_context_clarification_required',
@@ -368,6 +425,13 @@ export function createProviderNeutralToolFlow({
                     );
                 }
 
+                // A verified result-set continuation restores the prior
+                // Magento retrieval contract. Validate that restored shape,
+                // not a model-provided replacement, before it can execute.
+                if (anchoredResultSetFollowUp) {
+                    catalogIntent = requestedCatalogIntent(rawArgs);
+                    hasCatalogIntent = hasRequestedCatalogIntent(rawArgs);
+                }
                 catalogIntentIssue = validateCatalogIntent(rawArgs, catalogIntent, hasCatalogIntent);
                 if (!catalogIntentIssue && catalogIntent === 'store_sample') {
                     rawArgs = normalizeStoreSampleArguments(rawArgs);
@@ -380,10 +444,10 @@ export function createProviderNeutralToolFlow({
                 if (identityIssue) {
                     return blockCatalogContextDecision(identityIssue.reason, identityIssue.instruction);
                 }
-            } else if (followUpProductRef) {
+            } else if (followUpProductRef || followUpSearchRef) {
                 return blockCatalogContextDecision(
                     'single_product_anchor_unavailable',
-                    'followUpProductRef is valid only on searchProducts for the latest single product card. Do not reuse it for another tool.'
+                    'Follow-up product and result-set references are valid only on searchProducts for the latest catalogue context. Do not reuse them for another tool.'
                 );
             }
 
@@ -535,6 +599,33 @@ export function createProviderNeutralToolFlow({
                     name: toolName,
                     args: normalizedArgs,
                     content: resolvedCatalogIdentityBlock(),
+                    blocked: true,
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
+            }
+
+            // One assistant turn owns exactly one shopper-visible product
+            // result set. A second successful search would replace the cards
+            // emitted for the first search while the provider can still write
+            // its prose from the first tool result. That produces a factual
+            // mismatch such as a price claim for one product family beside
+            // cards from another family. Empty searches, taxonomy discovery,
+            // attribute discovery, availability verification and the bounded
+            // refinement flows above all happen before a grid exists, so this
+            // guard does not prevent those valid retrieval sequences.
+            if (toolName === 'searchProducts' && state.hasVisibleProducts) {
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: normalizedArgs,
+                    content: {
+                        status: 'blocked',
+                        reason: 'catalog_result_set_already_presented',
+                        instruction: 'This shopper turn already has one current Magento product grid. Do not run another product search, replace its cards, or introduce a second product family. Answer only from that current result set. A materially different product request starts on the shopper\'s next turn.'
+                    },
                     blocked: true,
                     state,
                     catalogQueryContinuity,
@@ -1443,6 +1534,10 @@ function requestedFollowUpProductRef(args = {}) {
     return String(args?.followUpProductRef ?? args?.follow_up_product_ref ?? '').trim();
 }
 
+function requestedFollowUpSearchRef(args = {}) {
+    return String(args?.followUpSearchRef ?? args?.follow_up_search_ref ?? '').trim();
+}
+
 function requestedCatalogContextDecision(args = {}) {
     return String(args?.catalogContextDecision ?? args?.catalog_context_decision ?? '')
         .trim()
@@ -1646,6 +1741,8 @@ function withoutCatalogContextControl(args = {}) {
         catalog_context_decision,
         followUpProductRef,
         follow_up_product_ref,
+        followUpSearchRef,
+        follow_up_search_ref,
         catalogIntent,
         catalog_intent,
         catalogQueryLanguage,
@@ -1665,6 +1762,66 @@ function normalizeSingleProductAnchor(anchor) {
     return /^product:\d{1,12}$/.test(productRef) && sku && sku.length <= 128
         ? Object.freeze({ productRef, sku })
         : null;
+}
+
+function normalizeCatalogResultSetAnchor(anchor) {
+    const searchRef = String(anchor?.searchRef ?? anchor?.search_ref ?? '').trim();
+    const source = anchor?.request && typeof anchor.request === 'object' ? anchor.request : {};
+    if (!/^search:[a-f0-9]{24}$/.test(searchRef)) return null;
+
+    const query = String(source.query || '').trim().slice(0, 160);
+    const categoryId = Math.max(0, Math.trunc(Number(source.categoryId ?? source.category_id) || 0));
+    const minPrice = positiveCatalogPrice(source.minPrice ?? source.min_price);
+    const maxPrice = positiveCatalogPrice(source.maxPrice ?? source.max_price);
+    const priceCurrency = String(source.priceCurrency ?? source.price_currency ?? '').trim().toUpperCase();
+    const directAddOnly = source.directAddOnly === true || source.direct_add_only === true;
+    const browseAll = source.browseAll === true || source.browse_all === true;
+    const requiredVariantAttributeCode = String(
+        source.requiredVariantAttributeCode ?? source.required_variant_attribute_code ?? ''
+    ).trim().toLowerCase();
+    const requiredVariantOptionValues = normalizedCatalogOptionValues(
+        source.requiredVariantOptionValues ?? source.required_variant_option_values
+    );
+    const excludedVariantOptionValues = normalizedCatalogOptionValues(
+        source.excludedVariantOptionValues ?? source.excluded_variant_option_values
+    );
+    const validAttributeCode = /^[a-z][a-z0-9_]{0,63}$/.test(requiredVariantAttributeCode);
+    if (!query && !categoryId && !minPrice && !maxPrice && !directAddOnly && !browseAll && !validAttributeCode) {
+        return null;
+    }
+
+    return Object.freeze({
+        searchRef,
+        request: Object.freeze({
+            query,
+            ...(categoryId ? { categoryId } : {}),
+            ...(minPrice ? { minPrice } : {}),
+            ...(maxPrice ? { maxPrice } : {}),
+            ...(minPrice || maxPrice) && /^[A-Z]{3}$/.test(priceCurrency) ? { priceCurrency } : {},
+            ...(directAddOnly ? { directAddOnly: true } : {}),
+            ...(browseAll ? { browseAll: true } : {}),
+            ...(validAttributeCode ? { requiredVariantAttributeCode } : {}),
+            ...(validAttributeCode && requiredVariantOptionValues.length > 0
+                ? { requiredVariantOptionValues }
+                : {}),
+            ...(validAttributeCode && excludedVariantOptionValues.length > 0
+                ? { excludedVariantOptionValues }
+                : {})
+        })
+    });
+}
+
+function positiveCatalogPrice(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function normalizedCatalogOptionValues(value) {
+    const source = Array.isArray(value) ? value : [];
+    return [...new Set(source
+        .map((item) => String(item || '').trim())
+        .filter((item) => item && item.length <= 120)
+        .slice(0, 12))];
 }
 
 /**
@@ -1707,6 +1864,78 @@ function anchorExactProductSearch(args, anchor) {
         ...passthrough,
         query: anchor.sku,
         exactIdentity: true
+    };
+}
+
+/**
+ * A multi-card result set has no safely implied individual product. Its
+ * follow-up therefore refreshes the exact prior retrieval contract, not a
+ * model-written broadening of the old shopper request. The correlation key
+ * itself is removed before Magento receives the request.
+ */
+function anchorResultSetSearch(args, anchor) {
+    const {
+        query,
+        categoryId,
+        category_id,
+        minPrice,
+        min_price,
+        maxPrice,
+        max_price,
+        priceCurrency,
+        price_currency,
+        directAddOnly,
+        direct_add_only,
+        browseAll,
+        browse_all,
+        exactIdentity,
+        exact_identity,
+        catalogIdentityKind,
+        catalog_identity_kind,
+        requiresVariantAttribute,
+        requires_variant_attribute,
+        similarityFallback,
+        similarity_fallback,
+        excludedTerms,
+        excluded_terms,
+        requiredVariantAttributeCode,
+        required_variant_attribute_code,
+        requiredVariantOptionValues,
+        required_variant_option_values,
+        excludedVariantOptionValues,
+        excluded_variant_option_values,
+        catalogContextDecision,
+        catalog_context_decision,
+        followUpProductRef,
+        follow_up_product_ref,
+        followUpSearchRef,
+        follow_up_search_ref,
+        catalogQueryLanguage,
+        catalog_query_language,
+        ...passthrough
+    } = args;
+    const request = anchor.request;
+    return {
+        ...passthrough,
+        query: request.query,
+        catalogIntent: request.browseAll === true ? 'store_sample' : 'product_search',
+        catalogIdentityKind: 'none',
+        exactIdentity: false,
+        ...(request.categoryId ? { categoryId: request.categoryId } : {}),
+        ...(request.minPrice ? { minPrice: request.minPrice } : {}),
+        ...(request.maxPrice ? { maxPrice: request.maxPrice } : {}),
+        ...(request.priceCurrency ? { priceCurrency: request.priceCurrency } : {}),
+        ...(request.directAddOnly ? { directAddOnly: true } : {}),
+        ...(request.browseAll ? { browseAll: true } : {}),
+        ...(request.requiredVariantAttributeCode
+            ? { requiredVariantAttributeCode: request.requiredVariantAttributeCode }
+            : {}),
+        ...(request.requiredVariantOptionValues?.length > 0
+            ? { requiredVariantOptionValues: request.requiredVariantOptionValues }
+            : {}),
+        ...(request.excludedVariantOptionValues?.length > 0
+            ? { excludedVariantOptionValues: request.excludedVariantOptionValues }
+            : {})
     };
 }
 

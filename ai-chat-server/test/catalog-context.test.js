@@ -98,7 +98,16 @@ test('catalog context creates no anchor when a grid contains multiple products',
                         items: [
                             { id: 1, sku: 'FIRST-1', name: 'First product' },
                             { id: 2, sku: 'SECOND-2', name: 'Second product' }
-                        ]
+                        ],
+                        catalog_context: {
+                            search_ref: 'search:0a1b2c3d4e5f6a7b8c9d0e1f',
+                            request: {
+                                query: 'printed items',
+                                category_id: 17,
+                                required_variant_attribute_code: 'farbe',
+                                required_variant_option_values: ['schwarz']
+                            }
+                        }
                     }
                 }]
             },
@@ -109,6 +118,15 @@ test('catalog context creates no anchor when a grid contains multiple products',
 
     const payload = catalogContextPayload(history[0].parts[0].text);
     assert.equal(Object.hasOwn(payload, 'single_product_anchor'), false);
+    assert.deepEqual(payload.result_set_anchor, {
+        search_ref: 'search:0a1b2c3d4e5f6a7b8c9d0e1f',
+        request: {
+            query: 'printed items',
+            category_id: 17,
+            required_variant_attribute_code: 'farbe',
+            required_variant_option_values: ['schwarz']
+        }
+    });
 });
 
 test('catalog context keeps only the returned URL for an exact-title link follow-up', () => {

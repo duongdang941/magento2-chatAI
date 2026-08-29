@@ -27,6 +27,7 @@ export function buildCatalogProductsPayload(content = {}, args = {}) {
         args.directAddOnly === true,
         args.browseAll === true
     );
+    const catalogContext = createCatalogResultSetContext(args, scope);
     const cardsShownAfterPage = pagination.page * pagination.page_size;
     const canLoadMore = pagination.has_more && cardsShownAfterPage < MAX_CATALOG_CARDS_IN_CHAT;
     const coverage = {
@@ -78,6 +79,11 @@ export function buildCatalogProductsPayload(content = {}, args = {}) {
                 truncated_for_chat: pagination.has_more && !continuation
             },
             scope,
+            // This is a private correlation contract which the browser keeps
+            // only in CATALOG_CONTEXT for a later semantic follow-up. It
+            // contains the retrieval constraints, never product facts; the
+            // follow-up still performs a fresh Magento search.
+            catalog_context: catalogContext,
             direct_add_only: scope.direct_add_only,
             ...(scope.browse_all ? { browse_all: true } : {}),
             ...(positivePrice(args.minPrice) ? { min_price: positivePrice(args.minPrice) } : {}),
@@ -96,6 +102,46 @@ export function buildCatalogProductsPayload(content = {}, args = {}) {
                 : {}),
             continuation
         }
+    };
+}
+
+/**
+ * Correlate a multi-card grid with its bounded Magento retrieval contract.
+ * A product reference is only safe for a single card; this reference serves
+ * the different case where a shopper asks a factual follow-up about the whole
+ * result set (for example its current price range). The hash is an opaque
+ * equality key, not an authorization token and never contains shopper text.
+ */
+function createCatalogResultSetContext(args = {}, scope = {}) {
+    const request = {
+        query: String(args.query || '').trim().slice(0, 160),
+        category_id: Math.max(0, Number(scope.category_id) || 0),
+        ...(positivePrice(args.minPrice) ? { min_price: positivePrice(args.minPrice) } : {}),
+        ...(positivePrice(args.maxPrice) ? { max_price: positivePrice(args.maxPrice) } : {}),
+        ...(normalizePriceCurrency(args.priceCurrency) ? { price_currency: normalizePriceCurrency(args.priceCurrency) } : {}),
+        ...(scope.direct_add_only === true ? { direct_add_only: true } : {}),
+        ...(scope.browse_all === true ? { browse_all: true } : {}),
+        ...(normalizeVariantAttributeCode(args.requiredVariantAttributeCode)
+            ? { required_variant_attribute_code: normalizeVariantAttributeCode(args.requiredVariantAttributeCode) }
+            : {}),
+        ...(normalizeVariantAttributeCode(args.requiredVariantAttributeCode)
+            && normalizeVariantOptionValues(args.requiredVariantOptionValues).length > 0
+            ? { required_variant_option_values: normalizeVariantOptionValues(args.requiredVariantOptionValues) }
+            : {}),
+        ...(normalizeVariantAttributeCode(args.requiredVariantAttributeCode)
+            && normalizeVariantOptionValues(args.excludedVariantOptionValues).length > 0
+            ? { excluded_variant_option_values: normalizeVariantOptionValues(args.excludedVariantOptionValues) }
+            : {})
+    };
+    const searchRef = crypto.createHash('sha256')
+        .update(JSON.stringify(request), 'utf8')
+        .digest('hex')
+        .slice(0, 24);
+
+    return {
+        version: 1,
+        search_ref: `search:${searchRef}`,
+        request
     };
 }
 

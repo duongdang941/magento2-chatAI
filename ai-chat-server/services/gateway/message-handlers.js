@@ -63,6 +63,7 @@ export function createMessageHandlers(deps) {
         restoreGuestHistoryFromClient,
         trimHistoryForModel,
         latestSingleProductAnchor,
+        latestCatalogResultSetAnchor,
         createActiveRun,
         clearActiveRun,
         isRunCancelled,
@@ -664,6 +665,7 @@ export function createMessageHandlers(deps) {
                 requestCustomerAddressForm: isCustomerAddressChangeRequest(currentUser.text),
                 conversationId,
                 singleProductAnchor: latestSingleProductAnchor(modelHistory),
+                resultSetAnchor: latestCatalogResultSetAnchor(modelHistory),
                 catalogScope: client.catalogScope || null,
                 sessionCookie: client.sessionCookie || '',
                 requestBrowserCart: (cart) => browserCartBridge.request(ws, {

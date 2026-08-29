@@ -292,6 +292,28 @@ test('extracts only a validated latest single-product anchor from catalog histor
     assert.equal(multipleProducts, null);
 });
 
+test('extracts a validated latest result-set anchor from persisted catalog history', () => {
+    const codec = createConversationHistoryCodec({ maxModelHistoryMessages: 16 });
+    const resultSetAnchor = codec.latestCatalogResultSetAnchor([{
+        role: 'model',
+        parts: [{
+            text: '[CATALOG_CONTEXT:v2]\n{"products":[{"product_ref":"product:701","sku":"SKU-701"},{"product_ref":"product:702","sku":"SKU-702"}],"result_set_anchor":{"search_ref":"search:0a1b2c3d4e5f6a7b8c9d0e1f","request":{"query":"printed items","category_id":17,"min_price":2.5,"price_currency":"EUR","required_variant_attribute_code":"farbe","required_variant_option_values":["schwarz"]}}}'
+        }]
+    }]);
+
+    assert.deepEqual(resultSetAnchor, {
+        searchRef: 'search:0a1b2c3d4e5f6a7b8c9d0e1f',
+        request: {
+            query: 'printed items',
+            category_id: 17,
+            min_price: 2.5,
+            price_currency: 'EUR',
+            required_variant_attribute_code: 'farbe',
+            required_variant_option_values: ['schwarz']
+        }
+    });
+});
+
 test('derives a private single-product anchor from a persisted product card', () => {
     const codec = createConversationHistoryCodec({ maxModelHistoryMessages: 16 });
     const history = [{

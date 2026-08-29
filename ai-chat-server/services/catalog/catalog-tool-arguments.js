@@ -22,6 +22,8 @@ export function normalizeSearchArguments(
     delete normalized.catalog_context_decision;
     delete normalized.followUpProductRef;
     delete normalized.follow_up_product_ref;
+    delete normalized.followUpSearchRef;
+    delete normalized.follow_up_search_ref;
     delete normalized.catalogIntent;
     delete normalized.catalog_intent;
     // The gateway consumes this structured identity metadata before sending a
