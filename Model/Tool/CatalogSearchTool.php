@@ -617,14 +617,19 @@ class CatalogSearchTool
     {
         $this->stockHelper->addInStockFilterToCollection($collection);
 
+        // Magento represents configurable parents with final_price = 0 in
+        // catalog_product_index_price; their actual shopper-facing “from”
+        // price lives in min_price.  Use the same index column Magento uses
+        // for product-list price ordering so a structured budget constraint
+        // cannot accidentally admit every configurable product.
         if ($minPrice > 0) {
-            $collection->getSelect()->where('price_index.final_price >= ?', $minPrice);
+            $collection->getSelect()->where('price_index.min_price >= ?', $minPrice);
         }
         if ($maxPrice > 0) {
-            $collection->getSelect()->where('price_index.final_price <= ?', $maxPrice);
+            $collection->getSelect()->where('price_index.min_price <= ?', $maxPrice);
         }
         if ($minPrice > 0 || $maxPrice > 0) {
-            $collection->getSelect()->order('price_index.final_price ASC');
+            $collection->getSelect()->order('price_index.min_price ASC');
         }
     }
 

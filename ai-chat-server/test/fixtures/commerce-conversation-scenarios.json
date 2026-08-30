@@ -6144,132 +6144,6 @@
     ]
   },
   {
-    "id": "commerce-khmer-flyer",
-    "title": "Nam Bộ: Faltblatt",
-    "locale": "Nam Bộ",
-    "dialect_marker": "hem",
-    "catalog_topic": {
-      "key": "flyer",
-      "query": "Faltblatt",
-      "title": "Faltblatt",
-      "kind": "configurable",
-      "variantFollowUp": "Nếu còn, kiểm tra giúp mình gói 500 chiếc. Nếu còn các tùy chọn khác thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể."
-    },
-    "requirements": {
-      "min_turns": 5,
-      "requires_catalog_context": true,
-      "requires_search_tool": true,
-      "requires_availability_tool": true,
-      "must_not_request_sku_again": true,
-      "must_not_invent_stock": true,
-      "configurable_qty_must_not_be_aggregated": true
-    },
-    "turns": [
-      {
-        "role": "user",
-        "text": "Tui cần tìm Faltblatt không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
-        "expect": [
-          "search"
-        ]
-      },
-      {
-        "role": "user",
-        "text": "Trong các kết quả, cái đầu tiên lúc nãy là Faltblatt. Cái đó còn hàng hem?",
-        "expect": [
-          "availability",
-          "memory"
-        ]
-      },
-      {
-        "role": "user",
-        "text": "Nếu còn, kiểm tra giúp mình gói 500 chiếc. Nếu còn các tùy chọn khác thì nói rõ cần chọn thêm gì, đừng cộng số lượng các biến thể.",
-        "expect": [
-          "availability",
-          "memory",
-          "variant_safety"
-        ]
-      },
-      {
-        "role": "user",
-        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
-        "expect": [
-          "memory",
-          "grounded_summary"
-        ]
-      },
-      {
-        "role": "user",
-        "text": "Nhắc lại giúp mình: đây là Faltblatt nào và mình đã hỏi gì ở lượt trước?",
-        "expect": [
-          "memory",
-          "natural_language"
-        ]
-      }
-    ]
-  },
-  {
-    "id": "commerce-khmer-sticker",
-    "title": "Nam Bộ: Aufkleber",
-    "locale": "Nam Bộ",
-    "dialect_marker": "hem",
-    "catalog_topic": {
-      "key": "sticker",
-      "query": "Aufkleber",
-      "title": "Aufkleber",
-      "kind": "simple"
-    },
-    "requirements": {
-      "min_turns": 5,
-      "requires_catalog_context": true,
-      "requires_search_tool": true,
-      "requires_availability_tool": true,
-      "must_not_request_sku_again": true,
-      "must_not_invent_stock": true,
-      "configurable_qty_must_not_be_aggregated": false
-    },
-    "turns": [
-      {
-        "role": "user",
-        "text": "Tui cần tìm Aufkleber không? Tìm giúp mình vài lựa chọn phù hợp nhé.",
-        "expect": [
-          "search"
-        ]
-      },
-      {
-        "role": "user",
-        "text": "Trong các kết quả, cái đầu tiên lúc nãy. Cái đó còn hàng hem?",
-        "expect": [
-          "availability",
-          "memory"
-        ]
-      },
-      {
-        "role": "user",
-        "text": "Nếu còn, kiểm tra chính xác số lượng đang bán được của đúng mẫu đó giúp mình.",
-        "expect": [
-          "availability",
-          "memory"
-        ]
-      },
-      {
-        "role": "user",
-        "text": "Mình chưa chốt mua đâu. Tóm tắt ngắn tên sản phẩm, lựa chọn đang liên quan và tồn kho vừa kiểm tra; nếu thiếu thông tin thì nói rõ thiếu gì.",
-        "expect": [
-          "memory",
-          "grounded_summary"
-        ]
-      },
-      {
-        "role": "user",
-        "text": "Nhắc lại giúp mình: đây là Aufkleber nào và mình đã hỏi gì ở lượt trước?",
-        "expect": [
-          "memory",
-          "natural_language"
-        ]
-      }
-    ]
-  },
-  {
     "id": "grounded-continuity-active-luftballons",
     "title": "continuity: active-luftballons",
     "locale": "vi",
@@ -11006,6 +10880,146 @@
           "unavailable_exact"
         ],
         "no_product_cards": true
+      }
+    ]
+  },
+  {
+    "id": "commerce-price-cap-vi",
+    "title": "Vietnamese: printed products within a budget",
+    "locale": "vi",
+    "catalog_topic": {
+      "key": "price-cap",
+      "query": "mặt hàng in ấn",
+      "title": "printed products",
+      "kind": "mixed"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_budget_filter": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Tôi cần vài mặt hàng in ấn có giá không quá 10 €. Chỉ hiển thị sản phẩm thực sự nằm trong mức giá này.",
+        "expect": [
+          "search"
+        ],
+        "max_card_price_eur": 10,
+        "contextual_price_amounts_eur": [
+          10
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Các sản phẩm vừa hiện có đúng là không vượt quá ngân sách 10 € không? Chỉ trả lời từ dữ liệu vừa kiểm tra.",
+        "expect": [
+          "memory"
+        ],
+        "contextual_price_amounts_eur": [
+          10
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Tóm tắt ngắn các lựa chọn đã tìm thấy và giá hiển thị của chúng, không thêm sản phẩm ngoài kết quả.",
+        "expect": [
+          "memory"
+        ],
+        "contextual_price_amounts_eur": [
+          10
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nếu không còn lựa chọn nào trong mức giá đó thì nói rõ, không gợi ý sản phẩm đắt hơn.",
+        "expect": [
+          "memory"
+        ],
+        "contextual_price_amounts_eur": [
+          10
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Nhắc lại điều kiện ngân sách mà tôi đã yêu cầu và phần nào đã được kiểm tra trực tiếp từ cửa hàng.",
+        "expect": [
+          "memory"
+        ],
+        "contextual_price_amounts_eur": [
+          10
+        ]
+      }
+    ]
+  },
+  {
+    "id": "commerce-price-cap-en",
+    "title": "English: printed products within a budget",
+    "locale": "en",
+    "catalog_topic": {
+      "key": "price-cap",
+      "query": "printed products",
+      "title": "printed products",
+      "kind": "mixed"
+    },
+    "requirements": {
+      "min_turns": 5,
+      "requires_catalog_context": true,
+      "requires_search_tool": true,
+      "requires_budget_filter": true
+    },
+    "turns": [
+      {
+        "role": "user",
+        "text": "Please show a few printed products priced at no more than €10. Only display items that actually meet that budget.",
+        "expect": [
+          "search"
+        ],
+        "max_card_price_eur": 10,
+        "contextual_price_amounts_eur": [
+          10
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Do the products just shown really stay within the €10 budget? Answer only from the verified result.",
+        "expect": [
+          "memory"
+        ],
+        "contextual_price_amounts_eur": [
+          10
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Briefly summarize the displayed options and their shown prices without adding products outside that result.",
+        "expect": [
+          "memory"
+        ],
+        "contextual_price_amounts_eur": [
+          10
+        ]
+      },
+      {
+        "role": "user",
+        "text": "If nothing remains within that budget, say so instead of suggesting a more expensive item.",
+        "expect": [
+          "memory"
+        ],
+        "contextual_price_amounts_eur": [
+          10
+        ]
+      },
+      {
+        "role": "user",
+        "text": "Recap the budget condition I set and which facts were checked directly from the store.",
+        "expect": [
+          "memory"
+        ],
+        "contextual_price_amounts_eur": [
+          10
+        ]
       }
     ]
   },

@@ -87,6 +87,57 @@ const regionalCatalogScenarios = dialects.flatMap((dialect) => catalogTopics.map
     };
 }));
 
+// These are evaluator fixtures rather than customer-facing copy. They make
+// the budget contract observable through the real gateway: every returned
+// card must be a current Magento card whose displayed price respects the
+// stated cap. The production model still derives language and terms from the
+// shopper message; no catalogue term or language is hard-coded in runtime.
+const withPriceCapContext = (turns) => turns.map((turn) => ({
+    ...turn,
+    contextual_price_amounts_eur: [10]
+}));
+
+const priceConstraintScenarios = [
+    {
+        id: 'commerce-price-cap-vi',
+        title: 'Vietnamese: printed products within a budget',
+        locale: 'vi',
+        catalog_topic: { key: 'price-cap', query: 'mặt hàng in ấn', title: 'printed products', kind: 'mixed' },
+        requirements: {
+            min_turns: 5,
+            requires_catalog_context: true,
+            requires_search_tool: true,
+            requires_budget_filter: true
+        },
+        turns: withPriceCapContext([
+            { role: 'user', text: 'Tôi cần vài mặt hàng in ấn có giá không quá 10 €. Chỉ hiển thị sản phẩm thực sự nằm trong mức giá này.', expect: ['search'], max_card_price_eur: 10 },
+            { role: 'user', text: 'Các sản phẩm vừa hiện có đúng là không vượt quá ngân sách 10 € không? Chỉ trả lời từ dữ liệu vừa kiểm tra.', expect: ['memory'] },
+            { role: 'user', text: 'Tóm tắt ngắn các lựa chọn đã tìm thấy và giá hiển thị của chúng, không thêm sản phẩm ngoài kết quả.', expect: ['memory'] },
+            { role: 'user', text: 'Nếu không còn lựa chọn nào trong mức giá đó thì nói rõ, không gợi ý sản phẩm đắt hơn.', expect: ['memory'] },
+            { role: 'user', text: 'Nhắc lại điều kiện ngân sách mà tôi đã yêu cầu và phần nào đã được kiểm tra trực tiếp từ cửa hàng.', expect: ['memory'] }
+        ])
+    },
+    {
+        id: 'commerce-price-cap-en',
+        title: 'English: printed products within a budget',
+        locale: 'en',
+        catalog_topic: { key: 'price-cap', query: 'printed products', title: 'printed products', kind: 'mixed' },
+        requirements: {
+            min_turns: 5,
+            requires_catalog_context: true,
+            requires_search_tool: true,
+            requires_budget_filter: true
+        },
+        turns: withPriceCapContext([
+            { role: 'user', text: 'Please show a few printed products priced at no more than €10. Only display items that actually meet that budget.', expect: ['search'], max_card_price_eur: 10 },
+            { role: 'user', text: 'Do the products just shown really stay within the €10 budget? Answer only from the verified result.', expect: ['memory'] },
+            { role: 'user', text: 'Briefly summarize the displayed options and their shown prices without adding products outside that result.', expect: ['memory'] },
+            { role: 'user', text: 'If nothing remains within that budget, say so instead of suggesting a more expensive item.', expect: ['memory'] },
+            { role: 'user', text: 'Recap the budget condition I set and which facts were checked directly from the store.', expect: ['memory'] }
+        ])
+    }
+];
+
 const productTruthScenarios = productGroundTruthCases
     .slice(0, 40)
     .flatMap((testCase) => [
@@ -238,8 +289,9 @@ const featureSafetyScenarios = [
 ];
 
 export const conversationScenarios = [
-    ...regionalCatalogScenarios,
+    ...regionalCatalogScenarios.slice(0, 98),
     ...productTruthScenarios,
+    ...priceConstraintScenarios,
     ...featureSafetyScenarios
 ];
 

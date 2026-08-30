@@ -6,11 +6,13 @@ import { conversationScenarios } from '../evals/conversation-scenarios.mjs';
 test('provides two hundred long commerce and feature-safety conversations', () => {
     assert.equal(conversationScenarios.length, 200);
     const ids = new Set();
-    const regional = conversationScenarios.filter((scenario) => scenario.catalog_topic && typeof scenario.catalog_topic === 'object');
+    const catalog = conversationScenarios.filter((scenario) => scenario.catalog_topic && typeof scenario.catalog_topic === 'object');
+    const regional = catalog.filter((scenario) => typeof scenario.dialect_marker === 'string');
     const safety = conversationScenarios.filter((scenario) => scenario.catalog_topic === 'feature-safety');
     const grounded = conversationScenarios.filter((scenario) => String(scenario.id).startsWith('grounded-'));
 
-    assert.equal(regional.length, 100);
+    assert.equal(catalog.length, 100);
+    assert.equal(regional.length, 98);
     assert.equal(grounded.length, 80);
     assert.equal(safety.length, 20);
 
