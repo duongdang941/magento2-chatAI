@@ -2,7 +2,7 @@ import {
     toOpenAiContent
 } from '../conversation/message-parts.js';
 import { summarizeError } from '../gateway/error-summary.js';
-import { readProviderErrorResponse } from '../providers/provider-error.js';
+import { providerErrorCode, readProviderErrorResponse } from '../providers/provider-error.js';
 import { createSmoothChunkEmitter } from '../conversation/smooth-chunk-emitter.js';
 import { emitProductPresentation } from '../catalog/product-presentation.js';
 import {
@@ -40,6 +40,11 @@ const configuredProviderStreamTimeout = Number(process.env.AI_PROVIDER_STREAM_TI
 const PROVIDER_STREAM_TIMEOUT_MS = Number.isFinite(configuredProviderStreamTimeout)
     ? Math.max(15000, Math.min(Math.trunc(configuredProviderStreamTimeout), 300000))
     : 120000;
+const CATALOG_CONTROL_RECOVERY_INSTRUCTION = [
+    'A required catalogue control or retrieval step is still pending.',
+    'Invoke the currently forced tool now before writing any customer-facing prose.'
+].join(' ');
+const MAX_CATALOG_CONTROL_RECOVERIES = 8;
 export const streamChatResponse = async (userMessage, ws, history = [], customerToken = null, config = {}, options = {}) => {
     const signal = options.signal || null;
     const isCancelled = () => signal?.aborted || (typeof options.isCancelled === 'function' && options.isCancelled());
@@ -47,7 +52,10 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
     const providerConfig = resolveProviderConfig(config);
     const { apiKey, model, candidates, label } = providerConfig;
     const useResponsesApi = config.api_format === 'openai-responses';
-    const tools = openAiToolDefinitions(provider, getProviderCapabilities(config));
+    // Custom Magento provider codes still speak the configured OpenAI wire
+    // protocol. Select the tool schema by protocol family, not the mutable
+    // Admin display code, so a custom provider retains catalogue tools.
+    const tools = openAiToolDefinitions('openai', getProviderCapabilities(config));
     const thoughtLevel = normalizeThoughtLevel(config.thought_level);
     const providerResponse = createProviderResponseEnvelope({
         provider: config.provider || provider,
@@ -94,6 +102,7 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         });
         ws.send(JSON.stringify({
             type: 'error',
+            error_code: providerErrorCode(error),
             content: formatProviderError(error, label)
         }));
         return { cancelled: false, error };
@@ -138,7 +147,9 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
     let finishReason = '';
     let forceFinalSynthesis = false;
     let languageRepairAttempts = 0;
+    let catalogGroundingRepairAttempts = 0;
     let emptyResponseRecoveryAttempts = 0;
+    let catalogControlRecoveryAttempts = 0;
     let hasExecutedToolBatch = false;
     const progressPulse = createResponseProgressPulse({ ws, isCancelled });
 
@@ -147,11 +158,15 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         // A provider turn that uses the final permitted tool batch still
         // needs one following turn to turn verified tool output into shopper
         // prose. That final turn deliberately receives no tool definitions.
-        for (let iteration = 0; iteration <= maxToolRounds + 1; iteration += 1) {
+        for (let iteration = 0; iteration <= maxToolRounds + 3 + MAX_CATALOG_CONTROL_RECOVERIES; iteration += 1) {
             if (isCancelled()) return { cancelled: true };
 
             const mandatoryAvailabilityPending = toolFlow.shouldForceProductAvailability();
-            const finalSynthesisOnly = !mandatoryAvailabilityPending && (
+            const mandatoryCatalogNeedDecision = toolFlow.shouldForceCatalogNeedResolution();
+            const mandatoryCatalogAnchorDecision = toolFlow.shouldForceCatalogAnchorResolution();
+            const mandatoryCategoryDiscovery = toolFlow.shouldForceCategoryDiscovery();
+            const mandatoryProductSearch = toolFlow.shouldForceProductSearch();
+            const finalSynthesisOnly = !mandatoryAvailabilityPending && !mandatoryCatalogNeedDecision && !mandatoryCatalogAnchorDecision && !mandatoryCategoryDiscovery && !mandatoryProductSearch && (
                 forceFinalSynthesis
                 || isFinalSynthesisTurn(iteration, maxToolRounds)
             );
@@ -182,7 +197,13 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                         : tools;
                     const forcedToolName = mandatoryAvailabilityPending
                         ? 'getProductAvailability'
-                        : (toolFlow.shouldForceProductSearch() ? 'searchProducts' : '');
+                        : mandatoryCatalogNeedDecision
+                            ? 'resolveCatalogNeed'
+                            : mandatoryCatalogAnchorDecision
+                                ? 'resolveCatalogAnchor'
+                                : mandatoryCategoryDiscovery
+                                    ? 'listCategories'
+                                    : (mandatoryProductSearch ? 'searchProducts' : '');
                     const toolSelection = finalSynthesisOnly
                         ? {}
                         : useResponsesApi
@@ -343,6 +364,12 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                     forceFinalSynthesis = true;
                     continue;
                 }
+                if ((mandatoryCatalogNeedDecision || mandatoryCategoryDiscovery || mandatoryProductSearch)
+                    && catalogControlRecoveryAttempts < MAX_CATALOG_CONTROL_RECOVERIES) {
+                    catalogControlRecoveryAttempts += 1;
+                    messages.push({ role: 'user', content: CATALOG_CONTROL_RECOVERY_INSTRUCTION });
+                    continue;
+                }
                 const finalCustomerText = (assistantMessage.content || '').trim();
                 const languageAssessment = toolFlow.assessFinalResponseLanguage(finalCustomerText);
                 if (finalCustomerText
@@ -353,6 +380,18 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                     messages.push({
                         role: 'user',
                         content: toolFlow.finalResponseLanguageRepairInstruction(languageAssessment)
+                    });
+                    continue;
+                }
+                const catalogGroundingAssessment = toolFlow.assessFinalResponseCatalogGrounding(finalCustomerText);
+                if (finalCustomerText
+                    && !catalogGroundingAssessment.accepted
+                    && catalogGroundingRepairAttempts < 1) {
+                    catalogGroundingRepairAttempts += 1;
+                    forceFinalSynthesis = true;
+                    messages.push({
+                        role: 'user',
+                        content: toolFlow.finalResponseCatalogGroundingRepairInstruction(catalogGroundingAssessment)
                     });
                     continue;
                 }
@@ -452,7 +491,11 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
 
         console.error(`[${label} Adapter]`, summarizeError(error));
         toolFlow.completePendingActivity();
-        ws.send(JSON.stringify({ type: 'error', content: formatProviderError(error, label) }));
+        ws.send(JSON.stringify({
+            type: 'error',
+            error_code: providerErrorCode(error),
+            content: formatProviderError(error, label)
+        }));
         return { cancelled: false, error };
     } finally {
         progressPulse.stop();

@@ -63,6 +63,20 @@ class CatalogIdentityMatcherTest extends TestCase
         ));
     }
 
+    public function testRequiresExactNormalizedTokenEvidenceBeforeTreatingAFulltextCardAsRelevant(): void
+    {
+        $matcher = new CatalogIdentityMatcher();
+
+        self::assertTrue($matcher->hasLexicalOverlap(
+            'Regenschirm hellblau AfD',
+            'Regenschirm hellblau "AfD"'
+        ));
+        self::assertFalse($matcher->hasLexicalOverlap(
+            'Regenschirm hellblau AfD',
+            'Metall-Kugelschreiber "Mut zur Wahrheit"'
+        ));
+    }
+
     public function testScoresACompleteDisabledIdentityCloserThanAnActiveAlternative(): void
     {
         $matcher = new CatalogIdentityMatcher();
@@ -86,5 +100,19 @@ class CatalogIdentityMatcherTest extends TestCase
         $matcher = new CatalogIdentityMatcher();
 
         self::assertNull($matcher->identityDistance('Herz', 'Feuerzeug "Mein Herz brennt..."'));
+    }
+
+    public function testRecognizesACompleteTitleEmbeddedInAShopperSentenceWithoutMatchingAReorderedTitle(): void
+    {
+        $matcher = new CatalogIdentityMatcher();
+
+        self::assertNotNull($matcher->embeddedIdentityDistance(
+            'Tôi muốn tìm Regenschrim hellblau AfD',
+            'Regenschirm hellblau "AfD"'
+        ));
+        self::assertNull($matcher->embeddedIdentityDistance(
+            'Tôi muốn tìm Regenschrim hellblau AfD',
+            'Regenschirm dunkelblau "AfD"'
+        ));
     }
 }

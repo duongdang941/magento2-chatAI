@@ -26,12 +26,17 @@ export function isStrictExactCatalogIdentityMatch(query, product = {}) {
     const candidateTokens = identityTokens(product?.name);
     if (queryTokens.length === 0 || candidateTokens.length === 0) return false;
 
-    return queryTokens.every((queryToken) => candidateTokens.some((candidateToken) => (
-        queryToken === candidateToken
-        || (queryToken.length >= 4
-            && candidateToken.length >= 4
-            && editDistance(queryToken, candidateToken) <= 1)
-    )));
+    if (queryTokens.every((queryToken) => candidateTokens.some((candidateToken) => (
+        identityTokenMatches(queryToken, candidateToken)
+    )))) {
+        return true;
+    }
+
+    // The provider can accidentally include surrounding shopper prose in an
+    // exact-title query. Accept it only when the complete catalogue title is
+    // preserved as one contiguous token sequence. This is language-neutral
+    // and rejects a reordered, partial, or merely related product title.
+    return isEmbeddedExactCatalogIdentityMatch(queryTokens, candidateTokens);
 }
 
 /**
@@ -101,6 +106,43 @@ function identityTokens(value) {
     return normalizeIdentity(value)
         .split(' ')
         .filter(token => token.length >= 3);
+}
+
+function isEmbeddedExactCatalogIdentityMatch(queryTokens, candidateTokens) {
+    if (candidateTokens.length > queryTokens.length) return false;
+    // A short single term is a product facet, not enough evidence that a
+    // longer sentence identifies one specific product.
+    if (candidateTokens.length === 1 && candidateTokens[0].length < 8) return false;
+
+    const lastStart = queryTokens.length - candidateTokens.length;
+    for (let start = 0; start <= lastStart; start += 1) {
+        const matches = candidateTokens.every((candidateToken, offset) => {
+            const queryToken = queryTokens[start + offset];
+            return identityTokenMatches(queryToken, candidateToken);
+        });
+        if (matches) return true;
+    }
+
+    return false;
+}
+
+function identityTokenMatches(queryToken, candidateToken) {
+    if (queryToken === candidateToken) return true;
+    if (queryToken.length < 4 || candidateToken.length < 4) return false;
+    return editDistance(queryToken, candidateToken) <= 1
+        || isAdjacentTransposition(queryToken, candidateToken);
+}
+
+function isAdjacentTransposition(left, right) {
+    if (left.length !== right.length || left.length < 2) return false;
+    const mismatches = [];
+    for (let index = 0; index < left.length; index += 1) {
+        if (left[index] !== right[index]) mismatches.push(index);
+        if (mismatches.length > 2) return false;
+    }
+    if (mismatches.length !== 2 || mismatches[1] !== mismatches[0] + 1) return false;
+    const [first, second] = mismatches;
+    return left[first] === right[second] && left[second] === right[first];
 }
 
 function editDistance(left, right) {

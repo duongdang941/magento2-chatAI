@@ -33,6 +33,12 @@ import {
     mergeProviderUsage
 } from './provider-response-envelope.js';
 
+const CATALOG_CONTROL_RECOVERY_INSTRUCTION = [
+    'A required catalogue control or retrieval step is still pending.',
+    'Invoke the currently forced tool now before writing any customer-facing prose.'
+].join(' ');
+const MAX_CATALOG_CONTROL_RECOVERIES = 8;
+
 // ==================== TOOLS DEFINITION ====================
 
 // Gemini now receives the same canonical tool surface as every
@@ -140,18 +146,24 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         let pendingProductPresentation = null;
         let forceFinalSynthesis = false;
         let languageRepairAttempts = 0;
+        let catalogGroundingRepairAttempts = 0;
         let emptyResponseRecoveryAttempts = 0;
+        let catalogControlRecoveryAttempts = 0;
         let hasExecutedToolBatch = false;
 
         // Reserve one final, tool-free Gemini request after the last allowed
         // tool batch so the model can produce its customer-facing synthesis.
-        for (let iteration = 0; iteration <= maxToolRounds + 1; iteration += 1) {
+        for (let iteration = 0; iteration <= maxToolRounds + 3 + MAX_CATALOG_CONTROL_RECOVERIES; iteration += 1) {
             if (isCancelled()) {
                 return { cancelled: true };
             }
 
             const mandatoryAvailabilityPending = toolFlow.shouldForceProductAvailability();
-            const finalSynthesisOnly = !mandatoryAvailabilityPending && (
+            const mandatoryCatalogNeedDecision = toolFlow.shouldForceCatalogNeedResolution();
+            const mandatoryCatalogAnchorDecision = toolFlow.shouldForceCatalogAnchorResolution();
+            const mandatoryCategoryDiscovery = toolFlow.shouldForceCategoryDiscovery();
+            const mandatoryProductSearch = toolFlow.shouldForceProductSearch();
+            const finalSynthesisOnly = !mandatoryAvailabilityPending && !mandatoryCatalogNeedDecision && !mandatoryCatalogAnchorDecision && !mandatoryCategoryDiscovery && !mandatoryProductSearch && (
                 forceFinalSynthesis
                 || isFinalSynthesisTurn(iteration, maxToolRounds)
             );
@@ -163,7 +175,13 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             // catalogue policy as OpenAI-compatible providers.
             const forcedToolName = mandatoryAvailabilityPending
                 ? 'getProductAvailability'
-                : (toolFlow.shouldForceProductSearch() ? 'searchProducts' : '');
+                : mandatoryCatalogNeedDecision
+                    ? 'resolveCatalogNeed'
+                    : mandatoryCatalogAnchorDecision
+                        ? 'resolveCatalogAnchor'
+                        : mandatoryCategoryDiscovery
+                            ? 'listCategories'
+                            : (mandatoryProductSearch ? 'searchProducts' : '');
             const request = {
                 contents: chatHistory,
                 ...(finalSynthesisOnly ? {
@@ -284,6 +302,16 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                     forceFinalSynthesis = true;
                     continue;
                 }
+                if ((mandatoryCatalogNeedDecision || mandatoryCategoryDiscovery || mandatoryProductSearch)
+                    && catalogControlRecoveryAttempts < MAX_CATALOG_CONTROL_RECOVERIES) {
+                    customerTurnBuffer.discard();
+                    catalogControlRecoveryAttempts += 1;
+                    chatHistory.push({
+                        role: 'user',
+                        parts: [{ text: CATALOG_CONTROL_RECOVERY_INSTRUCTION }]
+                    });
+                    continue;
+                }
                 const finalCustomerText = customerTurnBuffer.commit().trim();
                 const languageAssessment = toolFlow.assessFinalResponseLanguage(finalCustomerText);
                 if (finalCustomerText
@@ -294,6 +322,18 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                     chatHistory.push({
                         role: 'user',
                         parts: [{ text: toolFlow.finalResponseLanguageRepairInstruction(languageAssessment) }]
+                    });
+                    continue;
+                }
+                const catalogGroundingAssessment = toolFlow.assessFinalResponseCatalogGrounding(finalCustomerText);
+                if (finalCustomerText
+                    && !catalogGroundingAssessment.accepted
+                    && catalogGroundingRepairAttempts < 1) {
+                    catalogGroundingRepairAttempts += 1;
+                    forceFinalSynthesis = true;
+                    chatHistory.push({
+                        role: 'user',
+                        parts: [{ text: toolFlow.finalResponseCatalogGroundingRepairInstruction(catalogGroundingAssessment) }]
                     });
                     continue;
                 }

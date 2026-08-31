@@ -45,6 +45,7 @@ export function buildCatalogProductsPayload(content = {}, args = {}) {
             minPrice: positivePrice(args.minPrice),
             maxPrice: positivePrice(args.maxPrice),
             priceCurrency: normalizePriceCurrency(args.priceCurrency),
+            pricePreference: normalizePricePreference(args.pricePreference),
             directAddOnly: scope.direct_add_only,
             browseAll: scope.browse_all,
             requiredVariantAttributeCode: normalizeVariantAttributeCode(args.requiredVariantAttributeCode),
@@ -89,6 +90,7 @@ export function buildCatalogProductsPayload(content = {}, args = {}) {
             ...(positivePrice(args.minPrice) ? { min_price: positivePrice(args.minPrice) } : {}),
             ...(positivePrice(args.maxPrice) ? { max_price: positivePrice(args.maxPrice) } : {}),
             ...(normalizePriceCurrency(args.priceCurrency) ? { price_currency: normalizePriceCurrency(args.priceCurrency) } : {}),
+            ...(normalizePricePreference(args.pricePreference) === 'lowest' ? { price_preference: 'lowest' } : {}),
             ...(normalizeVariantAttributeCode(args.requiredVariantAttributeCode)
                 ? { required_variant_attribute_code: normalizeVariantAttributeCode(args.requiredVariantAttributeCode) }
                 : {}),
@@ -119,6 +121,7 @@ function createCatalogResultSetContext(args = {}, scope = {}) {
         ...(positivePrice(args.minPrice) ? { min_price: positivePrice(args.minPrice) } : {}),
         ...(positivePrice(args.maxPrice) ? { max_price: positivePrice(args.maxPrice) } : {}),
         ...(normalizePriceCurrency(args.priceCurrency) ? { price_currency: normalizePriceCurrency(args.priceCurrency) } : {}),
+        ...(normalizePricePreference(args.pricePreference) === 'lowest' ? { price_preference: 'lowest' } : {}),
         ...(scope.direct_add_only === true ? { direct_add_only: true } : {}),
         ...(scope.browse_all === true ? { browse_all: true } : {}),
         ...(normalizeVariantAttributeCode(args.requiredVariantAttributeCode)
@@ -192,6 +195,7 @@ export function rehydrateCatalogContinuation(payload = {}) {
             minPrice: positivePrice(payload.min_price ?? payload.minPrice),
             maxPrice: positivePrice(payload.max_price ?? payload.maxPrice),
             priceCurrency: normalizePriceCurrency(payload.price_currency ?? payload.priceCurrency),
+            pricePreference: normalizePricePreference(payload.price_preference ?? payload.pricePreference),
             directAddOnly: scope.direct_add_only,
             browseAll: scope.browse_all,
             requiredVariantAttributeCode: normalizeVariantAttributeCode(payload.required_variant_attribute_code),
@@ -226,6 +230,9 @@ export function rehydrateCatalogContinuation(payload = {}) {
         scope,
         direct_add_only: scope.direct_add_only,
         ...(scope.browse_all ? { browse_all: true } : {}),
+        ...(normalizePricePreference(payload.price_preference ?? payload.pricePreference) === 'lowest'
+            ? { price_preference: 'lowest' }
+            : {}),
         ...(normalizeVariantAttributeCode(payload.required_variant_attribute_code)
             ? { required_variant_attribute_code: normalizeVariantAttributeCode(payload.required_variant_attribute_code) }
             : {}),
@@ -250,6 +257,7 @@ export function createCatalogPageToken(context = {}) {
     const minPrice = positivePrice(context.minPrice);
     const maxPrice = positivePrice(context.maxPrice);
     const priceCurrency = normalizePriceCurrency(context.priceCurrency);
+    const pricePreference = normalizePricePreference(context.pricePreference);
     const requiredVariantAttributeCode = normalizeVariantAttributeCode(context.requiredVariantAttributeCode);
     const requiredVariantOptionValues = normalizeVariantOptionValues(context.requiredVariantOptionValues);
     const excludedVariantOptionValues = normalizeVariantOptionValues(context.excludedVariantOptionValues);
@@ -263,6 +271,7 @@ export function createCatalogPageToken(context = {}) {
         ...(minPrice ? { min_price: minPrice } : {}),
         ...(maxPrice ? { max_price: maxPrice } : {}),
         ...(priceCurrency ? { price_currency: priceCurrency } : {}),
+        ...(pricePreference === 'lowest' ? { price_preference: 'lowest' } : {}),
         ...(requiredVariantAttributeCode ? { required_variant_attribute_code: requiredVariantAttributeCode } : {}),
         ...(requiredVariantAttributeCode && requiredVariantOptionValues.length > 0
             ? { required_variant_option_values: requiredVariantOptionValues }
@@ -310,6 +319,7 @@ export function verifyCatalogPageToken(token) {
             ...(positivePrice(parsed.min_price) ? { minPrice: positivePrice(parsed.min_price) } : {}),
             ...(positivePrice(parsed.max_price) ? { maxPrice: positivePrice(parsed.max_price) } : {}),
             ...(normalizePriceCurrency(parsed.price_currency) ? { priceCurrency: normalizePriceCurrency(parsed.price_currency) } : {}),
+            ...(normalizePricePreference(parsed.price_preference) === 'lowest' ? { pricePreference: 'lowest' } : {}),
             ...(normalizeVariantAttributeCode(parsed.required_variant_attribute_code)
                 ? { requiredVariantAttributeCode: normalizeVariantAttributeCode(parsed.required_variant_attribute_code) }
                 : {}),
@@ -390,6 +400,10 @@ function positivePrice(value) {
 function normalizePriceCurrency(value) {
     const currency = String(value || '').trim().toUpperCase();
     return /^[A-Z]{3}$/.test(currency) ? currency : '';
+}
+
+function normalizePricePreference(value) {
+    return String(value || '').trim().toLowerCase() === 'lowest' ? 'lowest' : '';
 }
 
 function normalizeVariantAttributeCode(value) {

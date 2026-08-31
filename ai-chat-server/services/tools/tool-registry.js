@@ -101,7 +101,40 @@ const tool = (name, description, parameters, policy = {}) => {
     });
 };
 
+// This is a control-plane decision only. It is deliberately not a customer
+// action, so requiring the normal activityPresentation would invent a visible
+// status row for an internal catalogue-context decision.
+const internalTool = (name, description, parameters, policy = {}) => Object.freeze({
+    name,
+    description,
+    parameters,
+    policy: Object.freeze({
+        risk: policy.risk || 'read',
+        requiresCustomer: false,
+        requiresVerification: false,
+        providers: Object.freeze(policy.providers || ['openai', 'gemini', 'anthropic'])
+    })
+});
+
 export const TOOL_DEFINITIONS = Object.freeze([
+    internalTool('resolveCatalogNeed', 'Classify whether the shopper needs current Magento product catalogue evidence before any customer-facing response. This is an internal structured decision, never customer-facing text.', objectSchema({
+        decision: {
+            type: 'string',
+            enum: ['catalog_search', 'no_catalog_evidence'],
+            description: 'Use catalog_search when the shopper asks for products, categories, product facts, price, availability, options, compatibility, recommendations, or a continuation about displayed product cards. Use no_catalog_evidence only when the response can be truthful without any current product catalogue fact.'
+        }
+    }, ['decision'])),
+    internalTool('resolveCatalogAnchor', 'Classify how the latest catalogue reference relates to the shopper request before answering. This is an internal structured decision, never customer-facing text.', objectSchema({
+        decision: {
+            type: 'string',
+            enum: ['follow_up', 'select_product', 'result_set_follow_up', 'new_search', 'no_catalog_fact', 'clarify'],
+            description: 'Use follow_up when the shopper needs a current fact about the exact single anchored product. Use select_product only when the shopper unambiguously selected one card from a multi-card ledger, then copy that card\'s productRef exactly. Use result_set_follow_up for a current fact about the whole displayed set. Use new_search for a clearly different product or product set. Use no_catalog_fact for a response that makes no current catalogue claim. Use clarify only when one product cannot be identified.'
+        },
+        productRef: {
+            type: 'string',
+            description: 'Required only for select_product. Copy exactly one product_ref from the private ledger; never invent or derive a reference.'
+        }
+    }, ['decision'])),
     tool('searchProducts', 'Search real Magento products before answering catalogue questions.', objectSchema({
         query: { type: 'string' },
         catalogIntent: {
@@ -114,9 +147,14 @@ export const TOOL_DEFINITIONS = Object.freeze([
         limitEvidence: { type: 'string' },
         pageSize: { type: 'integer' },
         page: { type: 'integer' },
-        minPrice: { type: 'number' },
-        maxPrice: { type: 'number' },
-        priceCurrency: { type: 'string', description: 'ISO 4217 currency explicitly written by the shopper, for example USD.' },
+        minPrice: { type: 'number', description: 'Required for an explicit lower monetary threshold. Copy the numeric bound from the shopper request; never leave it only in query or prose.' },
+        maxPrice: { type: 'number', description: 'Required for an explicit upper monetary threshold. Copy the numeric bound from the shopper request; never leave it only in query or prose.' },
+        priceCurrency: { type: 'string', description: 'ISO 4217 code for an explicit shopper currency, for example USD. Required together with minPrice or maxPrice when the shopper writes a currency.' },
+        pricePreference: {
+            type: 'string',
+            enum: ['standard', 'lowest'],
+            description: 'Use lowest when the shopper semantically asks for the cheapest or lowest-priced matching products. This is a structured retrieval preference independent of the shopper language; otherwise use standard.'
+        },
         directAddOnly: { type: 'boolean' },
         exactIdentity: { type: 'boolean' },
         catalogIdentityKind: {
@@ -182,7 +220,7 @@ export const TOOL_DEFINITIONS = Object.freeze([
         sku: { type: 'string' },
         selectedOptions: { type: 'object', additionalProperties: { type: 'string' } }
     }, ['sku'])),
-    tool('listCategories', 'Inspect the real Magento category taxonomy. Use taxonomy_question only for a question about category structure, departments, or the types of goods the store carries. Never use it when the shopper asks to see a finite product sample: use searchProducts with catalogIntent=store_sample instead. Do not select a product category unless the shopper asks for one.', objectSchema({
+    tool('listCategories', 'Inspect the real Magento category taxonomy. Use taxonomy_question only for a question about category structure, departments, the types of goods the store carries, or the total number of products in the store. The result can include one verified distinct store-wide product total; use that value exactly and never derive a store total by adding category counts. Never use this tool when the shopper asks to see a finite product sample: use searchProducts with catalogIntent=store_sample instead. Do not select a product category unless the shopper asks for one.', objectSchema({
         lookupPurpose: {
             type: 'string',
             enum: ['product_discovery', 'taxonomy_question'],

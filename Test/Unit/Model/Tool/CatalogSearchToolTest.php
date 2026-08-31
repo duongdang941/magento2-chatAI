@@ -18,6 +18,7 @@ use Magento\Catalog\Model\ResourceModel\Category\CollectionFactory as CategoryCo
 use Magento\Catalog\Model\ResourceModel\Product\Collection;
 use Magento\Catalog\Model\ResourceModel\Product\CollectionFactory as ProductCollectionFactory;
 use Magento\CatalogInventory\Helper\Stock as StockHelper;
+use Magento\Framework\DB\Select;
 use Magento\Framework\Pricing\PriceCurrencyInterface;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
@@ -77,6 +78,7 @@ class CatalogSearchToolTest extends TestCase
             [],
             [],
             true,
+            'standard',
             $scope
         );
 
@@ -90,6 +92,67 @@ class CatalogSearchToolTest extends TestCase
         $method = new ReflectionMethod(CatalogSearchTool::class, 'shouldAttemptIdentityFallback');
 
         self::assertFalse($method->invoke($tool, 'SKU-42', true, true));
+    }
+
+    public function testNonExactSearchNarrowsOnlyOneUnambiguousIdentityCard(): void
+    {
+        $tool = $this->createTool(
+            $this->createMock(FulltextProductCollectionFactory::class),
+            $this->createMock(ProductCollectionFactory::class),
+            $this->createMock(StockHelper::class),
+            $this->createMock(CatalogVisibilityPolicyInterface::class),
+            new CatalogIdentityMatcher()
+        );
+        $method = new ReflectionMethod(CatalogSearchTool::class, 'filterPresentedUniqueIdentityMatch');
+        $products = [
+            ['name' => 'Aufkleber "Moped"'],
+            ['name' => 'Aufkleber "Autobahn"'],
+            ['name' => 'Aufkleber "Verfassungsschutz"']
+        ];
+
+        self::assertSame([
+            [['name' => 'Aufkleber "Verfassungsschutz"']],
+            [503]
+        ], $method->invoke($tool, 'Aufkleber Verfassungschuz', $products, [501, 502, 503]));
+    }
+
+    public function testNonExactSearchKeepsProductFamilyWhenClosestIdentityIsTied(): void
+    {
+        $tool = $this->createTool(
+            $this->createMock(FulltextProductCollectionFactory::class),
+            $this->createMock(ProductCollectionFactory::class),
+            $this->createMock(StockHelper::class),
+            $this->createMock(CatalogVisibilityPolicyInterface::class),
+            new CatalogIdentityMatcher()
+        );
+        $method = new ReflectionMethod(CatalogSearchTool::class, 'filterPresentedUniqueIdentityMatch');
+        $products = [
+            ['name' => 'T-Shirt "AfD" schwarz'],
+            ['name' => 'T-Shirt "AfD" weiß']
+        ];
+
+        self::assertNull($method->invoke($tool, 'T-Shirt AfD', $products, [501, 502]));
+    }
+
+    public function testRejectsAFallbackFulltextPageWithoutQueryEvidence(): void
+    {
+        $tool = $this->createTool(
+            $this->createMock(FulltextProductCollectionFactory::class),
+            $this->createMock(ProductCollectionFactory::class),
+            $this->createMock(StockHelper::class),
+            $this->createMock(CatalogVisibilityPolicyInterface::class),
+            new CatalogIdentityMatcher()
+        );
+        $method = new ReflectionMethod(CatalogSearchTool::class, 'hasVerifiedQueryLexicalEvidence');
+
+        self::assertFalse($method->invoke($tool, 'Kappe', [[
+            'name' => 'Metall-Kugelschreiber "Mut zur Wahrheit"',
+            'sku' => 'N021.A108',
+        ]]));
+        self::assertTrue($method->invoke($tool, 'Kappe', [[
+            'name' => 'Kappe "AfD" schwarz',
+            'sku' => 'N022.G004',
+        ]]));
     }
 
     public function testStorefrontVisibilityIsTheOnlyProductEligibilityFilter(): void
@@ -127,11 +190,44 @@ class CatalogSearchToolTest extends TestCase
         self::assertNotContains(['url_key', ['nlike' => 'demo%']], $attributeFilters);
     }
 
+    public function testLowestPricePreferenceResetsDefaultOrderBeforeSortingByShopperPrice(): void
+    {
+        $select = $this->createMock(Select::class);
+        $select->expects(self::once())
+            ->method('reset')
+            ->with(Select::ORDER)
+            ->willReturnSelf();
+        $select->expects(self::once())
+            ->method('order')
+            ->with('price_index.min_price ASC')
+            ->willReturnSelf();
+
+        $collection = $this->createMock(Collection::class);
+        $collection->expects(self::once())
+            ->method('getSelect')
+            ->willReturn($select);
+
+        $tool = (new \ReflectionClass(CatalogSearchTool::class))->newInstanceWithoutConstructor();
+        $method = new ReflectionMethod(CatalogSearchTool::class, 'applyPricePreference');
+        $method->invoke($tool, $collection, 'lowest');
+    }
+
+    public function testStandardPricePreferenceKeepsDefaultCollectionOrder(): void
+    {
+        $collection = $this->createMock(Collection::class);
+        $collection->expects(self::never())->method('getSelect');
+
+        $tool = (new \ReflectionClass(CatalogSearchTool::class))->newInstanceWithoutConstructor();
+        $method = new ReflectionMethod(CatalogSearchTool::class, 'applyPricePreference');
+        $method->invoke($tool, $collection, 'standard');
+    }
+
     private function createTool(
         FulltextProductCollectionFactory $fulltextCollectionFactory,
         ProductCollectionFactory $productCollectionFactory,
         StockHelper $stockHelper,
-        CatalogVisibilityPolicyInterface $catalogVisibilityPolicy
+        CatalogVisibilityPolicyInterface $catalogVisibilityPolicy,
+        ?CatalogIdentityMatcher $catalogIdentityMatcher = null
     ): CatalogSearchTool {
         return new CatalogSearchTool(
             $this->createMock(PriceCurrencyInterface::class),
@@ -143,7 +239,7 @@ class CatalogSearchToolTest extends TestCase
             $stockHelper,
             $this->createMock(DirectAddEligibility::class),
             $this->createMock(SaleQuantityPolicy::class),
-            $this->createMock(CatalogIdentityMatcher::class),
+            $catalogIdentityMatcher ?? $this->createMock(CatalogIdentityMatcher::class),
             $this->createMock(ShopperScopeResolver::class),
             $catalogVisibilityPolicy,
             $this->createMock(PriceConstraintConverter::class)

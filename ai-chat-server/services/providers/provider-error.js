@@ -28,11 +28,20 @@ function messageFromBody(body) {
 
 export function providerErrorCode(error) {
     const status = statusOf(error);
-    const sourceCode = String(error?.code || '').toUpperCase();
+    const sourceCode = String(error?.cause?.code || error?.code || '').toUpperCase();
+    const message = String(error?.message || error?.cause?.message || '');
+    // Preserve a code that was already normalized by an adapter. This is a
+    // protocol value, not customer-facing wording, so websocket consumers can
+    // classify temporary provider outages without parsing translated prose.
+    if (['PROVIDER_AUTH_FAILED', 'PROVIDER_TIMEOUT', 'PROVIDER_RATE_LIMITED', 'PROVIDER_UNAVAILABLE', 'PROVIDER_REQUEST_REJECTED', 'PROVIDER_ERROR'].includes(sourceCode)) {
+        return sourceCode.toLowerCase();
+    }
     if ([401, 403].includes(status)) return 'provider_auth_failed';
     if (status === 408 || sourceCode === 'ETIMEDOUT' || sourceCode === 'ECONNRESET') return 'provider_timeout';
     if (status === 429) return 'provider_rate_limited';
-    if (status >= 500 || ['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED'].includes(sourceCode)) {
+    if (status >= 500
+        || ['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED'].includes(sourceCode)
+        || /fetch failed|socket hang up|network error|\b(?:dns|gateway)\b/iu.test(message)) {
         return 'provider_unavailable';
     }
     if (status >= 400) return 'provider_request_rejected';

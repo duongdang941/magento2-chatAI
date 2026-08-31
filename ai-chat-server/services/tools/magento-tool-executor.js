@@ -20,7 +20,6 @@ import {
     normalizeOrderDetailsArguments,
     normalizeRecentOrdersArguments
 } from '../customer/customer-order-tool-arguments.js';
-import { hashKey } from '../gateway/gateway-runtime.js';
 import { guestOrderAction } from '../customer/guest-order-client.js';
 import { createInternalMagentoRequestConfig } from '../gateway/magento-auth.js';
 import {
@@ -29,6 +28,13 @@ import {
     catalogScopeRequestParams
 } from '../catalog/catalog-scope.js';
 import { resolveMagentoBaseUrl } from '../gateway/magento-url.js';
+
+// Category taxonomy is shared store data and is invalidated by Magento after
+// product, category, stock, website, or catalog-rule changes.  A versioned
+// five-minute cache prevents a broad store-overview question from repeatedly
+// calculating presentable product counts while still becoming stale
+// immediately after a Magento invalidation event.
+const CATALOG_CATEGORIES_CACHE_TTL_MS = 5 * 60_000;
 
 /**
  * Provider-neutral Magento tool executor. Provider adapters own protocol
@@ -120,8 +126,16 @@ export async function executeRegisteredMagentoTool(name, args = {}, context = {}
             case 'listCategories': {
                 const params = catalogScopeRequestParams(catalogScope, customerId);
                 const url = catalogRestUrl(getMagentoUrl(), 'afd-ai/categories', catalogScope);
-                const response = await secureMagentoGet(url, params, magentoOauth);
-                return normalizeMagentoToolResponse(response.data);
+                return cachedMagentoRead(
+                    runtime,
+                    'catalog-categories',
+                    { params, token, catalogScope, customerId },
+                    CATALOG_CATEGORIES_CACHE_TTL_MS,
+                    async () => {
+                        const response = await secureMagentoGet(url, params, magentoOauth);
+                        return normalizeMagentoToolResponse(response.data);
+                    }
+                );
             }
 
             case 'listVariantAttributes': {
@@ -345,7 +359,13 @@ async function cachedMagentoRead(runtime, namespace, identity, ttlMs, loader) {
     if (Number(identity.customerId) > 0) return loader();
     if (!runtime || typeof runtime.getOrSetJsonCache !== 'function') return loader();
     const scope = {
-        shopper: identity.token ? `customer:${hashKey(identity.token)}` : 'guest',
+        // Every WebSocket ticket is intentionally one-time and therefore
+        // changes on every guest connection.  It must not participate in a
+        // read-only public catalogue cache key: doing so turns every request
+        // into a cache miss.  Guest catalogue visibility is already bound by
+        // the signed store/customer-group/tenant scope below; logged-in
+        // customers bypass this cache above.
+        shopper: 'guest',
         catalog: catalogScopeCacheIdentity(identity.catalogScope),
         catalog_version: await runtime.getCacheVersion?.('catalog') || 0
     };

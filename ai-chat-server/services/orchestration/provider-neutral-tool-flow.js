@@ -41,7 +41,16 @@ import { reduceToolResultForModel } from './tool-context-reducer.js';
 import { createToolExecutionBudget, toolBudgetMessage } from './tool-execution-budget.js';
 
 const CATALOG_TOOLS = new Set(['searchProducts', 'listCategories', 'listVariantAttributes']);
+const CATALOG_NEED_DECISIONS = new Set(['catalog_search', 'no_catalog_evidence']);
 const CATALOG_CONTEXT_DECISIONS = new Set(['follow_up', 'result_set_follow_up', 'new_search', 'clarify']);
+const SINGLE_PRODUCT_ANCHOR_DECISIONS = new Set(['follow_up', 'new_search', 'no_catalog_fact', 'clarify']);
+const RESULT_SET_ANCHOR_DECISIONS = new Set([
+    'select_product',
+    'result_set_follow_up',
+    'new_search',
+    'no_catalog_fact',
+    'clarify'
+]);
 const CATALOG_INTENTS = new Set(['product_search', 'store_sample']);
 const CATALOG_IDENTITY_KINDS = new Set(['sku', 'product_name', 'none']);
 const ORDER_TOOLS = new Set([
@@ -85,6 +94,7 @@ export function createProviderNeutralToolFlow({
     let turnResponseLanguage = '';
     const singleProductAnchor = normalizeSingleProductAnchor(options.singleProductAnchor);
     const resultSetAnchor = normalizeCatalogResultSetAnchor(options.resultSetAnchor);
+    let selectedResultSetProductAnchor = null;
     const bodyFitSizeRange = inferBodyFitSizeRange(shopperMessage);
     const catalogRetrievalPolicy = createCatalogRetrievalPolicy({ shopperMessage });
     const catalogQueryContinuity = createCatalogQueryContinuity();
@@ -92,6 +102,11 @@ export function createProviderNeutralToolFlow({
     // Category names become customer-visible only after Magento has returned
     // them for this turn. Model arguments never supply display names.
     const verifiedCategoryNames = new Map();
+    // A product-discovery lookup can only narrow a search with IDs returned
+    // by Magento in this same turn. Keep the IDs separately from the names:
+    // this is a structural retrieval guard and never depends on translated
+    // category labels or on the shopper's language.
+    const requiredDiscoveryCategoryIds = new Set();
     // A category-page name in the signed WebSocket ticket is equally
     // authoritative Magento data, so it can identify the initial search
     // before the model needs a separate taxonomy lookup.
@@ -101,11 +116,39 @@ export function createProviderNeutralToolFlow({
         hasVisibleImages: false,
         hasVisibleProducts: false,
         catalogSearchAttempted: false,
-        // A product search returned no cards and the agent then requested the
-        // Magento taxonomy to narrow it. The next retrieval must retain that
-        // verified category scope; otherwise a translated synonym can turn a
-        // category request into an unrelated whole-store full-text search.
+        // A product-discovery lookup followed a product search. The next
+        // retrieval must use one Magento-returned category ID; otherwise a
+        // translated synonym can turn a category request into an unrelated
+        // whole-store full-text search. This also applies when a loose first
+        // search returned incidental cards outside the discovered category.
         categoryScopeRequiredAfterDiscovery: false,
+        // A lowest-price claim is only meaningful inside a verified product
+        // family.  The model supplies `pricePreference=lowest` as structured
+        // semantic intent; this flag never parses shopper text or depends on
+        // a particular language.  It makes an initial unscoped price search
+        // inspect Magento's taxonomy before a grid can be presented, so an
+        // incidental full-text hit cannot be advertised as the cheapest set.
+        lowestPriceCategoryDiscoveryRequired: false,
+        lowestPriceCategoryDiscoveryCompleted: false,
+        // A discovery response can contain several valid Magento categories.
+        // If the first verified scope is empty, retain the remaining returned
+        // IDs for one bounded alternative scope retry instead of allowing a
+        // false catalogue-wide "no products" conclusion. This is structural
+        // state only: no category label or shopper-language text is compared.
+        lowestPriceCategoryRetryAttempted: false,
+        // A category-discovery control interrupts the provider between its
+        // initial price-constrained request and the final scoped retrieval.
+        // Preserve only the normalized structured price contract so a later
+        // tool call cannot silently drop the shopper's verified budget or
+        // lowest-price ordering. This is independent of product/category
+        // labels and response language.
+        lowestPriceRetrievalContract: null,
+        // One scoped category browse may recover a model query that merely
+        // repeats the verified category name into Magento full-text.  It is
+        // bounded and runs only after that precise scoped search returned no
+        // products; it never turns a normal product query into an unscoped
+        // search.
+        lowestPriceCategoryBrowseFallbackAttempted: false,
         lastCatalogSearchReturnedNoProducts: false,
         lastToolOutcome: null,
         pendingProductPresentation: null,
@@ -138,6 +181,14 @@ export function createProviderNeutralToolFlow({
         // permitted refinement. A model must never replace it with a merely
         // similar product title on a later call.
         exactIdentityRootQuery: '',
+        // Providers occasionally send a shortened or malformed exact-title
+        // query even though the shopper included the complete title in the
+        // current message. Before asking the provider to invent a refinement,
+        // make at most one Magento-backed retry with that original message.
+        // Magento's identity matcher accepts it only when a whole catalogue
+        // title occurs as one contiguous token sequence, so this remains an
+        // exact lookup rather than a fuzzy recommendation.
+        shopperExactIdentityFallbackAttempted: false,
         // A shopper-language query can have no lexical overlap with a
         // catalogue maintained in another language. Allow one model-led,
         // distinct catalogue-compatible reformulation before a no-match
@@ -160,8 +211,22 @@ export function createProviderNeutralToolFlow({
         // the exact search that yielded this SKU so that read stays visible
         // in the shopper's language without a gateway translation table.
         availabilityVerificationActivityPresentation: null,
+        // A latest product ledger is reference metadata, never evidence.
+        // Force the provider to classify its relationship to the new shopper
+        // message before it can either make a current claim or silently reuse
+        // an old card. A selected multi-card reference is accepted only from
+        // the opaque product_ref values in that ledger, never from text or a
+        // locale-specific ordinal matcher.
+        catalogAnchorResolutionRequired: Boolean(singleProductAnchor || resultSetAnchor),
+        anchoredProductRefreshRequired: false,
+        finalCatalogPriceEvidence: null,
         productPageRequiredCart: null,
-        toolErrorMessage: ''
+        toolErrorMessage: '',
+        // A relay must make a semantic, model-owned decision before it can
+        // replace a catalogue request with prose. The gateway never infers
+        // this from shopper text, so the contract is language-neutral.
+        catalogNeedResolutionRequired: true,
+        catalogNeedSearchRequired: false
     };
     // This is constructed only from the immediately preceding Magento
     // listVariantAttributes response. It is never inferred from a translated
@@ -224,20 +289,41 @@ export function createProviderNeutralToolFlow({
 
     return Object.freeze({
         shouldForceProductSearch: () => (
-            catalogRetrievalPolicy.shouldForceProductSearch()
+            state.catalogNeedSearchRequired
+            || state.anchoredProductRefreshRequired
+            || catalogRetrievalPolicy.shouldForceProductSearch()
             || state.bodyFitSearchRequired
             || state.attributeConstraintSearchRequired
             || state.catalogQueryRefinementRequired
+            || state.categoryScopeRequiredAfterDiscovery
         ),
         shouldForceProductAvailability: () => (
             state.availabilityVerificationRequired
             && Boolean(state.availabilityVerificationSku)
         ),
+        // A lowest-price request is not safe to satisfy from an incidental
+        // whole-store hit.  Its first product call is intentionally blocked
+        // until Magento provides a category scope.  Keep that next taxonomy
+        // read as an explicit pending operation so a provider cannot replace
+        // it with customer prose (or repeatedly retry the blocked search).
+        // This is driven only by the structured pricePreference enum and
+        // verified tool state, never by the shopper's words or language.
+        shouldForceCategoryDiscovery: () => (
+            state.lowestPriceCategoryDiscoveryRequired
+            && !state.lowestPriceCategoryDiscoveryCompleted
+        ),
+        shouldForceCatalogNeedResolution: () => state.catalogNeedResolutionRequired,
+        shouldForceCatalogAnchorResolution: () => state.catalogAnchorResolutionRequired,
         assessFinalResponseLanguage: (content) => assessFinalResponseLanguage(
             content,
             turnResponseLanguage
         ),
         finalResponseLanguageRepairInstruction,
+        assessFinalResponseCatalogGrounding: (content) => assessFinalResponseCatalogGrounding(
+            content,
+            state.finalCatalogPriceEvidence
+        ),
+        finalResponseCatalogGroundingRepairInstruction,
         getState,
         reconcile,
         completePendingActivity,
@@ -297,15 +383,180 @@ export function createProviderNeutralToolFlow({
                 options
             }));
 
+            if (toolName === 'resolveCatalogNeed') {
+                if (!state.catalogNeedResolutionRequired) {
+                    return blockCatalogContextDecision(
+                        'catalog_need_already_resolved',
+                        'The current shopper turn already has a catalogue-evidence decision. Continue with that decision without repeating this control call.'
+                    );
+                }
+
+                const catalogNeedDecision = String(rawArgs.decision || '').trim().toLowerCase();
+                if (!CATALOG_NEED_DECISIONS.has(catalogNeedDecision)) {
+                    return blockCatalogContextDecision(
+                        'catalog_need_decision_invalid',
+                        'decision must be exactly catalog_search or no_catalog_evidence. Classify semantic evidence needs without writing shopper-facing prose.'
+                    );
+                }
+
+                state.catalogNeedResolutionRequired = false;
+                state.catalogNeedSearchRequired = catalogNeedDecision === 'catalog_search';
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: {},
+                    content: {
+                        status: 'resolved',
+                        decision: catalogNeedDecision,
+                        instruction: catalogNeedDecision === 'catalog_search'
+                            ? 'The shopper needs current Magento product evidence. Immediately call searchProducts with a complete semantic retrieval contract and complete shopper-language activity metadata. Do not write customer-facing prose until Magento returns the current result.'
+                            : 'The shopper request can be answered without current product catalogue evidence. Continue normally, but do not state or reuse any unverified product, price, availability, option, category, or recommendation fact.'
+                    },
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
+            }
+
+            // A provider that already selected a non-catalogue tool has made
+            // an evidence decision for this turn. Keep the initial control
+            // from interfering with that normal flow, including a guarded
+            // tool that returns a non-blocking instruction to the model.
+            if (state.catalogNeedResolutionRequired && toolName !== 'searchProducts') {
+                state.catalogNeedResolutionRequired = false;
+            }
+
+            if (toolName === 'resolveCatalogAnchor') {
+                // A direct anchor classification is itself a positive
+                // catalogue-evidence decision. This keeps old or
+                // provider-specific call sequences compatible with the new
+                // initial control step.
+                state.catalogNeedResolutionRequired = false;
+                if (!state.catalogAnchorResolutionRequired) {
+                    return blockCatalogContextDecision(
+                        'catalog_anchor_already_resolved',
+                        'The latest catalogue reference has already been classified for this shopper turn. Continue from that decision without repeating this control call.'
+                    );
+                }
+
+                const anchorDecision = requestedSingleProductAnchorDecision(rawArgs);
+                if (singleProductAnchor) {
+                    if (!SINGLE_PRODUCT_ANCHOR_DECISIONS.has(anchorDecision)) {
+                        return blockCatalogContextDecision(
+                            'catalog_anchor_decision_invalid',
+                            'decision must be exactly follow_up, new_search, no_catalog_fact, or clarify for the latest single product. Classify the relation structurally; do not answer or retrieve catalogue data until this decision is valid.'
+                        );
+                    }
+
+                    state.catalogAnchorResolutionRequired = false;
+                    state.anchoredProductRefreshRequired = anchorDecision === 'follow_up';
+                    // A model can correctly recognize that it does not need
+                    // to perform a new product search, yet still drift into a
+                    // stock or option claim while producing the final prose.
+                    // The latest single-card reference contains only a
+                    // Magento-issued SKU, so a gateway-owned live read is a
+                    // safe, language-neutral backstop. It never chooses a
+                    // product from shopper wording and it intentionally does
+                    // not apply to a multi-card result set, where no single
+                    // card can be selected safely.
+                    if (anchorDecision === 'no_catalog_fact') {
+                        state.availabilityVerificationRequired = true;
+                        state.availabilityVerificationSku = singleProductAnchor.sku;
+                        state.availabilityVerificationActivityPresentation = null;
+                    }
+                    const instruction = anchorDecision === 'follow_up'
+                        ? 'The shopper needs a current fact about the latest single card. Immediately call searchProducts with catalogContextDecision=follow_up and followUpProductRef copied from single_product_anchor. Set catalogIntent=product_search, catalogIdentityKind=none, exactIdentity=false, and complete current response-language/activity metadata. The gateway will replace the query with the verified SKU and require live availability when applicable. Do not answer from the old ledger.'
+                        : anchorDecision === 'new_search'
+                            ? 'The shopper introduced a distinct product or product set. If catalogue retrieval is needed, make a fresh searchProducts call with catalogContextDecision=new_search and no follow-up reference. Do not reuse facts or cards from the latest single-product ledger.'
+                            : anchorDecision === 'clarify'
+                                ? 'The shopper reference cannot identify a product. Ask a concise clarification and do not retrieve or claim catalogue facts.'
+                                : 'The response makes no current catalogue claim. The gateway will perform one live SKU availability read before final synthesis so any accidental product, option, or stock statement cannot rely on the old ledger. Do not make a new product search and do not reuse ledger facts as evidence.';
+
+                    return saveResult(registerResult({
+                        name: toolName,
+                        args: {},
+                        content: { status: 'resolved', decision: anchorDecision, instruction },
+                        state,
+                        catalogQueryContinuity,
+                        shopperMessage,
+                        agentConfig,
+                        options
+                    }));
+                }
+
+                if (!resultSetAnchor) {
+                    return blockCatalogContextDecision(
+                        'catalog_anchor_unavailable',
+                        'No valid latest catalogue reference is available. Do not use this control tool; either answer without catalogue facts or use a fresh product search when the shopper asks for products.'
+                    );
+                }
+                if (!RESULT_SET_ANCHOR_DECISIONS.has(anchorDecision)) {
+                    return blockCatalogContextDecision(
+                        'catalog_result_set_decision_invalid',
+                        'decision must be exactly select_product, result_set_follow_up, new_search, no_catalog_fact, or clarify for the latest multi-card result set. Do not answer or retrieve catalogue data until this decision is valid.'
+                    );
+                }
+
+                if (anchorDecision === 'select_product') {
+                    const selectedProductRef = requestedSelectedCatalogProductRef(rawArgs);
+                    const selected = resultSetAnchor.products.find(({ productRef }) => productRef === selectedProductRef) || null;
+                    if (!selected) {
+                        return blockCatalogContextDecision(
+                            'catalog_result_set_product_reference_invalid',
+                            'select_product requires one exact productRef from the latest multi-card ledger. Do not infer a card from prose or create a reference.'
+                        );
+                    }
+                    state.catalogAnchorResolutionRequired = false;
+                    selectedResultSetProductAnchor = selected;
+                    state.anchoredProductRefreshRequired = true;
+                    return saveResult(registerResult({
+                        name: toolName,
+                        args: {},
+                        content: {
+                            status: 'resolved',
+                            decision: anchorDecision,
+                            instruction: 'The shopper selected one exact card from the latest result set. Immediately call searchProducts with catalogContextDecision=follow_up and followUpProductRef copied from the selected productRef. Set catalogIntent=product_search, catalogIdentityKind=none, exactIdentity=false, and complete current response-language/activity metadata. The gateway will replace the query with the verified SKU and require live availability when applicable. Do not answer from the old ledger.'
+                        },
+                        state,
+                        catalogQueryContinuity,
+                        shopperMessage,
+                        agentConfig,
+                        options
+                    }));
+                }
+
+                state.catalogAnchorResolutionRequired = false;
+                state.anchoredProductRefreshRequired = anchorDecision === 'result_set_follow_up';
+                const instruction = anchorDecision === 'result_set_follow_up'
+                    ? 'The shopper needs a current fact about the complete latest result set. Immediately call searchProducts with catalogContextDecision=result_set_follow_up and followUpSearchRef copied from result_set_anchor. Set catalogIntent=product_search and complete current response-language/activity metadata. Do not answer from the old ledger.'
+                    : anchorDecision === 'new_search'
+                        ? 'The shopper introduced a distinct product or product set. If catalogue retrieval is needed, make a fresh searchProducts call with catalogContextDecision=new_search and no follow-up reference. Do not reuse facts or cards from the latest result set.'
+                        : anchorDecision === 'clarify'
+                            ? 'The shopper reference cannot identify one product or the whole result set. Ask a concise clarification and do not retrieve or claim catalogue facts.'
+                            : 'The response makes no current catalogue claim. Answer the shopper directly without product retrieval and do not reuse ledger facts as evidence.';
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: {},
+                    content: { status: 'resolved', decision: anchorDecision, instruction },
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
+            }
+
             let anchoredFollowUp = false;
             let anchoredResultSetFollowUp = false;
             let catalogIntentIssue = null;
             if (toolName === 'searchProducts') {
+                const activeSingleProductAnchor = selectedResultSetProductAnchor || singleProductAnchor;
                 // This exposes only bounded, semantic state. In particular it
                 // never logs the shopper query or the opaque product reference.
                 logger.debug('tool-flow', 'Evaluating catalogue context decision', {
                     tool: toolName,
-                    has_single_product_anchor: Boolean(singleProductAnchor),
+                    has_single_product_anchor: Boolean(activeSingleProductAnchor),
                     has_result_set_anchor: Boolean(resultSetAnchor),
                     catalog_context_decision: CATALOG_CONTEXT_DECISIONS.has(catalogContextDecision)
                         ? catalogContextDecision
@@ -314,7 +565,7 @@ export function createProviderNeutralToolFlow({
                     has_follow_up_search_reference: Boolean(followUpSearchRef)
                 });
 
-                if (singleProductAnchor) {
+                if (activeSingleProductAnchor) {
                     if (!hasCatalogContextDecision || !catalogContextDecision) {
                         return blockCatalogContextDecision(
                             'catalog_context_decision_required',
@@ -359,14 +610,15 @@ export function createProviderNeutralToolFlow({
                                 'This is an explicitly named exact-product search, so it cannot use the previous product anchor. Repeat searchProducts with catalogContextDecision=new_search, no followUpProductRef, and retain the exact identity query.'
                             );
                         }
-                        if (!followUpProductRef || followUpProductRef !== singleProductAnchor.productRef) {
+                        if (!followUpProductRef || followUpProductRef !== activeSingleProductAnchor.productRef) {
                             return blockCatalogContextDecision(
                                 'catalog_follow_up_reference_required',
                                 'A follow_up search must include the exact followUpProductRef from single_product_anchor. Do not guess, broaden, or use a different product reference.'
                             );
                         }
-                        rawArgs = anchorExactProductSearch(rawArgs, singleProductAnchor);
+                        rawArgs = anchorExactProductSearch(rawArgs, activeSingleProductAnchor);
                         anchoredFollowUp = true;
+                        state.anchoredProductRefreshRequired = false;
                     }
                 } else if (resultSetAnchor) {
                     if (!hasCatalogContextDecision || !catalogContextDecision) {
@@ -469,6 +721,12 @@ export function createProviderNeutralToolFlow({
                 withoutCatalogContextControl(withoutToolActivityPresentation(rawArgs))
             );
             turnResponseLanguage ||= declaredToolPresentationLanguage(rawArgs);
+            if (shouldRestoreLowestPriceRetrievalContract({ toolName, state })) {
+                normalizedArgs = restoreLowestPriceRetrievalContract(
+                    normalizedArgs,
+                    state.lowestPriceRetrievalContract
+                );
+            }
             // The provider cannot request this transport flag.  It is added
             // only after the structured anchor reference has been verified,
             // so Magento can bypass full-text and look up that exact SKU.
@@ -503,6 +761,67 @@ export function createProviderNeutralToolFlow({
                     ...normalizedArgs,
                     sku: state.availabilityVerificationSku
                 };
+            }
+
+            if (requiresStructuredPriceBound({
+                toolName,
+                rawArgs,
+                normalizedArgs,
+                shopperMessage
+            })) {
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: normalizedArgs,
+                    content: {
+                        status: 'blocked',
+                        reason: 'explicit_price_bound_required',
+                        instruction: 'The shopper request contains an explicit monetary threshold, but this lowest-price search leaves it only in prose. Repeat searchProducts with minPrice and/or maxPrice that exactly express the shopper\'s requested relationship, and priceCurrency as the explicit ISO currency when present. Do not search or show cards until that structured constraint is supplied.'
+                    },
+                    blocked: true,
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
+            }
+
+            // A model may translate or normalize a shopper's product-family
+            // phrase into a broad catalogue keyword.  Magento full-text can
+            // then return cards whose indexed descriptions happen to match
+            // that keyword even though they are outside the intended family.
+            // Do not show that first loose result as "lowest priced".  The
+            // signal here is the provider's closed `lowest` enum, not a word
+            // match against any shopper language.  Exact identities and
+            // already scoped/attribute-constrained retrievals retain their
+            // narrower, current Magento contract.
+            if (requiresLowestPriceCategoryDiscovery({
+                toolName,
+                rawArgs,
+                normalizedArgs,
+                catalogIntent,
+                anchoredFollowUp,
+                anchoredResultSetFollowUp,
+                state
+            })) {
+                state.catalogSearchAttempted = true;
+                state.lowestPriceCategoryDiscoveryRequired = true;
+                state.lowestPriceRetrievalContract = lowestPriceRetrievalContract(normalizedArgs);
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: normalizedArgs,
+                    content: {
+                        status: 'blocked',
+                        reason: 'lowest_price_category_discovery_required',
+                        instruction: 'A lowest-price product set needs one verified Magento category scope before any cards can be shown. First call listCategories with lookupPurpose=product_discovery. Then call searchProducts with exactly one returned categoryId and pricePreference=lowest. Browse that category directly with query="" only when it itself represents the requested product family; otherwise keep a concise product-family query. Do not present an unscoped full-text result as the lowest-priced set.'
+                    },
+                    blocked: true,
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
             }
             catalogRetrievalPolicy.observeToolCall(toolName);
 
@@ -621,6 +940,36 @@ export function createProviderNeutralToolFlow({
                 }));
             }
 
+            const satisfiesRequiredDiscoveryScope = toolName === 'searchProducts'
+                && catalogIntent === 'product_search'
+                && state.categoryScopeRequiredAfterDiscovery
+                && hasVerifiedDiscoveryCategoryScope(normalizedArgs, requiredDiscoveryCategoryIds);
+
+            // Once product discovery has returned Magento categories, a
+            // retry must select exactly one of those IDs. This runs before
+            // the one-grid guard below so a valid scoped refinement can
+            // replace incidental cards from an earlier loose full-text query.
+            if (toolName === 'searchProducts'
+                && catalogIntent === 'product_search'
+                && state.categoryScopeRequiredAfterDiscovery
+                && !satisfiesRequiredDiscoveryScope) {
+                return saveResult(registerResult({
+                    name: toolName,
+                    args: normalizedArgs,
+                    content: {
+                        status: 'blocked',
+                        reason: 'category_scope_required_after_discovery',
+                        instruction: 'Magento returned categories for product discovery after an earlier product search. Repeat searchProducts with categoryId set to exactly one category ID returned by that lookup. Keep a concise query when it is needed to preserve the requested product type; for a matching leaf category, an empty query is allowed. Do not retry a whole-store full-text search or use an unverified category ID.'
+                    },
+                    blocked: true,
+                    state,
+                    catalogQueryContinuity,
+                    shopperMessage,
+                    agentConfig,
+                    options
+                }));
+            }
+
             // One assistant turn owns exactly one shopper-visible product
             // result set. A second successful search would replace the cards
             // emitted for the first search while the provider can still write
@@ -630,7 +979,9 @@ export function createProviderNeutralToolFlow({
             // attribute discovery, availability verification and the bounded
             // refinement flows above all happen before a grid exists, so this
             // guard does not prevent those valid retrieval sequences.
-            if (toolName === 'searchProducts' && state.hasVisibleProducts) {
+            if (toolName === 'searchProducts'
+                && state.hasVisibleProducts
+                && !satisfiesRequiredDiscoveryScope) {
                 return saveResult(registerResult({
                     name: toolName,
                     args: normalizedArgs,
@@ -660,33 +1011,6 @@ export function createProviderNeutralToolFlow({
                         status: 'blocked',
                         reason: 'taxonomy_overview_complete',
                         instruction: 'The current shopper turn is a completed general store overview. Answer only from the returned category hierarchy. Do not choose a category, call searchProducts, or present one category as the whole store. A new shopper request for a named category, product type, or filter starts product retrieval.'
-                    },
-                    blocked: true,
-                    state,
-                    catalogQueryContinuity,
-                    shopperMessage,
-                    agentConfig,
-                    options
-                }));
-            }
-
-            // Once a zero-result product search has led to a successful
-            // product-discovery taxonomy lookup, a later store-wide retry is
-            // not a valid refinement. The provider must select an ID that
-            // Magento just returned. This is structural, so it remains
-            // language-neutral and does not compare category names or shopper
-            // wording.
-            if (toolName === 'searchProducts'
-                && catalogIntent === 'product_search'
-                && state.categoryScopeRequiredAfterDiscovery
-                && !hasCategoryScope(normalizedArgs)) {
-                return saveResult(registerResult({
-                    name: toolName,
-                    args: normalizedArgs,
-                    content: {
-                        status: 'blocked',
-                        reason: 'category_scope_required_after_discovery',
-                        instruction: 'The earlier product search returned no presentable cards and Magento then returned categories for product discovery. Repeat searchProducts with categoryId set to one of those returned categories. Keep a concise query when it is needed to preserve the requested product type; for a matching leaf category, an empty query is allowed. Do not retry a whole-store full-text search.'
                     },
                     blocked: true,
                     state,
@@ -1021,7 +1345,15 @@ export function createProviderNeutralToolFlow({
                 }));
             }
 
-            if (toolName === 'searchProducts') state.catalogSearchAttempted = true;
+            if (toolName === 'searchProducts') {
+                state.catalogSearchAttempted = true;
+                // Clear this only after the normal argument, activity, and
+                // execution-budget guards all accepted the model call. A
+                // blocked call keeps the named search forced on the next
+                // provider turn rather than releasing unverified prose.
+                state.catalogNeedSearchRequired = false;
+            }
+            state.catalogNeedResolutionRequired = false;
 
             // Arguments can include personal data. Operational logs retain only
             // a bounded tool name regardless of the selected provider.
@@ -1085,17 +1417,115 @@ export function createProviderNeutralToolFlow({
                 content = { status: 'error', error: error?.message || 'Tool execution failed.' };
             }
 
-            if (toolName === 'searchProducts' && isExactIdentitySearch(normalizedArgs)) {
-                if (!state.exactIdentityRootQuery) {
-                    state.exactIdentityRootQuery = String(normalizedArgs.query || '').trim();
+            if (toolName === 'searchProducts') {
+                if (isExactIdentitySearch(normalizedArgs)) {
+                    content = suppressUnsafeExactIdentityCandidates(
+                        content,
+                        String(normalizedArgs.query || '').trim()
+                    );
                 }
-                content = suppressUnsafeExactIdentityCandidates(
+
+                const originalShopperIdentityQuery = shopperExactIdentityFallbackQuery({
                     content,
-                    exactIdentityValidationQuery(
-                        state.exactIdentityRootQuery,
-                        normalizedArgs.query
-                    )
-                );
+                    args: normalizedArgs,
+                    shopperMessage,
+                    state
+                });
+                if (originalShopperIdentityQuery) {
+                    state.shopperExactIdentityFallbackAttempted = true;
+                    const fallbackArgs = exactIdentityRecoveryArguments(
+                        normalizedArgs,
+                        originalShopperIdentityQuery
+                    );
+                    let fallbackContent;
+                    try {
+                        fallbackContent = await executeTool({
+                            name: toolName,
+                            args: fallbackArgs,
+                            ws,
+                            customerToken,
+                            config,
+                            options,
+                            provider,
+                            providerConnection,
+                            signal,
+                            isCancelled,
+                            shopperMessage
+                        });
+                    } catch (error) {
+                        fallbackContent = { status: 'error', error: error?.message || 'Tool execution failed.' };
+                    }
+                    fallbackContent = suppressUnsafeExactIdentityCandidates(
+                        fallbackContent,
+                        originalShopperIdentityQuery
+                    );
+                    // Keep the original miss when this bounded retry does not
+                    // produce verified evidence. That preserves the normal
+                    // one-refinement contract and never turns a failed retry
+                    // into a hidden terminal state.
+                    if (hasExactIdentityProducts(fallbackContent)) {
+                        normalizedArgs = fallbackArgs;
+                        content = fallbackContent;
+                    }
+                }
+
+                if (isExactIdentitySearch(normalizedArgs)) {
+                    if (!state.exactIdentityRootQuery) {
+                        state.exactIdentityRootQuery = String(normalizedArgs.query || '').trim();
+                    }
+                    content = suppressUnsafeExactIdentityCandidates(
+                        content,
+                        exactIdentityValidationQuery(
+                            state.exactIdentityRootQuery,
+                            normalizedArgs.query
+                        )
+                    );
+                }
+
+                // A category returned by Magento is an authoritative scope,
+                // but its display name is not necessarily indexed as product
+                // text.  When the model has already selected that verified
+                // scope for a lowest-price request, retry once as a direct
+                // category browse after the text-filtered version produced
+                // zero results.  This retains every structured price and
+                // variant constraint and does not inspect or compare any
+                // shopper-language/category-label text.
+                if (shouldRetryLowestPriceCategoryAsDirectBrowse({
+                    state,
+                    normalizedArgs,
+                    content
+                })) {
+                    state.lowestPriceCategoryBrowseFallbackAttempted = true;
+                    const fallbackArgs = { ...normalizedArgs, query: '' };
+                    let fallbackContent;
+                    try {
+                        fallbackContent = await executeTool({
+                            name: toolName,
+                            args: fallbackArgs,
+                            ws,
+                            customerToken,
+                            config,
+                            options,
+                            provider,
+                            providerConnection,
+                            signal,
+                            isCancelled,
+                            shopperMessage
+                        });
+                    } catch (error) {
+                        fallbackContent = { status: 'error', error: error?.message || 'Tool execution failed.' };
+                    }
+
+                    // A direct category browse is a recovery only when it
+                    // supplies current Magento evidence.  Preserve the
+                    // original zero-result response otherwise, so a failed
+                    // fallback cannot fabricate a result or hide an outage.
+                    if (isSuccessfulToolResponse(fallbackContent)
+                        && !catalogSearchReturnedNoProducts(fallbackContent)) {
+                        normalizedArgs = fallbackArgs;
+                        content = fallbackContent;
+                    }
+                }
             }
 
             const similarityFallback = toolName === 'searchProducts'
@@ -1128,7 +1558,15 @@ export function createProviderNeutralToolFlow({
                 normalizedArgs,
                 content,
                 isCatalogQueryRefinementSearch,
-                refinementAttempts: state.catalogQueryRefinementAttempts
+                refinementAttempts: state.catalogQueryRefinementAttempts,
+                // A zero result after verified lowest-price category
+                // discovery has a safer next move: preserve the structured
+                // price contract and try another returned category scope.
+                // Rewriting the text query first can cause a model to lose
+                // that scope or falsely conclude the product family is empty.
+                skipForVerifiedLowestPriceScope: state.lowestPriceCategoryDiscoveryCompleted
+                    && state.categoryScopeRequiredAfterDiscovery
+                    && hasVerifiedDiscoveryCategoryScope(normalizedArgs, requiredDiscoveryCategoryIds)
             })) {
                 state.catalogQueryRefinementAttempts += 1;
                 state.catalogQueryRefinementRequired = true;
@@ -1143,14 +1581,50 @@ export function createProviderNeutralToolFlow({
             rememberVerifiedCategoryNames(verifiedCategoryNames, toolName, content);
             rememberProductPageRequiredCart(state, toolName, content);
             if (toolName === 'searchProducts') {
+                const completedVerifiedDiscoveryScope = state.categoryScopeRequiredAfterDiscovery
+                    && hasVerifiedDiscoveryCategoryScope(normalizedArgs, requiredDiscoveryCategoryIds)
+                    && isSuccessfulToolResponse(content);
+                if (completedVerifiedDiscoveryScope) {
+                    const retryWithAnotherVerifiedScope = shouldRetryLowestPriceCategoryScope({
+                        state,
+                        args: normalizedArgs,
+                        content,
+                        allowedCategoryIds: requiredDiscoveryCategoryIds
+                    });
+                    if (retryWithAnotherVerifiedScope) {
+                        requiredDiscoveryCategoryIds.delete(categoryIdFromArgs(normalizedArgs));
+                        state.lowestPriceCategoryRetryAttempted = true;
+                        // Preserve the original structured price contract and
+                        // force one retrieval constrained to a different
+                        // Magento-returned category. The current empty scope
+                        // must not become a customer-facing terminal result.
+                        content = markLowestPriceCategoryScopeRetryRequired(content);
+                    } else {
+                    // Magento completed the one bounded, verified scoped
+                    // retrieval. It may be empty; that result remains
+                    // authoritative and must not force a retry loop.
+                        state.categoryScopeRequiredAfterDiscovery = false;
+                        requiredDiscoveryCategoryIds.clear();
+                        state.lowestPriceRetrievalContract = null;
+                    }
+                }
                 state.lastCatalogSearchReturnedNoProducts = catalogSearchReturnedNoProducts(content);
-                const verifiedConfigurableSku = configurableSkuFromSingleSearchResult(
+                const verifiedAvailabilitySku = availabilitySkuFromSingleSearchResult(
                     content,
-                    anchoredFollowUp ? singleProductAnchor : null
+                    anchoredFollowUp ? (selectedResultSetProductAnchor || singleProductAnchor) : null,
+                    {
+                        // An exact SKU is a single, customer-identifiable
+                        // catalogue item.  Its live sale state must be read
+                        // before a provider can answer a continuation about
+                        // stock, options or purchase suitability.  This is a
+                        // structured identity contract, never a matcher for
+                        // shopper wording, product names, or languages.
+                        exactSkuLookup: normalizedArgs.exactSku === true
+                    }
                 );
-                state.availabilityVerificationRequired = Boolean(verifiedConfigurableSku);
-                state.availabilityVerificationSku = verifiedConfigurableSku;
-                state.availabilityVerificationActivityPresentation = verifiedConfigurableSku
+                state.availabilityVerificationRequired = Boolean(verifiedAvailabilitySku);
+                state.availabilityVerificationSku = verifiedAvailabilitySku;
+                state.availabilityVerificationActivityPresentation = verifiedAvailabilitySku
                     ? activityPresentationFromArgs(rawArgs)
                     : null;
                 const requestedVariantAttribute = requiresVariantAttribute(rawArgs);
@@ -1217,9 +1691,32 @@ export function createProviderNeutralToolFlow({
             }
             if (toolName === 'listCategories'
                 && String(normalizedArgs.lookupPurpose || '') === 'product_discovery'
-                && state.lastCatalogSearchReturnedNoProducts
-                && hasPresentableDiscoveryCategory(content)) {
-                state.categoryScopeRequiredAfterDiscovery = true;
+                && state.catalogSearchAttempted) {
+                const resolvingLowestPriceCategory = state.lowestPriceCategoryDiscoveryRequired;
+                const discoveryIds = presentableDiscoveryCategoryIds(content);
+                // A transport-successful taxonomy response is not itself
+                // evidence of a safe price-comparison scope.  Only mark the
+                // lowest-price discovery complete after Magento returned at
+                // least one presentable category ID.  Otherwise a subsequent
+                // loose full-text search could bypass the guard and present an
+                // unrelated product as the cheapest match.
+                if (resolvingLowestPriceCategory && discoveryIds.size > 0) {
+                    state.lowestPriceCategoryDiscoveryRequired = false;
+                    state.lowestPriceCategoryDiscoveryCompleted = true;
+                }
+                if (discoveryIds.size > 0) {
+                    requiredDiscoveryCategoryIds.clear();
+                    discoveryIds.forEach((id) => requiredDiscoveryCategoryIds.add(id));
+                    // All product grids are deferred until the turn ends. If
+                    // discovery follows a loose search, permit one verified
+                    // scoped replacement so only the final Magento result is
+                    // sent to the shopper.
+                    state.pendingProductPresentation = null;
+                    state.hasVisibleProducts = false;
+                    state.terminalCatalog = false;
+                    state.finalCatalogPriceEvidence = null;
+                    state.categoryScopeRequiredAfterDiscovery = true;
+                }
             }
 
             emitCustomerToolEvents({ ws, name: toolName, content, options });
@@ -1457,6 +1954,116 @@ function isExactIdentityMiss(content = {}) {
         && content?.meta?.scope?.unavailable_query_match !== true;
 }
 
+function hasExactIdentityProducts(content = {}) {
+    return !content?.error
+        && String(content?.status || '').toLowerCase() !== 'error'
+        && Array.isArray(content?.data)
+        && content.data.length > 0;
+}
+
+/**
+ * Return the one safe fallback query when a plain result is empty or already
+ * contains a complete title embedded in the shopper message. This does not
+ * infer a product name or a shopper language: it reuses only the current
+ * shopper message and relies on Magento to verify that identity.
+ */
+function shopperExactIdentityFallbackQuery({ content = {}, args = {}, shopperMessage = '', state = {} } = {}) {
+    const originalMessage = String(shopperMessage || '')
+        .replace(/\s+/gu, ' ')
+        .trim()
+        .slice(0, 500);
+    const returnedProductCount = Array.isArray(content?.data) ? content.data.length : 0;
+    // A one-card result is already an unambiguous visual answer; no recovery
+    // should replace it merely because the shopper used generic product words
+    // that happen to overlap with its name.  The recovery is for a mixed grid
+    // only, where one complete title proves which card the shopper named.
+    const embeddedExactIdentityQuery = returnedProductCount > 1
+        ? embeddedExactCatalogIdentityQuery(content, originalMessage)
+        : '';
+    if (!(catalogSearchReturnedNoProducts(content)
+            || embeddedExactIdentityQuery)
+        || state?.shopperExactIdentityFallbackAttempted === true
+        || args?.exactSku === true
+        || (!embeddedExactIdentityQuery && !isUnconstrainedIdentityRecoverySearch(args))) {
+        return '';
+    }
+
+    // The result itself can prove that the shopper wrote one complete current
+    // catalogue title, even if the provider incorrectly also treated a word
+    // inside that title as a colour, size or category constraint.  In that
+    // situation an exact identity lookup is safer than keeping a mixed grid:
+    // Magento verifies the title afresh and no catalogue-language dictionary
+    // or hard-coded product value is involved.  The identity contract takes
+    // precedence over the accidental broad/filter interpretation.
+    if (embeddedExactIdentityQuery) return embeddedExactIdentityQuery;
+
+    const modelQuery = normalizeCatalogQuery(args?.query);
+    const originalMessageKey = normalizeCatalogQuery(originalMessage);
+    return originalMessageKey && originalMessageKey !== modelQuery
+        ? originalMessage
+        : '';
+}
+
+function embeddedExactCatalogIdentityQuery(content = {}, shopperMessage = '') {
+    const message = String(shopperMessage || '').trim();
+    if (!message || !Array.isArray(content?.data)) return '';
+
+    const names = [...new Set(content.data
+        .filter((product) => isStrictExactCatalogIdentityMatch(message, product))
+        .map((product) => String(product?.name || '').trim())
+        .filter(Boolean))];
+
+    // More than one full title in the same shopper sentence is not an
+    // unambiguous exact-product request.  Leave that case to the normal
+    // comparison/search flow instead of silently choosing one card.
+    return names.length === 1 ? names[0] : '';
+}
+
+/**
+ * A title proven by the current Magento response supersedes a model-created
+ * category/variant interpretation of words inside that title.  Keep actual
+ * purchase constraints such as price and direct-add eligibility intact, but
+ * remove only retrieval scopes that could turn the exact title into an empty
+ * or mixed set.  This is transport shaping, not language or product logic.
+ */
+function exactIdentityRecoveryArguments(args = {}, query = '') {
+    const normalized = { ...(args && typeof args === 'object' ? args : {}) };
+    for (const field of [
+        'categoryId', 'category_id',
+        'requiredVariantAttributeCode', 'required_variant_attribute_code',
+        'requiredVariantOptionValues', 'required_variant_option_values',
+        'excludedVariantOptionValues', 'excluded_variant_option_values'
+    ]) {
+        delete normalized[field];
+    }
+
+    return {
+        ...normalized,
+        query,
+        exactIdentity: true
+    };
+}
+
+/**
+ * The automatic recovery never relaxes an explicit catalogue requirement.
+ * It is limited to a failed plain product query with no category, price,
+ * option, direct-add, exclusion, or whole-store sampling contract. The
+ * Magento exact matcher then decides whether the shopper message contains a
+ * full product identity; a generic message simply remains an empty result.
+ */
+function isUnconstrainedIdentityRecoverySearch(args = {}) {
+    return String(args?.query || '').trim() !== ''
+        && Math.max(0, Math.trunc(Number(args?.categoryId ?? args?.category_id) || 0)) === 0
+        && Math.max(0, Number(args?.minPrice ?? args?.min_price) || 0) === 0
+        && Math.max(0, Number(args?.maxPrice ?? args?.max_price) || 0) === 0
+        && !isTrueArgument(args?.directAddOnly ?? args?.direct_add_only)
+        && !isTrueArgument(args?.browseAll ?? args?.browse_all)
+        && !hasRequiredVariantAttributeCode(args)
+        && !hasRequiredVariantOptionValues(args)
+        && !nonEmptyArgumentList(args?.excludedTerms ?? args?.excluded_terms)
+        && !nonEmptyArgumentList(args?.excludedVariantOptionValues ?? args?.excluded_variant_option_values);
+}
+
 /**
  * Magento normally filters an exact lookup itself, but this gateway owns the
  * customer-visible card. Fail closed when any returned card does not still
@@ -1547,15 +2154,34 @@ function shouldRequireCatalogQueryRefinement({
     normalizedArgs = {},
     content = {},
     isCatalogQueryRefinementSearch = false,
-    refinementAttempts = 0
+    refinementAttempts = 0,
+    skipForVerifiedLowestPriceScope = false
 } = {}) {
-    if (isCatalogQueryRefinementSearch || refinementAttempts > 0) return false;
+    if (isCatalogQueryRefinementSearch || refinementAttempts > 0 || skipForVerifiedLowestPriceScope) return false;
     if (requestedCatalogIntent(rawArgs) !== 'product_search') return false;
     if (!normalizeCatalogQuery(normalizedArgs.query)) return false;
     if (isExactIdentitySearch(normalizedArgs)) return false;
     if (requiresVariantAttribute(rawArgs) || hasRequiredVariantAttributeCode(normalizedArgs)) return false;
     if (isSimilarityFallbackSearch(rawArgs, normalizedArgs)) return false;
     if (content?.error || content?.meta?.scope?.unavailable_query_match === true) return false;
+    return catalogSearchReturnedNoProducts(content);
+}
+
+function shouldRetryLowestPriceCategoryAsDirectBrowse({
+    state = {},
+    normalizedArgs = {},
+    content = {}
+} = {}) {
+    if (state.lowestPriceCategoryDiscoveryCompleted !== true
+        || state.lowestPriceCategoryBrowseFallbackAttempted === true) {
+        return false;
+    }
+    if (Number(normalizedArgs.categoryId) < 1
+        || String(normalizedArgs.pricePreference || '') !== 'lowest'
+        || !normalizeCatalogQuery(normalizedArgs.query)
+        || content?.error) {
+        return false;
+    }
     return catalogSearchReturnedNoProducts(content);
 }
 
@@ -1716,6 +2342,7 @@ function validateCatalogIntent(args = {}, intent = '', hasIntent = false) {
         || Number(args?.categoryId ?? args?.category_id ?? 0) > 0
         || Number(args?.minPrice ?? args?.min_price ?? 0) > 0
         || Number(args?.maxPrice ?? args?.max_price ?? 0) > 0
+        || String(args?.pricePreference ?? args?.price_preference ?? '').trim() !== ''
         || isTrueArgument(args?.directAddOnly ?? args?.direct_add_only)
         || isTrueArgument(args?.exactIdentity ?? args?.exact_identity)
         || isTrueArgument(args?.requiresVariantAttribute ?? args?.requires_variant_attribute)
@@ -1746,6 +2373,7 @@ function isUnconstrainedProductSearch(args = {}) {
         && Number(args?.categoryId ?? args?.category_id ?? 0) <= 0
         && Number(args?.minPrice ?? args?.min_price ?? 0) <= 0
         && Number(args?.maxPrice ?? args?.max_price ?? 0) <= 0
+        && String(args?.pricePreference ?? args?.price_preference ?? '').trim() === ''
         && !isTrueArgument(args?.directAddOnly ?? args?.direct_add_only)
         && !isTrueArgument(args?.exactIdentity ?? args?.exact_identity)
         && !isTrueArgument(args?.requiresVariantAttribute ?? args?.requires_variant_attribute)
@@ -1767,6 +2395,8 @@ function normalizeStoreSampleArguments(args = {}) {
         max_price,
         priceCurrency,
         price_currency,
+        pricePreference,
+        price_preference,
         directAddOnly,
         direct_add_only,
         exactIdentity,
@@ -1834,6 +2464,16 @@ function normalizeSingleProductAnchor(anchor) {
         : null;
 }
 
+function requestedSingleProductAnchorDecision(args = {}) {
+    return String(args?.decision || '')
+        .trim()
+        .toLowerCase();
+}
+
+function requestedSelectedCatalogProductRef(args = {}) {
+    return String(args?.productRef ?? args?.product_ref ?? '').trim();
+}
+
 function normalizeCatalogResultSetAnchor(anchor) {
     const searchRef = String(anchor?.searchRef ?? anchor?.search_ref ?? '').trim();
     const source = anchor?.request && typeof anchor.request === 'object' ? anchor.request : {};
@@ -1844,6 +2484,9 @@ function normalizeCatalogResultSetAnchor(anchor) {
     const minPrice = positiveCatalogPrice(source.minPrice ?? source.min_price);
     const maxPrice = positiveCatalogPrice(source.maxPrice ?? source.max_price);
     const priceCurrency = String(source.priceCurrency ?? source.price_currency ?? '').trim().toUpperCase();
+    const pricePreference = String(source.pricePreference ?? source.price_preference ?? '')
+        .trim()
+        .toLowerCase();
     const directAddOnly = source.directAddOnly === true || source.direct_add_only === true;
     const browseAll = source.browseAll === true || source.browse_all === true;
     const requiredVariantAttributeCode = String(
@@ -1859,15 +2502,18 @@ function normalizeCatalogResultSetAnchor(anchor) {
     if (!query && !categoryId && !minPrice && !maxPrice && !directAddOnly && !browseAll && !validAttributeCode) {
         return null;
     }
+    const products = normalizeCatalogResultSetProducts(anchor?.products);
 
     return Object.freeze({
         searchRef,
+        products: Object.freeze(products),
         request: Object.freeze({
             query,
             ...(categoryId ? { categoryId } : {}),
             ...(minPrice ? { minPrice } : {}),
             ...(maxPrice ? { maxPrice } : {}),
             ...(minPrice || maxPrice) && /^[A-Z]{3}$/.test(priceCurrency) ? { priceCurrency } : {},
+            ...(pricePreference === 'lowest' ? { pricePreference: 'lowest' } : {}),
             ...(directAddOnly ? { directAddOnly: true } : {}),
             ...(browseAll ? { browseAll: true } : {}),
             ...(validAttributeCode ? { requiredVariantAttributeCode } : {}),
@@ -1879,6 +2525,16 @@ function normalizeCatalogResultSetAnchor(anchor) {
                 : {})
         })
     });
+}
+
+function normalizeCatalogResultSetProducts(products) {
+    const source = Array.isArray(products) ? products : [];
+    const seen = new Set();
+    return source
+        .map((product) => normalizeSingleProductAnchor(product))
+        .filter((product) => product && !seen.has(product.productRef) && seen.add(product.productRef))
+        .slice(0, 20)
+        .map((product) => Object.freeze({ ...product }));
 }
 
 function positiveCatalogPrice(value) {
@@ -1910,6 +2566,8 @@ function anchorExactProductSearch(args, anchor) {
         max_price,
         priceCurrency,
         price_currency,
+        pricePreference,
+        price_preference,
         directAddOnly,
         direct_add_only,
         requiresVariantAttribute,
@@ -1954,6 +2612,8 @@ function anchorResultSetSearch(args, anchor) {
         max_price,
         priceCurrency,
         price_currency,
+        pricePreference,
+        price_preference,
         directAddOnly,
         direct_add_only,
         browseAll,
@@ -1995,6 +2655,7 @@ function anchorResultSetSearch(args, anchor) {
         ...(request.minPrice ? { minPrice: request.minPrice } : {}),
         ...(request.maxPrice ? { maxPrice: request.maxPrice } : {}),
         ...(request.priceCurrency ? { priceCurrency: request.priceCurrency } : {}),
+        ...(request.pricePreference === 'lowest' ? { pricePreference: 'lowest' } : {}),
         ...(request.directAddOnly ? { directAddOnly: true } : {}),
         ...(request.browseAll ? { browseAll: true } : {}),
         ...(request.requiredVariantAttributeCode
@@ -2016,7 +2677,7 @@ function anchorResultSetSearch(args, anchor) {
  * option labels: the product type and selection requirement are Magento facts
  * from this turn.
  */
-function configurableSkuFromSingleSearchResult(content, anchor = null) {
+function availabilitySkuFromSingleSearchResult(content, anchor = null, { exactSkuLookup = false } = {}) {
     if (!content || typeof content !== 'object' || content.error) return '';
 
     const products = Array.isArray(content.data) ? content.data : [];
@@ -2032,7 +2693,16 @@ function configurableSkuFromSingleSearchResult(content, anchor = null) {
         || String(exactProduct.product_type || '').trim().toLowerCase() === 'configurable'
         || (Array.isArray(exactProduct.variant_options) && exactProduct.variant_options.length > 0);
 
-    return requiresSelection ? sku : '';
+    // An anchored follow-up asks about one previously shown product. Its
+    // current sale state must be verified live even when that product is
+    // simple: a stale card must not be used to claim it is available or that
+    // a requested option cannot be selected. The same applies to a
+    // structured exact-SKU lookup: it intentionally resolves one known item
+    // instead of discovering a product set, so no current stock or option
+    // statement may be synthesized from a card alone. New unanchored
+    // discovery remains configurable-only to avoid adding a needless read to
+    // ordinary product browsing.
+    return anchor || requiresSelection || exactSkuLookup ? sku : '';
 }
 
 function isUnfilteredCategoryBrowse(args = {}) {
@@ -2042,18 +2712,182 @@ function isUnfilteredCategoryBrowse(args = {}) {
         && !hasRequiredVariantAttributeCode(args);
 }
 
-function hasCategoryScope(args = {}) {
-    return Math.max(0, Math.trunc(Number(args?.categoryId ?? args?.category_id) || 0)) > 0;
+/**
+ * A lowest-price ordering is a retrieval contract, not a customer-language
+ * interpretation.  Before a non-exact, non-attribute product discovery can
+ * use that ordering, require the model to obtain one current Magento category
+ * and make the comparison within it.  This prevents a loose full-text hit
+ * from silently redefining the product family being compared.
+ */
+function requiresLowestPriceCategoryDiscovery({
+    toolName,
+    rawArgs = {},
+    normalizedArgs = {},
+    catalogIntent = '',
+    anchoredFollowUp = false,
+    anchoredResultSetFollowUp = false,
+    state = {}
+} = {}) {
+    if (toolName !== 'searchProducts'
+        || catalogIntent !== 'product_search'
+        || anchoredFollowUp
+        || anchoredResultSetFollowUp
+        || state.lowestPriceCategoryDiscoveryCompleted
+        || state.categoryScopeRequiredAfterDiscovery
+        || isExactIdentitySearch(normalizedArgs)
+        || hasRequiredVariantAttributeCode(normalizedArgs)
+        || requiresVariantAttribute(rawArgs)) {
+        return false;
+    }
+
+    const categoryId = Math.max(0, Math.trunc(Number(
+        normalizedArgs.categoryId ?? normalizedArgs.category_id
+    ) || 0));
+    const pricePreference = String(
+        normalizedArgs.pricePreference ?? normalizedArgs.price_preference ?? ''
+    ).trim().toLowerCase();
+
+    return categoryId === 0
+        && pricePreference === 'lowest'
+        && String(normalizedArgs.query || '').trim() !== '';
 }
 
-function hasPresentableDiscoveryCategory(content = {}) {
-    if (!content || typeof content !== 'object' || content.error) return false;
-    if (String(content.status || '').toLowerCase() === 'error') return false;
+/**
+ * Price direction remains a semantic provider decision. This small
+ * locale-neutral syntax check merely prevents a model from treating a numeric
+ * shopper money constraint as unstructured prose after it has already chosen
+ * the `lowest` retrieval policy. It recognises money notation, never product
+ * names or natural-language comparison words.
+ */
+function requiresStructuredPriceBound({
+    toolName,
+    rawArgs = {},
+    normalizedArgs = {},
+    shopperMessage = ''
+} = {}) {
+    if (toolName !== 'searchProducts') return false;
+    const pricePreference = String(
+        normalizedArgs.pricePreference ?? rawArgs.pricePreference ?? rawArgs.price_preference ?? ''
+    ).trim().toLowerCase();
+    if (pricePreference !== 'lowest') return false;
 
-    return Array.isArray(content.data) && content.data.some((category) => (
-        Math.max(0, Math.trunc(Number(category?.id) || 0)) > 0
-        && Math.max(0, Math.trunc(Number(category?.product_count) || 0)) > 0
-    ));
+    const minPrice = positiveCatalogPrice(normalizedArgs.minPrice ?? normalizedArgs.min_price);
+    const maxPrice = positiveCatalogPrice(normalizedArgs.maxPrice ?? normalizedArgs.max_price);
+    return minPrice === 0
+        && maxPrice === 0
+        && hasExplicitMonetaryAmount(shopperMessage);
+}
+
+function hasExplicitMonetaryAmount(value = '') {
+    const numericAmount = String.raw`\d+(?:[.,]\d{1,2})?`;
+    const currencySymbol = String.raw`\p{Sc}`;
+    const currencyCode = String.raw`[A-Z]{3}`;
+    const pattern = new RegExp(
+        String.raw`(?:${currencySymbol}\s*${numericAmount}|${numericAmount}\s*${currencySymbol}|\b${currencyCode}\s*${numericAmount}\b|\b${numericAmount}\s*${currencyCode}\b)`,
+        'u'
+    );
+    return pattern.test(String(value || '').trim());
+}
+
+/**
+ * The provider is allowed to select the verified Magento category after
+ * discovery, but it cannot weaken the price conditions that triggered that
+ * discovery. Keep the contract in normalized tool-argument form; no shopper
+ * prose, category name, locale, or model-generated explanation enters this
+ * state.
+ */
+function lowestPriceRetrievalContract(args = {}) {
+    const minPrice = positiveCatalogPrice(args.minPrice ?? args.min_price);
+    const maxPrice = positiveCatalogPrice(args.maxPrice ?? args.max_price);
+    const priceCurrency = String(args.priceCurrency ?? args.price_currency ?? '')
+        .trim()
+        .toUpperCase();
+
+    return Object.freeze({
+        ...(minPrice ? { minPrice } : {}),
+        ...(maxPrice ? { maxPrice } : {}),
+        ...(minPrice || maxPrice) && /^[A-Z]{3}$/.test(priceCurrency)
+            ? { priceCurrency }
+            : {},
+        pricePreference: 'lowest'
+    });
+}
+
+function shouldRestoreLowestPriceRetrievalContract({ toolName, state = {} } = {}) {
+    return toolName === 'searchProducts'
+        && state.lowestPriceCategoryDiscoveryCompleted === true
+        && state.categoryScopeRequiredAfterDiscovery === true
+        && state.lowestPriceRetrievalContract
+        && typeof state.lowestPriceRetrievalContract === 'object';
+}
+
+function restoreLowestPriceRetrievalContract(args = {}, contract = {}) {
+    return {
+        ...args,
+        ...contract
+    };
+}
+
+function hasVerifiedDiscoveryCategoryScope(args = {}, allowedCategoryIds = new Set()) {
+    const categoryId = categoryIdFromArgs(args);
+    return categoryId > 0 && allowedCategoryIds instanceof Set && allowedCategoryIds.has(categoryId);
+}
+
+function categoryIdFromArgs(args = {}) {
+    return Math.max(0, Math.trunc(Number(args?.categoryId ?? args?.category_id) || 0));
+}
+
+function shouldRetryLowestPriceCategoryScope({
+    state = {},
+    args = {},
+    content = {},
+    allowedCategoryIds = new Set()
+} = {}) {
+    return state.lowestPriceCategoryDiscoveryCompleted === true
+        && state.lowestPriceCategoryRetryAttempted !== true
+        && hasVerifiedDiscoveryCategoryScope(args, allowedCategoryIds)
+        && allowedCategoryIds instanceof Set
+        && allowedCategoryIds.size > 1
+        && catalogSearchReturnedNoProducts(content);
+}
+
+function markLowestPriceCategoryScopeRetryRequired(content = {}) {
+    if (!content || typeof content !== 'object' || Array.isArray(content)) return content;
+    const meta = content.meta && typeof content.meta === 'object' && !Array.isArray(content.meta)
+        ? content.meta
+        : {};
+    const scope = meta.scope && typeof meta.scope === 'object' && !Array.isArray(meta.scope)
+        ? meta.scope
+        : {};
+
+    return {
+        ...content,
+        meta: {
+            ...meta,
+            scope: {
+                ...scope,
+                lowest_price_category_retry_required: true
+            }
+        }
+    };
+}
+
+function presentableDiscoveryCategoryIds(content = {}) {
+    const ids = new Set();
+    if (!content || typeof content !== 'object' || content.error) return ids;
+    if (String(content.status || '').toLowerCase() === 'error') return ids;
+
+    for (const category of Array.isArray(content.data) ? content.data : []) {
+        const id = Math.max(0, Math.trunc(Number(category?.id) || 0));
+        const productCount = Math.max(0, Math.trunc(Number(category?.product_count) || 0));
+        if (id > 0 && productCount > 0) ids.add(id);
+    }
+    return ids;
+}
+
+function isSuccessfulToolResponse(content = {}) {
+    if (!content || typeof content !== 'object' || content.error) return false;
+    return String(content.status || '').toLowerCase() !== 'error';
 }
 
 function isSimilarityFallbackSearch(rawArgs = {}, normalizedArgs = {}) {
@@ -2272,12 +3106,29 @@ function registerResult({
         state.terminalCatalog = true;
         state.pendingProductPresentation = null;
         state.hasVisibleProducts = false;
+        state.finalCatalogPriceEvidence = null;
     }
 
     if (presentation.productPresentation) {
         state.pendingProductPresentation = presentation.productPresentation;
         state.hasVisibleProducts = true;
         state.terminalCatalog = false;
+        state.finalCatalogPriceEvidence = catalogPriceEvidence(content);
+    }
+    if (name === 'listCategories'
+        && String(args.lookupPurpose || '') === 'taxonomy_question'
+        && content?.meta?.total_is_verified === true) {
+        const totalProducts = Math.trunc(Number(content.meta.total_products));
+        if (Number.isFinite(totalProducts) && totalProducts >= 0) {
+            // The category tree can legitimately contain a product more than
+            // once. Keep Magento's independent distinct count as final-answer
+            // evidence instead of letting the provider derive a total from
+            // category rows or omit the verified count altogether.
+            state.finalCatalogPriceEvidence = Object.freeze({
+                ...(state.finalCatalogPriceEvidence || {}),
+                requiredStoreProductTotal: totalProducts
+            });
+        }
     }
     if (presentation.visibleImage) state.hasVisibleImages = true;
     if (blockingToolFailure) {
@@ -2320,6 +3171,139 @@ function createToolOutcome(name, args, content) {
         } : {}),
         content
     };
+}
+
+/**
+ * A final answer may mention a monetary amount only when that amount occurred
+ * in the current Magento card grid. This protects the customer from a model
+ * inventing a price after cards have already been rendered, while keeping all
+ * language decisions with the provider. The check deliberately concerns only
+ * explicit currency amounts; ordinary numbers such as quantities and years
+ * are not catalogue-price claims.
+ */
+function assessFinalResponseCatalogGrounding(content = '', evidence = null) {
+    const allowedMinorUnits = new Set(Array.isArray(evidence?.minorUnits) ? evidence.minorUnits : []);
+    const requiredStoreProductTotal = Number.isInteger(evidence?.requiredStoreProductTotal)
+        ? evidence.requiredStoreProductTotal
+        : null;
+
+    const mentionedMinorUnits = extractExplicitMonetaryMinorUnits(content, evidence?.currencyTokens);
+    const unsupportedMinorUnits = mentionedMinorUnits.filter((minorUnits) => !allowedMinorUnits.has(minorUnits));
+    const missingStoreProductTotal = requiredStoreProductTotal !== null
+        && !containsVerifiedInteger(content, requiredStoreProductTotal);
+
+    return {
+        accepted: unsupportedMinorUnits.length === 0 && !missingStoreProductTotal,
+        unsupportedMinorUnits: [...new Set(unsupportedMinorUnits)],
+        ...(missingStoreProductTotal ? { missingStoreProductTotal: requiredStoreProductTotal } : {})
+    };
+}
+
+function finalResponseCatalogGroundingRepairInstruction(assessment = {}) {
+    if (Number.isInteger(assessment?.missingStoreProductTotal)) {
+        return 'A verified Magento result supplied the exact distinct store-wide product count, but the shopper-facing response omitted it. Rewrite the response now in the shopper language and state that exact total. Do not add category counts together, do not estimate, do not call any tool, and do not add an individual product or category that the shopper did not ask for.';
+    }
+    return 'Your shopper-facing response contains an explicit monetary amount that is not present in the current verified Magento product cards. Rewrite the response now using only the current card evidence. Do not call any tool, do not add a product, and do not mention an unverified price.';
+}
+
+function containsVerifiedInteger(content, expected) {
+    const normalized = String(content || '')
+        .replace(/[\u00a0\u202f]/g, ' ')
+        .replace(/[.,\s](?=\d{3}(?:\D|$))/g, '');
+    const matcher = new RegExp(`(^|\\D)${expected}(?!\\d)`);
+    return matcher.test(normalized);
+}
+
+function catalogPriceEvidence(content = {}) {
+    const minorUnits = new Set();
+    const items = Array.isArray(content?.data) ? content.data : [];
+    for (const item of items) {
+        addCatalogPriceValue(minorUnits, item?.price);
+        collectQuantityPriceValues(minorUnits, item?.quantity_prices);
+    }
+
+    const currencyTokens = catalogCurrencyTokens(content?.meta?.currency);
+    return Object.freeze({ minorUnits: [...minorUnits], currencyTokens });
+}
+
+function collectQuantityPriceValues(target, value) {
+    if (Array.isArray(value)) {
+        value.forEach((item) => collectQuantityPriceValues(target, item));
+        return;
+    }
+    if (!value || typeof value !== 'object') return;
+
+    for (const [key, candidate] of Object.entries(value)) {
+        if (['price', 'final_price', 'amount', 'value'].includes(String(key).toLowerCase())) {
+            addCatalogPriceValue(target, candidate);
+        } else if (candidate && typeof candidate === 'object') {
+            collectQuantityPriceValues(target, candidate);
+        }
+    }
+}
+
+function addCatalogPriceValue(target, value) {
+    const minorUnits = normalizeCurrencyMinorUnits(value);
+    if (minorUnits !== null) target.add(minorUnits);
+}
+
+function catalogCurrencyTokens(currency = {}) {
+    const serializedCurrency = JSON.stringify(currency || {}).toUpperCase();
+    if (serializedCurrency.includes('EUR') || serializedCurrency.includes('€')) {
+        return ['€', 'EUR'];
+    }
+    if (serializedCurrency.includes('USD') || serializedCurrency.includes('$')) {
+        return ['$', 'USD'];
+    }
+    if (serializedCurrency.includes('GBP') || serializedCurrency.includes('£')) {
+        return ['£', 'GBP'];
+    }
+
+    // Magento's public storefront uses EUR unless its signed response says
+    // otherwise. This fallback still requires a currency marker in the prose.
+    return ['€', 'EUR'];
+}
+
+function extractExplicitMonetaryMinorUnits(content, currencyTokens = []) {
+    const escapedTokens = currencyTokens
+        .map((token) => String(token).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .filter(Boolean)
+        .join('|');
+    if (!escapedTokens) return [];
+
+    const amount = '(?:\\d{1,3}(?:[.\\s]\\d{3})+|\\d+)(?:[,.]\\d{1,2})?';
+    const tokenPattern = `(?:${escapedTokens})`;
+    const matcher = new RegExp(`(?:${tokenPattern}\\s*(${amount})|(${amount})\\s*${tokenPattern})`, 'giu');
+    const values = [];
+    for (const match of String(content || '').matchAll(matcher)) {
+        const minorUnits = normalizeCurrencyMinorUnits(match[1] || match[2]);
+        if (minorUnits !== null) values.push(minorUnits);
+    }
+    return values;
+}
+
+function normalizeCurrencyMinorUnits(value) {
+    const raw = String(value ?? '').trim().replace(/\s+/g, '');
+    if (!raw || !/[0-9]/.test(raw)) return null;
+
+    const digits = raw.replace(/[^0-9,.-]/g, '');
+    const lastComma = digits.lastIndexOf(',');
+    const lastPeriod = digits.lastIndexOf('.');
+    const decimalIndex = Math.max(lastComma, lastPeriod);
+    let normalized = digits;
+
+    if (decimalIndex >= 0 && digits.length - decimalIndex - 1 <= 2) {
+        const integerPart = digits.slice(0, decimalIndex).replace(/[,.]/g, '');
+        const decimalPart = digits.slice(decimalIndex + 1).padEnd(2, '0');
+        normalized = `${integerPart}.${decimalPart}`;
+    } else {
+        normalized = digits.replace(/[,.]/g, '');
+    }
+
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) && parsed >= 0
+        ? Math.round(parsed * 100)
+        : null;
 }
 
 function presentToolResult({ name, args, content, shopperMessage, options }) {
@@ -2370,6 +3354,7 @@ function presentToolResult({ name, args, content, shopperMessage, options }) {
         const { items, pagination, scope } = presentation.catalog;
         const exactIdentityRefinementRequired = content?.meta?.scope?.exact_identity_refinement_required === true;
         const catalogQueryRefinementRequired = content?.meta?.scope?.catalog_query_refinement_required === true;
+        const lowestPriceCategoryRetryRequired = content?.meta?.scope?.lowest_price_category_retry_required === true;
         productPresentation = presentation.event;
         const isVerifiedAlternative = scope.similarity_fallback === true
             || hasRequiredVariantAttributeCode(args);
@@ -2420,6 +3405,8 @@ function presentToolResult({ name, args, content, shopperMessage, options }) {
                 ? `The first exact product-name lookup returned no active match, but this can be a catalogue-language translation, transliteration, or spelling difference. Do not tell the shopper the product is unavailable yet. Make exactly one more searchProducts call with exactIdentity=true and a concise alternate spelling or catalogue-language translation of the same requested product. Keep catalogIntent=product_search.${catalogQueryLanguageFromContent(content) ? ` Set catalogQueryLanguage=${catalogQueryLanguageFromContent(content)} exactly and write only the query in that catalogue language; responseLanguage and customer-visible labels remain in the shopper language.` : ''} Do not list categories, broaden the search, show cards, or substitute another product.`
                 : catalogQueryRefinementRequired
                 ? `This non-empty product search returned no match, but the shopper wording may not be the catalogue language. Do not conclude that the product is unavailable yet. Make exactly one more searchProducts call with catalogIntent=product_search and a concise, meaningfully different catalogue-language equivalent of the same product request. Preserve every requirement.${catalogQueryLanguageFromContent(content) ? ` Set catalogQueryLanguage=${catalogQueryLanguageFromContent(content)} exactly and write only the query in that catalogue language; responseLanguage and customer-visible labels remain in the shopper language.` : ''} Do not browse categories, show unrelated cards, or substitute a product. The new query must not repeat the previous query.`
+                : lowestPriceCategoryRetryRequired
+                ? 'The first verified category scope returned no products under the current price constraint, but other Magento-returned category scopes remain. Do not tell the shopper that no product exists yet. Immediately call searchProducts one more time with a different categoryId from the prior category-discovery result, retaining the exact structured price limits and pricePreference=lowest. Do not repeat category discovery, broaden the search, or relax the price constraint.'
                 : currency.currency_conversion_unavailable === true
                 ? 'The store has no configured exchange rate for the shopper price constraint. Do not treat currencies as interchangeable. Explain that this price filter cannot be verified and ask the shopper to use the store currency or contact support.'
                 : (scope.unavailable_query_match
@@ -2427,7 +3414,7 @@ function presentToolResult({ name, args, content, shopperMessage, options }) {
                 : (items.length > 0
                     ? `${productCardInstruction}${isVerifiedAlternative
                         ? 'This is a verified alternative grid after an exact requested characteristic was unavailable. State that absence plainly, then introduce only these cards as the closest verified alternatives. Do not claim a returned product has the unavailable characteristic. '
-                        : ''}quantity_prices is the exact Magento-verified per-unit price ladder for that product and shopper: every minimum_qty threshold is inclusive. Use it for quantity-price questions. Never claim that no quantity price exists when this array includes the requested threshold; do not calculate a unit price from a total or invent an unreturned tier. When citing a returned catalogue product or option label, preserve its exact label; do not translate it and append the catalogue label in parentheses. Only mention products returned in this page. This non-empty final grid is the complete allowed product set for this shopper response: do not add, suggest, recommend, compare to, or name any other product, category, or alternative. direct_addable is Magento-validated: state that a product can be added immediately only when it is true. For a purchase request, any item with direct_addable=false, requires_variant_selection=true, or non-empty variant_options must be configured on its returned product URL: do not collect, list, or validate option choices in chat and do not call addToCart. A default_add_qty above 1 must be stated as the minimum directly addable quantity, with qty_increment when relevant. When this search used directAddOnly, every returned product meets that requirement. ${catalogCoverageInstruction(pagination)} Do not invent products from later pages.`
+                        : ''}quantity_prices is the exact Magento-verified per-unit price ladder for that product and shopper: every minimum_qty threshold is inclusive. Use it for quantity-price questions. Never claim that no quantity price exists when this array includes the requested threshold; do not calculate a unit price from a total or invent an unreturned tier. availability=selection_required means a configurable parent does not yet identify one purchasable child. It is neither in-stock nor out-of-stock evidence: never confirm a requested quantity or a partial option selection from that card. When citing a returned catalogue product or option label, preserve its exact label; do not translate it and append the catalogue label in parentheses. Only mention products returned in this page. This non-empty final grid is the complete allowed product set for this shopper response: do not add, suggest, recommend, compare to, or name any other product, category, or alternative. direct_addable is Magento-validated: state that a product can be added immediately only when it is true. For a purchase request, any item with direct_addable=false, requires_variant_selection=true, or non-empty variant_options must be configured on its returned product URL: do not collect, list, or validate option choices in chat and do not call addToCart. A default_add_qty above 1 must be stated as the minimum directly addable quantity, with qty_increment when relevant. When this search used directAddOnly, every returned product meets that requirement. ${catalogCoverageInstruction(pagination)} Do not invent products from later pages.`
                     : 'No products matched this retrieval. Before concluding there is no match, inspect categories or retry a meaningfully different query/category when that can resolve the request.'))
         };
     } else if (name === 'listCategories') {
@@ -2440,8 +3427,15 @@ function presentToolResult({ name, args, content, shopperMessage, options }) {
             return { productPresentation, visibleImage, modelContext };
         }
         const categories = Array.isArray(content?.data) ? content.data : [];
+        // This comes from one Magento collection count using the same
+        // storefront visibility and stock filters as the category rows. It
+        // is intentionally distinct from category product_count because a
+        // product can belong to several returned categories.
+        const totalProducts = Math.max(0, Math.trunc(Number(content?.meta?.total_products) || 0));
+        const totalIsVerified = content?.meta?.total_is_verified === true;
         const isTaxonomyOverview = String(args.lookupPurpose || '') === 'taxonomy_question';
         modelContext = {
+            ...(totalIsVerified ? { total_products: totalProducts } : {}),
             categories: categories
                 .map((category) => ({
                     id: Number(category?.id || 0),
@@ -2460,7 +3454,7 @@ function presentToolResult({ name, args, content, shopperMessage, options }) {
                 args.query
             ),
             instruction: isTaxonomyOverview
-                ? 'This is the complete verified category hierarchy for a general store overview. Answer in the shopper language from these categories only. Do not select a category, name individual products, call another catalogue tool, add parent/child counts together, or imply that one category count is the total store catalogue.'
+                ? 'This is the complete verified category hierarchy for a general store overview. Answer in the shopper language from these categories only. total_products, when present, is the exact total number of distinct products currently presentable across the entire store. When the shopper asks for the store-wide product count, state that exact value. Do not add category counts, infer a total from the hierarchy, select a category, name individual products, or call another catalogue tool.'
                 : 'Only describe the exact returned Magento categories. A category count is not a list of products.'
         };
     } else if (name === 'listVariantAttributes') {
@@ -2489,8 +3483,18 @@ function presentToolResult({ name, args, content, shopperMessage, options }) {
             instruction: 'Compare only the returned Magento product facts. Clearly distinguish missing attributes from unequal values and do not invent compatibility.'
         };
     } else if (name === 'getProductAvailability') {
-        modelContext = Array.isArray(content?.data) && content.data[0]
+        const availability = Array.isArray(content?.data) && content.data[0]
             ? content.data[0]
+            : null;
+        modelContext = availability
+            ? {
+                ...availability,
+                ...(availability.availability === 'selection_required'
+                    ? {
+                        instruction: 'This Magento result does not resolve one purchasable variant. Do not claim the product, a partial option selection, or the requested quantity is in stock or out of stock. Explain that the remaining returned configurable options must be selected on the returned product page before availability can be determined.'
+                    }
+                    : {})
+            }
             : { error: content?.error || 'Availability could not be checked.' };
     } else if (name === 'generateImage') {
         visibleImage = Boolean(content?.url && !content?.error);

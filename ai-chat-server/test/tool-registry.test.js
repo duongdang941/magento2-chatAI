@@ -12,12 +12,28 @@ import {
 test('keeps canonical tool names unique and provider schemas derived from one registry', () => {
     const names = TOOL_DEFINITIONS.map((tool) => tool.name);
     assert.equal(new Set(names).size, names.length);
-    assert.equal(openAiToolDefinitions().length, 23);
-    assert.equal(geminiToolDefinitions()[0].functionDeclarations.length, 23);
+    assert.equal(openAiToolDefinitions().length, 25);
+    assert.equal(geminiToolDefinitions()[0].functionDeclarations.length, 25);
     for (const provider of ['gemini', 'openai', 'cockpit', 'openrouter', '9router']) {
-        assert.equal(toolDefinitionsForProvider(provider).length, 23, provider);
+        assert.equal(toolDefinitionsForProvider(provider).length, 25, provider);
     }
     for (const definition of TOOL_DEFINITIONS) {
+        if (definition.name === 'resolveCatalogNeed') {
+            assert.deepEqual(definition.parameters.properties.decision.enum, [
+                'catalog_search',
+                'no_catalog_evidence'
+            ]);
+            assert.equal(definition.parameters.required.includes('activityPresentation'), false);
+            continue;
+        }
+        if (definition.name === 'resolveCatalogAnchor') {
+            assert.deepEqual(definition.parameters.properties.decision.enum, [
+                'follow_up', 'select_product', 'result_set_follow_up', 'new_search', 'no_catalog_fact', 'clarify'
+            ]);
+            assert.equal(definition.parameters.required.includes('activityPresentation'), false);
+            assert.ok(definition.parameters.properties.productRef);
+            continue;
+        }
         const activity = definition.parameters.properties.activityPresentation;
         assert.ok(activity, `${definition.name} includes activity presentation`);
         assert.equal(definition.parameters.required.includes('activityPresentation'), true, definition.name);
@@ -44,6 +60,8 @@ test('keeps canonical tool names unique and provider schemas derived from one re
 
     const productSearch = TOOL_DEFINITIONS.find(definition => definition.name === 'searchProducts');
     assert.ok(productSearch.parameters.properties.requiredVariantOptionValues);
+    assert.match(productSearch.parameters.properties.maxPrice.description, /explicit upper monetary threshold/i);
+    assert.match(productSearch.parameters.properties.priceCurrency.description, /Required together with minPrice or maxPrice/i);
     assert.deepEqual(productSearch.parameters.properties.catalogIdentityKind.enum, [
         'sku',
         'product_name',

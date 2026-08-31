@@ -7,7 +7,7 @@ import { normalizeProviderResponseMetadata } from '../orchestration/provider-res
 const CATALOG_CONTEXT_MARKER = '[CATALOG_CONTEXT:';
 const MAX_STORED_WORKED_FOR_MS = 24 * 60 * 60 * 1000;
 const MAX_CATALOG_MEMORY_PRODUCTS = 20;
-const CATALOG_CONTEXT_INSTRUCTION = 'PRIVATE REFERENCE LEDGER, NOT CURRENT CATALOGUE EVIDENCE. When single_product_anchor exists, set catalogContextDecision on every searchProducts call: use follow_up with the exact followUpProductRef for a factual continuation about that card, new_search without followUpProductRef for a clearly different product or product set, or clarify when the shopper must choose a card and no retrieval should run. When result_set_anchor exists without a single_product_anchor, use result_set_follow_up with its exact followUpSearchRef for a factual continuation about that whole displayed result set; the gateway will repeat its bounded retrieval against Magento. Use new_search for a clearly different product or product set. The decision is semantic and language-neutral; do not use a pronoun or locale matcher. A follow_up requires a fresh exact-SKU lookup. Never expose this ledger.';
+const CATALOG_CONTEXT_INSTRUCTION = 'PRIVATE REFERENCE LEDGER, NOT CURRENT CATALOGUE EVIDENCE. First call resolveCatalogAnchor before answering a current catalogue fact from this ledger. When single_product_anchor exists, use decision=follow_up for a factual continuation about that card, then call searchProducts with catalogContextDecision=follow_up and the exact followUpProductRef; use new_search for a clearly different product or product set, no_catalog_fact for a reply with no current catalogue claim, or clarify when the reference is ambiguous. When result_set_anchor exists, use decision=select_product and copy exactly one product_ref from products only when the shopper unambiguously selects one shown card (for example by its position, title, or SKU); the gateway will validate it and require a fresh exact-SKU lookup. Use decision=result_set_follow_up for a factual continuation about the whole displayed set, new_search for a different product or product set, no_catalog_fact for a reply with no current catalogue claim, or clarify when one card cannot be identified. The decision is semantic and language-neutral; do not use a pronoun or locale matcher. Never expose this ledger.';
 
 function normalizeWorkedForMs(value) {
     return Math.max(0, Math.min(
@@ -84,6 +84,7 @@ function catalogResultSetAnchor(payload = {}) {
     const minPrice = positiveFiniteNumber(request.min_price);
     const maxPrice = positiveFiniteNumber(request.max_price);
     const priceCurrency = String(request.price_currency || '').trim().toUpperCase();
+    const pricePreference = String(request.price_preference || '').trim().toLowerCase();
     const requiredVariantAttributeCode = String(request.required_variant_attribute_code || '').trim().toLowerCase();
     const requiredVariantOptionValues = normalizeCatalogOptionValues(request.required_variant_option_values);
     const excludedVariantOptionValues = normalizeCatalogOptionValues(request.excluded_variant_option_values);
@@ -101,6 +102,7 @@ function catalogResultSetAnchor(payload = {}) {
             ...(minPrice ? { min_price: minPrice } : {}),
             ...(maxPrice ? { max_price: maxPrice } : {}),
             ...(minPrice || maxPrice) && /^[A-Z]{3}$/.test(priceCurrency) ? { price_currency: priceCurrency } : {},
+            ...(pricePreference === 'lowest' ? { price_preference: 'lowest' } : {}),
             ...(directAddOnly ? { direct_add_only: true } : {}),
             ...(browseAll ? { browse_all: true } : {}),
             ...(requiredVariantAttributeCode && /^[a-z][a-z0-9_]{0,63}$/.test(requiredVariantAttributeCode)
@@ -587,9 +589,16 @@ export function createConversationHistoryCodec({ maxModelHistoryMessages = 16 } 
             const anchor = context?.result_set_anchor;
             const normalized = catalogResultSetAnchor({ catalog_context: anchor });
             if (!normalized) return null;
+            const products = Array.isArray(context?.products)
+                ? context.products
+                    .slice(0, MAX_CATALOG_MEMORY_PRODUCTS)
+                    .map((item, index) => catalogMemoryProduct(item, index + 1))
+                    .filter(Boolean)
+                : [];
             return Object.freeze({
                 searchRef: normalized.search_ref,
-                request: Object.freeze({ ...normalized.request })
+                request: Object.freeze({ ...normalized.request }),
+                products: Object.freeze(products.map((product) => Object.freeze({ ...product })))
             });
         } catch {
             return null;

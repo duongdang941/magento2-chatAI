@@ -75,6 +75,32 @@ class CatalogIdentityMatcher
     }
 
     /**
+     * Determine whether a query and a returned catalogue identity share at
+     * least one normalized lexical token.  This is intentionally stricter
+     * than fuzzy identity matching: it is a safety check for a full-text
+     * engine that has returned a non-empty page for a query with no indexed
+     * match at all.  It does not translate, classify, or maintain a list of
+     * product terms, so every shopper and catalogue language follows the
+     * same rule.
+     */
+    public function hasLexicalOverlap(string $query, string $candidate): bool
+    {
+        $queryTokens = array_values(array_filter(
+            $this->tokens($query),
+            static fn (string $token): bool => strlen($token) >= 2
+        ));
+        $candidateTokens = array_values(array_filter(
+            $this->tokens($candidate),
+            static fn (string $token): bool => strlen($token) >= 2
+        ));
+        if ($queryTokens === [] || $candidateTokens === []) {
+            return false;
+        }
+
+        return count(array_intersect($queryTokens, $candidateTokens)) > 0;
+    }
+
+    /**
      * Score a specific product identity, or return null for a broad/partial
      * match. Every meaningful query token must be represented in the product
      * name. Fewer extra candidate tokens means a closer identity.
@@ -129,6 +155,67 @@ class CatalogIdentityMatcher
         $extraCandidateTokens = count($candidateTokens) - count($matchedCandidateIndexes);
 
         return ($extraCandidateTokens * 3) + $editDistance;
+    }
+
+    /**
+     * Score a complete product title embedded as one contiguous sequence in a
+     * longer shopper sentence. This supports an otherwise exact product name
+     * that a model has accidentally sent together with surrounding prose,
+     * without extracting or translating any language-specific stop words.
+     *
+     * The entire candidate title must still map token-for-token, in order,
+     * to the shopper text. A partial, reordered, or merely related candidate
+     * therefore remains rejected.
+     *
+     * @param string $query Product identity supplied by the catalogue agent.
+     * @param string $candidate Product name stored in Magento.
+     */
+    public function embeddedIdentityDistance(string $query, string $candidate): ?int
+    {
+        $queryTokens = array_values(array_filter(
+            $this->tokens($query),
+            static fn (string $token): bool => strlen($token) >= 3
+        ));
+        $candidateTokens = array_values(array_filter(
+            $this->tokens($candidate),
+            static fn (string $token): bool => strlen($token) >= 3
+        ));
+        if ($queryTokens === [] || $candidateTokens === [] || count($candidateTokens) > count($queryTokens)) {
+            return null;
+        }
+
+        // One short term remains a broad facet rather than an identity. The
+        // same long-term exception as identityDistance() permits a genuinely
+        // distinctive one-word product title.
+        if (count($candidateTokens) === 1 && strlen($candidateTokens[0]) < 8) {
+            return null;
+        }
+
+        $bestDistance = null;
+        $lastStart = count($queryTokens) - count($candidateTokens);
+        for ($start = 0; $start <= $lastStart; $start++) {
+            $distance = 0;
+            $matches = true;
+            foreach ($candidateTokens as $offset => $candidateToken) {
+                $queryToken = $queryTokens[$start + $offset];
+                $longest = max(strlen($queryToken), strlen($candidateToken));
+                if (abs(strlen($queryToken) - strlen($candidateToken)) > 2) {
+                    $matches = false;
+                    break;
+                }
+                $tokenDistance = levenshtein($queryToken, $candidateToken);
+                if ($tokenDistance > max(1, (int)ceil($longest * 0.2))) {
+                    $matches = false;
+                    break;
+                }
+                $distance += $tokenDistance;
+            }
+            if ($matches && ($bestDistance === null || $distance < $bestDistance)) {
+                $bestDistance = $distance;
+            }
+        }
+
+        return $bestDistance;
     }
 
     /**

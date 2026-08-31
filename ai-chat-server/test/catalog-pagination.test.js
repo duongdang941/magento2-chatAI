@@ -96,6 +96,17 @@ test('keeps the gateway-approved whole-store sample flag for Magento', () => {
     );
 });
 
+test('preserves only the structured lowest-price preference for Magento', () => {
+    assert.deepEqual(
+        normalizeSearchArguments({ query: '', categoryId: 109, pricePreference: 'lowest' }),
+        { query: '', categoryId: 109, pricePreference: 'lowest', limit: 5, pageSize: 5, page: 1 }
+    );
+    assert.deepEqual(
+        normalizeSearchArguments({ query: '', categoryId: 109, pricePreference: 'cheap' }),
+        { query: '', categoryId: 109, limit: 5, pageSize: 5, page: 1 }
+    );
+});
+
 test('keeps single-product follow-up correlation out of Magento search parameters', () => {
     assert.deepEqual(
         normalizeSearchArguments({
@@ -287,6 +298,26 @@ test('retains signed price constraints and currency on later catalogue pages', (
         pageSize: 1,
         minPrice: 100,
         priceCurrency: 'USD'
+    });
+});
+
+test('retains the structured lowest-price preference on later catalogue pages', () => {
+    const page = buildCatalogProductsPayload({
+        data: [{ id: 9, sku: 'SKU-9' }],
+        meta: {
+            pagination: { total: 2, page: 1, page_size: 1, returned: 1, has_more: true, next_page: 2 },
+            scope: { category_id: 109, category_name: 'Druckprodukte' }
+        }
+    }, { query: '', categoryId: 109, pricePreference: 'lowest', limit: 1 });
+
+    assert.equal(page.payload.price_preference, 'lowest');
+    assert.equal(page.payload.catalog_context.request.price_preference, 'lowest');
+    assert.deepEqual(verifyCatalogPageToken(page.payload.continuation), {
+        query: '',
+        categoryId: 109,
+        page: 2,
+        pageSize: 1,
+        pricePreference: 'lowest'
     });
 });
 

@@ -17,6 +17,7 @@ interface AgentToolInterface
      * @param float|null $minPrice
      * @param float|null $maxPrice
      * @param string|null $priceCurrency ISO 4217 currency of explicit price constraints
+     * @param string|null $pricePreference Structured presentation preference: standard or lowest
      * @param bool|null $directAddOnly
      * @param bool|null $browseAll Internal, structured whole-store sample mode with no search query
      * @param bool|null $exactIdentity
@@ -37,6 +38,7 @@ interface AgentToolInterface
         float $minPrice = 0.0,
         float $maxPrice = 0.0,
         string $priceCurrency = '',
+        string $pricePreference = 'standard',
         bool $directAddOnly = false,
         bool $browseAll = false,
         bool $exactIdentity = false,

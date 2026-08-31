@@ -17,6 +17,7 @@ import {
 } from './tool-rounds.js';
 import {
     formatProviderError,
+    providerErrorCode,
     readProviderErrorResponse
 } from '../providers/provider-error.js';
 import {
@@ -75,6 +76,119 @@ function formatAnthropicHistory(history) {
     return messages;
 }
 
+/**
+ * Keep Anthropic's alternating-message protocol intact when a completed
+ * provider turn needs another instruction.  A tool-result turn already has
+ * the `user` role, so adding another standalone user message after it is not
+ * a valid Anthropic conversation.  Extending that existing turn preserves
+ * the protocol without adding any shopper-facing copy.
+ */
+function appendAnthropicUserInstruction(messages, instruction) {
+    const previousMessage = messages.at(-1);
+    if (previousMessage?.role !== 'user') {
+        messages.push({ role: 'user', content: instruction });
+        return;
+    }
+
+    if (Array.isArray(previousMessage.content)) {
+        previousMessage.content.push({ type: 'text', text: instruction });
+        return;
+    }
+
+    previousMessage.content = `${String(previousMessage.content || '')}\n\n${instruction}`.trim();
+}
+
+// Internal protocol feedback only.  It is sent to the provider after it has
+// ignored a tools-disabled synthesis request; it never reaches the shopper
+// and deliberately contains no locale-specific customer copy.
+const FINAL_SYNTHESIS_TOOL_REJECTION_INSTRUCTION = [
+    'No tool can run in this turn because tool execution is complete.',
+    'Use the verified results already in the conversation and provide the shopper-facing response now without a tool call.'
+].join(' ');
+
+// Anthropic requires every `tool_use` block to be followed by a matching
+// `tool_result` block.  Some compatible relays emit a stale `tool_use` even
+// when the final synthesis request deliberately omitted tools.  Merely
+// restating the synthesis instruction leaves that stale call unresolved, so
+// the relay can replay it until the customer receives `response_empty`.
+// Close the invalid call with protocol-only feedback.  No Magento tool is
+// executed and no customer-facing text is generated here.
+const FINAL_SYNTHESIS_STALE_TOOL_RESULT = JSON.stringify({
+    status: 'rejected',
+    reason: 'Tool execution is complete. Answer from the verified results already in the conversation.'
+});
+
+function appendRejectedFinalSynthesisToolCalls(messages, toolCalls) {
+    const staleCalls = Array.isArray(toolCalls)
+        ? toolCalls.filter((toolCall) => String(toolCall?.id || '').trim())
+        : [];
+    if (staleCalls.length === 0) {
+        appendAnthropicUserInstruction(messages, FINAL_SYNTHESIS_TOOL_REJECTION_INSTRUCTION);
+        return;
+    }
+
+    messages.push({ role: 'assistant', content: staleCalls });
+    messages.push({
+        role: 'user',
+        content: [
+            ...staleCalls.map((toolCall) => ({
+                type: 'tool_result',
+                tool_use_id: toolCall.id,
+                is_error: true,
+                content: FINAL_SYNTHESIS_STALE_TOOL_RESULT
+            })),
+            { type: 'text', text: FINAL_SYNTHESIS_TOOL_REJECTION_INSTRUCTION }
+        ]
+    });
+}
+
+// Some Anthropic-compatible relays need more than one protocol correction
+// before they stop emitting a stale tool_use block. These retries are always
+// tools-disabled and therefore cannot consume the shopper's Magento tool
+// budget or repeat a catalogue operation.
+const MAX_FINAL_SYNTHESIS_TOOL_REJECTION_RECOVERIES = 8;
+// A compatible provider can complete a valid request with no content blocks
+// while it is recovering from an upstream relay transition.  Retry only the
+// empty turn with the existing private recovery instruction; no Magento tool
+// is replayed and no customer-visible prose is manufactured by the gateway.
+const MAX_EMPTY_RESPONSE_RECOVERIES = 3;
+
+// A catalogue-card reference is not evidence by itself.  Some compatible
+// Anthropic relays ignore a forced tool choice and return a plan in prose.
+// Retry the structured decision without exposing that unverified plan to the
+// shopper; this remains language-neutral and never chooses a product from
+// text on the gateway.
+const CATALOG_ANCHOR_RESOLUTION_RECOVERY_INSTRUCTION = [
+    'The latest catalogue card set is only a private reference ledger, not current evidence.',
+    'Invoke resolveCatalogAnchor now with a valid structured decision before writing customer-facing prose.'
+].join(' ');
+const MAX_CATALOG_ANCHOR_RESOLUTION_RECOVERIES = 8;
+
+// A compatible relay can return prose even after a named control or Magento
+// retrieval tool was required. Keep the correction private and retry the
+// named tool; the gateway never guesses the shopper language or intent.
+const CATALOG_CONTROL_RECOVERY_INSTRUCTION = [
+    'A required catalogue control or retrieval step is still pending.',
+    'Invoke the currently forced tool now before writing any customer-facing prose.'
+].join(' ');
+// Compatible relays occasionally ignore a named tool choice. Two private
+// retries tolerate a transient wire-format lapse without spending most of a
+// shopper turn waiting for a plan in prose. The gateway then resolves only
+// the structural catalog-need control; concrete Magento search arguments
+// still remain model-owned and validated.
+const MAX_CATALOG_CONTROL_RECOVERIES = 2;
+
+// A transient proxy failure before the first SSE event is safe to repeat: no
+// customer text, action, or Magento tool call could have been emitted yet.
+// Keep this deliberately narrower than a whole-turn retry so an upstream
+// interruption can never replay a completed catalogue operation.
+const MAX_INITIAL_PROVIDER_ATTEMPTS = 2;
+
+export function isRetryableInitialProviderError(error) {
+    const code = providerErrorCode(error);
+    return code === 'provider_unavailable' || code === 'provider_timeout';
+}
+
 export const streamChatResponse = async (userMessage, ws, history = [], customerToken = null, config = {}, options = {}) => {
     const signal = options.signal || null;
     const isCancelled = () => signal?.aborted || (typeof options.isCancelled === 'function' && options.isCancelled());
@@ -122,7 +236,11 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
         }
     ];
 
-    const tools = anthropicToolDefinitions(config.provider || 'anthropic', getProviderCapabilities(config));
+    // A Magento provider name may be arbitrary (for example a custom
+    // Anthropic-compatible relay).  The protocol determines the safe tool
+    // wire contract; using the display/provider name here could silently
+    // remove every catalogue tool for an otherwise compatible provider.
+    const tools = anthropicToolDefinitions('anthropic', getProviderCapabilities(config));
     const toolFlow = createProviderNeutralToolFlow({
         ws,
         customerToken,
@@ -144,19 +262,28 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
     let pendingProductPresentation = null;
     let forceFinalSynthesis = false;
     let languageRepairAttempts = 0;
+    let catalogGroundingRepairAttempts = 0;
     let emptyResponseRecoveryAttempts = 0;
+    let finalSynthesisToolRejectionRecoveries = 0;
+    let catalogAnchorResolutionRecoveryAttempts = 0;
+    let catalogControlRecoveryAttempts = 0;
     let hasExecutedToolBatch = false;
     const progressPulse = createResponseProgressPulse({ ws, isCancelled });
 
     try {
         progressPulse.start();
-        // Keep one request after the final tool batch for synthesis. Omitting
-        // tool definitions on that request prevents a ninth tool execution.
-        for (let iteration = 0; iteration <= maxToolRounds + 1; iteration += 1) {
+        // Keep one request after the final tool batch for synthesis. Reserve
+        // bounded additional tools-disabled requests for relays that retain
+        // stale tool_use state; they are independent of the Magento budget.
+        for (let iteration = 0; iteration <= maxToolRounds + 1 + MAX_FINAL_SYNTHESIS_TOOL_REJECTION_RECOVERIES + MAX_CATALOG_CONTROL_RECOVERIES; iteration += 1) {
             if (isCancelled()) return { cancelled: true };
 
             const mandatoryAvailabilityPending = toolFlow.shouldForceProductAvailability();
-            const finalSynthesisOnly = !mandatoryAvailabilityPending && (
+            const mandatoryCatalogNeedDecision = toolFlow.shouldForceCatalogNeedResolution();
+            const mandatoryCatalogAnchorDecision = toolFlow.shouldForceCatalogAnchorResolution();
+            const mandatoryCategoryDiscovery = toolFlow.shouldForceCategoryDiscovery();
+            const mandatoryProductSearch = toolFlow.shouldForceProductSearch();
+            const finalSynthesisOnly = !mandatoryAvailabilityPending && !mandatoryCatalogNeedDecision && !mandatoryCatalogAnchorDecision && !mandatoryCategoryDiscovery && !mandatoryProductSearch && (
                 forceFinalSynthesis
                 || isFinalSynthesisTurn(iteration, maxToolRounds)
             );
@@ -174,12 +301,14 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
             let currentBlock = null;
             let currentToolUse = null;
 
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), providerStreamTimeoutMs);
-            const forwardAbort = () => controller.abort(signal?.reason);
-            if (signal) signal.addEventListener('abort', forwardAbort, { once: true });
+            for (let providerAttempt = 0; providerAttempt < MAX_INITIAL_PROVIDER_ATTEMPTS; providerAttempt += 1) {
+                let receivedProviderStreamData = false;
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), providerStreamTimeoutMs);
+                const forwardAbort = () => controller.abort(signal?.reason);
+                if (signal) signal.addEventListener('abort', forwardAbort, { once: true });
 
-            try {
+                try {
                 const headers = {
                     'Content-Type': 'application/json',
                     'anthropic-version': '2023-06-01',
@@ -210,9 +339,15 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                             // unverified category, attribute, or option.
                             ...(toolFlow.shouldForceProductAvailability()
                                 ? { tool_choice: { type: 'tool', name: 'getProductAvailability' } }
-                                : toolFlow.shouldForceProductSearch()
-                                    ? { tool_choice: { type: 'tool', name: 'searchProducts' } }
-                                : {})
+                                : mandatoryCatalogNeedDecision
+                                    ? { tool_choice: { type: 'tool', name: 'resolveCatalogNeed' } }
+                                    : mandatoryCatalogAnchorDecision
+                                        ? { tool_choice: { type: 'tool', name: 'resolveCatalogAnchor' } }
+                                        : mandatoryCategoryDiscovery
+                                            ? { tool_choice: { type: 'tool', name: 'listCategories' } }
+                                        : mandatoryProductSearch
+                                            ? { tool_choice: { type: 'tool', name: 'searchProducts' } }
+                                            : {})
                         } : {})
                     }),
                     signal: controller.signal
@@ -231,7 +366,8 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                     const { value, done } = await reader.read();
                     if (done) break;
 
-                    sseBuffer += decoder.decode(value, { stream: true });
+                        receivedProviderStreamData = true;
+                        sseBuffer += decoder.decode(value, { stream: true });
                     const events = sseBuffer.split('\n\n');
                     sseBuffer = events.pop() || '';
 
@@ -325,11 +461,19 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                             console.warn('[Anthropic Adapter] Error parsing event:', err.message);
                         }
                     }
+                    }
+                    break;
+                } catch (error) {
+                    const canRetry = providerAttempt === 0
+                        && !receivedProviderStreamData
+                        && currentBlocks.length === 0
+                        && isRetryableInitialProviderError(error);
+                    if (!canRetry) throw error;
+                    await new Promise(resolve => setTimeout(resolve, 150));
+                } finally {
+                    clearTimeout(timeout);
+                    if (signal) signal.removeEventListener('abort', forwardAbort);
                 }
-
-            } finally {
-                clearTimeout(timeout);
-                if (signal) signal.removeEventListener('abort', forwardAbort);
             }
 
             const rawToolCalls = currentBlocks.filter(b => b.type === 'tool_use');
@@ -389,26 +533,113 @@ export const streamChatResponse = async (userMessage, ws, history = [], customer
                     forceFinalSynthesis = true;
                     continue;
                 }
+                // Do not publish a provider's unverified promise to check a
+                // prior catalogue card when it ignored the forced semantic
+                // anchor tool.  The next turn receives the same tool choice
+                // plus a protocol-only correction; no product is guessed
+                // from the shopper's wording.
+                if (mandatoryCatalogAnchorDecision
+                    && catalogAnchorResolutionRecoveryAttempts < MAX_CATALOG_ANCHOR_RESOLUTION_RECOVERIES) {
+                    customerTurnBuffer.discard();
+                    catalogAnchorResolutionRecoveryAttempts += 1;
+                    appendAnthropicUserInstruction(
+                        messages,
+                        CATALOG_ANCHOR_RESOLUTION_RECOVERY_INSTRUCTION
+                    );
+                    continue;
+                }
+                if ((mandatoryCatalogNeedDecision || mandatoryCategoryDiscovery || mandatoryProductSearch)
+                    && catalogControlRecoveryAttempts < MAX_CATALOG_CONTROL_RECOVERIES) {
+                    customerTurnBuffer.discard();
+                    catalogControlRecoveryAttempts += 1;
+                    appendAnthropicUserInstruction(messages, CATALOG_CONTROL_RECOVERY_INSTRUCTION);
+                    continue;
+                }
+                // A few Anthropic-compatible relays can repeatedly ignore a
+                // forced initial control call and answer with a customer
+                // promise instead. At this point no shopper wording has been
+                // parsed and no product has been chosen. Conservatively
+                // resolve only the structural control as catalog_search, then
+                // keep forcing the model to supply the actual Magento search
+                // contract. This avoids publishing an unperformed-search
+                // promise without hard-coding any customer language, product
+                // term, category, or query.
+                if (mandatoryCatalogNeedDecision) {
+                    customerTurnBuffer.discard();
+                    const forcedToolUseId = `gateway-catalog-need-${iteration}`;
+                    const forcedCatalogNeed = await toolFlow.execute({
+                        id: forcedToolUseId,
+                        name: 'resolveCatalogNeed',
+                        args: { decision: 'catalog_search' }
+                    });
+                    lastToolOutcome = forcedCatalogNeed.outcome || lastToolOutcome;
+                    messages.push({
+                        role: 'assistant',
+                        content: [{
+                            type: 'tool_use',
+                            id: forcedToolUseId,
+                            name: 'resolveCatalogNeed',
+                            input: forcedCatalogNeed.args
+                        }]
+                    });
+                    messages.push({
+                        role: 'user',
+                        content: [{
+                            type: 'tool_result',
+                            tool_use_id: forcedToolUseId,
+                            content: JSON.stringify(forcedCatalogNeed.modelContext)
+                        }]
+                    });
+                    hasExecutedToolBatch = true;
+                    continue;
+                }
                 const finalText = customerTurnBuffer.commit();
+                // Some Anthropic-compatible relays retain a stale tool choice
+                // even though this request intentionally omitted `tools`.
+                // That response is invalid for this request, but Anthropic
+                // still requires it to receive a matching tool_result before
+                // the relay can advance. Record it as rejected protocol
+                // feedback only; it is never executed as a Magento tool and
+                // cannot become customer-facing catalogue evidence.
+                if (finalSynthesisOnly
+                    && rawToolCalls.length > 0
+                    && !finalText
+                    && finalSynthesisToolRejectionRecoveries < MAX_FINAL_SYNTHESIS_TOOL_REJECTION_RECOVERIES) {
+                    finalSynthesisToolRejectionRecoveries += 1;
+                    appendRejectedFinalSynthesisToolCalls(messages, rawToolCalls);
+                    forceFinalSynthesis = true;
+                    continue;
+                }
                 const languageAssessment = toolFlow.assessFinalResponseLanguage(finalText);
                 if (finalText
                     && !languageAssessment.accepted
                     && languageRepairAttempts < 1) {
                     languageRepairAttempts += 1;
                     forceFinalSynthesis = true;
-                    messages.push({
-                        role: 'user',
-                        content: toolFlow.finalResponseLanguageRepairInstruction(languageAssessment)
-                    });
+                    messages.push({ role: 'assistant', content: currentBlocks });
+                    appendAnthropicUserInstruction(
+                        messages,
+                        toolFlow.finalResponseLanguageRepairInstruction(languageAssessment)
+                    );
                     continue;
                 }
-                if (!finalText && emptyResponseRecoveryAttempts < 1) {
+                const catalogGroundingAssessment = toolFlow.assessFinalResponseCatalogGrounding(finalText);
+                if (finalText
+                    && !catalogGroundingAssessment.accepted
+                    && catalogGroundingRepairAttempts < 1) {
+                    catalogGroundingRepairAttempts += 1;
+                    forceFinalSynthesis = true;
+                    messages.push({ role: 'assistant', content: currentBlocks });
+                    appendAnthropicUserInstruction(
+                        messages,
+                        toolFlow.finalResponseCatalogGroundingRepairInstruction(catalogGroundingAssessment)
+                    );
+                    continue;
+                }
+                if (!finalText && emptyResponseRecoveryAttempts < MAX_EMPTY_RESPONSE_RECOVERIES) {
                     emptyResponseRecoveryAttempts += 1;
                     forceFinalSynthesis = hasExecutedToolBatch;
-                    messages.push({
-                        role: 'user',
-                        content: EMPTY_RESPONSE_RECOVERY_INSTRUCTION
-                    });
+                    appendAnthropicUserInstruction(messages, EMPTY_RESPONSE_RECOVERY_INSTRUCTION);
                     continue;
                 }
                 if (finalText) {

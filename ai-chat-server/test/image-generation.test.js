@@ -143,6 +143,15 @@ test('supports the safe SVG filter primitives used by ZCode-style artwork', () =
     );
 });
 
+test('supports non-executable SVG stroke dash styling', () => {
+    const svg = sanitizeGeneratedSvg(
+        '<svg viewBox="0 0 20 20"><path d="M2 10 H18" stroke="#123456" stroke-width="2" stroke-dasharray="4 2" stroke-dashoffset="1" /></svg>'
+    );
+
+    assert.match(svg, /stroke-dasharray="4 2"/);
+    assert.match(svg, /stroke-dashoffset="1"/);
+});
+
 test('creates a safe SVG fallback with a chat-only model and emits the normal image event contract', async () => {
     const directory = path.resolve(new URL('../.test-generated-svg', import.meta.url).pathname);
     process.env.AI_GENERATED_IMAGE_DIRECTORY = directory;

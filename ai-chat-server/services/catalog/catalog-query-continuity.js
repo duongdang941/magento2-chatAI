@@ -6,6 +6,12 @@ function categoryIdFromArgs(args = {}) {
     return Math.max(0, Math.trunc(Number(args.categoryId ?? args.category_id) || 0));
 }
 
+function isLowestPricePreference(args = {}) {
+    return String(args.pricePreference ?? args.price_preference ?? '')
+        .trim()
+        .toLowerCase() === 'lowest';
+}
+
 function successfulResultCount(content) {
     if (!content || typeof content !== 'object' || content.error) return null;
     if (String(content.status || '').toLowerCase() === 'error') return null;
@@ -25,6 +31,12 @@ function successfulResultCount(content) {
  */
 export function createCatalogQueryContinuity() {
     let lastMissedQuery = '';
+    let lastSuccessfulProductQuery = '';
+    // A category-discovery step may only narrow a non-empty product search;
+    // it must not erase that search and turn a precise request into an
+    // unfiltered category dump. This records transport-level search state,
+    // not a locale-dependent interpretation of the shopper's wording.
+    let discoverySourceQuery = '';
     let verifiedLeafCategoryIds = new Set();
 
     return {
@@ -48,6 +60,25 @@ export function createCatalogQueryContinuity() {
                 return normalized;
             }
             const isVerifiedLeafCategory = categoryId > 0 && verifiedLeafCategoryIds.has(categoryId);
+            const shouldBrowseBroadLowestPriceScope = categoryId > 0
+                && !isVerifiedLeafCategory
+                && isLowestPricePreference(normalized)
+                && !query;
+            if (shouldBrowseBroadLowestPriceScope) {
+                // A parent category selected for a lowest-price request is
+                // the actual comparison scope. Reinstating the previous
+                // free-text term can make that valid parent return zero
+                // products and pressure the provider to pick an arbitrary
+                // child, hiding cheaper products in sibling categories.
+                // This is based solely on the verified category tree and a
+                // closed retrieval value, never on category labels or locale.
+                normalized.query = '';
+                return normalized;
+            }
+            if (categoryId > 0 && discoverySourceQuery && !query) {
+                normalized.query = discoverySourceQuery;
+                return normalized;
+            }
             if (isVerifiedLeafCategory && lastMissedQuery && (!query || query === lastMissedQuery)) {
                 // A verified leaf category is Magento's canonical product
                 // family. Browsing it is safer than forcing a shopper-language
@@ -75,6 +106,9 @@ export function createCatalogQueryContinuity() {
                     }))
                     .filter(category => category.id > 0 && category.count > 0 && !parentIds.has(category.id))
                     .map(category => category.id));
+                discoverySourceQuery = String(args?.lookupPurpose || '') === 'product_discovery'
+                    ? lastSuccessfulProductQuery
+                    : '';
                 return;
             }
             if (toolName !== 'searchProducts') return;
@@ -84,8 +118,12 @@ export function createCatalogQueryContinuity() {
             if (resultCount === null) return;
             if (resultCount > 0) {
                 lastMissedQuery = '';
+                lastSuccessfulProductQuery = query;
             } else if (query) {
                 lastMissedQuery = query;
+            }
+            if (categoryIdFromArgs(args) > 0) {
+                discoverySourceQuery = '';
             }
         }
     };

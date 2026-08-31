@@ -67,6 +67,21 @@ test('does not accept a similarly named product as an exact identity', () => {
     ), true);
 });
 
+test('accepts only a complete catalogue title embedded in shopper prose', () => {
+    assert.equal(isStrictExactCatalogIdentityMatch(
+        'Tôi muốn tìm Regenschrim hellblau AfD trong cửa hàng.',
+        { sku: 'N021.C103', name: 'Regenschirm hellblau "AfD"' }
+    ), true);
+    assert.equal(isStrictExactCatalogIdentityMatch(
+        'Tôi muốn tìm hellblau Regenschrim AfD trong cửa hàng.',
+        { sku: 'N021.C103', name: 'Regenschirm hellblau "AfD"' }
+    ), false);
+    assert.equal(isStrictExactCatalogIdentityMatch(
+        'Tôi muốn tìm áo AfD trong cửa hàng.',
+        { sku: 'N021.C103', name: 'AfD' }
+    ), false);
+});
+
 test('keeps a lexical exact identity but permits a catalogue-language refinement', () => {
     assert.equal(
         exactIdentityValidationQuery(

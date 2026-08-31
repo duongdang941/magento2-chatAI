@@ -325,6 +325,41 @@ test('custom OpenAI-compatible provider streams chunks and terminates with a don
     }
 });
 
+test('custom provider outages emit a stable websocket error code', async () => {
+    const http = await import('node:http');
+    const server = http.createServer((_request, response) => {
+        response.writeHead(502, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ error: { message: 'upstream unavailable' } }));
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const frames = [];
+    const ws = { send: (frame) => frames.push(JSON.parse(frame)) };
+
+    try {
+        await streamChatResponse(
+            { text: 'Please show products', parts: [] },
+            ws,
+            [],
+            null,
+            {
+                provider: 'custom',
+                name: 'Custom',
+                base_url: `http://127.0.0.1:${server.address().port}/v1`,
+                api_key: 'test-key',
+                model: 'test-model',
+                api_format: 'openai-chat-completions'
+            },
+            {}
+        );
+
+        const error = frames.find((frame) => frame.type === 'error');
+        assert.equal(error?.error_code, 'provider_unavailable');
+    } finally {
+        server.closeAllConnections?.();
+        await new Promise((resolve) => server.close(resolve));
+    }
+});
+
 test('retries one final synthesis when a provider sends high-confidence prose in the wrong declared language', async () => {
     const http = await import('node:http');
     const activityPresentation = {

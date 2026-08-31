@@ -84,6 +84,19 @@ export function normalizeSearchArguments(
     }
     delete normalized.price_currency;
 
+    // `lowest` is structured retrieval metadata, not a phrase parser. The
+    // provider has already interpreted the shopper's language; Magento only
+    // receives a closed semantic value it can safely enforce.
+    const pricePreference = String(
+        normalized.pricePreference ?? normalized.price_preference ?? 'standard'
+    ).trim().toLowerCase();
+    if (pricePreference === 'lowest') {
+        normalized.pricePreference = 'lowest';
+    } else {
+        delete normalized.pricePreference;
+    }
+    delete normalized.price_preference;
+
     const directAddOnly = normalized.directAddOnly ?? normalized.direct_add_only;
     if (directAddOnly === true || ['1', 'true'].includes(String(directAddOnly).toLowerCase())) {
         normalized.directAddOnly = true;

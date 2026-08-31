@@ -119,6 +119,28 @@ class ProductAvailabilityTool
         $configurableAttributes = $product->getTypeInstance()->getConfigurableAttributesAsArray($product);
         $optionDefinitions = $this->getConfigurableOptionDefinitions($configurableAttributes);
         $attributeCodes = array_column($optionDefinitions, 'code');
+        $missingOptionCodes = $this->missingConfigurableOptionCodes($attributeCodes, $requestedOptions);
+
+        // A configurable parent has no single inventory pool. A selection of
+        // just one dimension (for example size) can still map to several
+        // child SKUs whose salable quantities differ. Do not inspect child
+        // stock, count matching variants, or expose an in-stock result until
+        // Magento receives one complete selection for every configurable
+        // attribute.
+        if ($missingOptionCodes !== []) {
+            return [
+                'id' => (int)$product->getId(),
+                'sku' => (string)$product->getSku(),
+                'name' => (string)$product->getName(),
+                'product_type' => 'configurable',
+                'requires_variant_selection' => true,
+                'availability' => 'selection_required',
+                'selection_complete' => false,
+                'missing_option_codes' => $missingOptionCodes,
+                'variant_options' => $optionDefinitions,
+                'variant_options_policy' => 'A configurable parent does not identify one purchasable variant until every returned option code has a selected value. selection_required is neither in-stock nor out-of-stock evidence. Do not state that a partial option selection is available, unavailable, or sufficient for a requested quantity. Keep shopper-facing prose in the shopper language; catalogue labels may remain unchanged.',
+            ];
+        }
         $children = $product->getTypeInstance()
             ->getUsedProductCollection($product)
             ->addAttributeToSelect(array_values(array_unique(array_merge(['name', 'sku', 'status'], $attributeCodes))));
@@ -186,6 +208,21 @@ class ProductAvailabilityTool
         }
 
         return $result;
+    }
+
+    /**
+     * @param array<int, string> $attributeCodes
+     * @param array<string, string> $requestedOptions
+     * @return array<int, string>
+     */
+    private function missingConfigurableOptionCodes(array $attributeCodes, array $requestedOptions): array
+    {
+        $requestedCodes = array_keys($requestedOptions);
+
+        return array_values(array_filter(
+            $attributeCodes,
+            static fn (string $code): bool => $code !== '' && !in_array($code, $requestedCodes, true)
+        ));
     }
 
     /**

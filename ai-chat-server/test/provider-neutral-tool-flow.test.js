@@ -335,7 +335,19 @@ test('requires a verified category scope after zero-result taxonomy discovery', 
     assert.equal(unscopedRetry.blocked, true);
     assert.equal(unscopedRetry.outcome.content.reason, 'category_scope_required_after_discovery');
     assert.match(unscopedRetry.modelContext.instruction, /categoryId/i);
-    assert.deepEqual(calls.map(call => call.name), ['searchProducts', 'searchProducts', 'listCategories']);
+    assert.deepEqual(calls.map(call => call.name), ['searchProducts', 'searchProducts', 'searchProducts', 'listCategories']);
+
+    const unverifiedScopedRetry = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: '', categoryId: 999, catalogIntent: 'product_search', exactIdentity: false,
+            responseLanguage: 'vi', responseLanguageEvidence: ['Cho toi', 'san pham'],
+            activityPresentation: productActivity('trong danh mục {category}')
+        }
+    });
+    assert.equal(unverifiedScopedRetry.blocked, true);
+    assert.equal(unverifiedScopedRetry.outcome.content.reason, 'category_scope_required_after_discovery');
+    assert.deepEqual(calls.map(call => call.name), ['searchProducts', 'searchProducts', 'searchProducts', 'listCategories']);
 
     const scopedRetry = await flow.execute({
         name: 'searchProducts',
@@ -347,9 +359,366 @@ test('requires a verified category scope after zero-result taxonomy discovery', 
     });
     assert.equal(scopedRetry.blocked, false);
     assert.equal(scopedRetry.visibleProducts, true);
-    assert.deepEqual(calls.map(call => call.name), ['searchProducts', 'searchProducts', 'listCategories', 'searchProducts']);
+    assert.deepEqual(calls.map(call => call.name), ['searchProducts', 'searchProducts', 'searchProducts', 'listCategories', 'searchProducts']);
     assert.equal(calls.at(-1).args.categoryId, 93);
     assert.equal(calls.at(-1).args.query, '');
+    assert.equal(flow.getState().categoryScopeRequiredAfterDiscovery, false);
+    assert.equal(flow.shouldForceProductSearch(), false);
+});
+
+test('replaces incidental unscoped cards with a Magento-verified discovery category result', async () => {
+    const calls = [];
+    const productActivity = (searchScope) => ({
+        language: 'vi',
+        runningLabel: 'Đang tìm sản phẩm {scope}',
+        completedLabel: 'Đã tìm xong sản phẩm {scope}',
+        failedLabel: 'Không thể tìm sản phẩm {scope}',
+        runningSummary: 'Đang xử lý trong {duration}',
+        completedSummary: 'Đã xử lý trong {duration}',
+        searchScope
+    });
+    const flow = createProviderNeutralToolFlow({
+        provider: 'gemini',
+        currentUserMessage: { text: 'Có mặt hàng in ấn nào giá rẻ không?' },
+        options: {
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                if (name === 'searchProducts' && !args.categoryId) {
+                    return {
+                        data: [{ id: 11, sku: 'UNRELATED', name: 'Unrelated badge' }],
+                        html: '<div class="product-card">Unrelated badge</div>',
+                        meta: { pagination: { total: 1, page: 1, page_size: 5, returned: 1, has_more: false } }
+                    };
+                }
+                if (name === 'listCategories') {
+                    return {
+                        data: [{ id: 701, parent_id: 2, level: 2, name: 'Druckprodukte', product_count: 3 }]
+                    };
+                }
+                if (name === 'searchProducts' && args.categoryId === 701) {
+                    return {
+                        data: [{ id: 12, sku: 'PRINT-1', name: 'Poster' }],
+                        html: '<div class="product-card">Poster</div>',
+                        meta: {
+                            pagination: { total: 3, page: 1, page_size: 5, returned: 1, has_more: true },
+                            scope: { category_id: 701, category_name: 'Druckprodukte' }
+                        }
+                    };
+                }
+                throw new Error(`Unexpected tool ${name}`);
+            }
+        }
+    });
+
+    const initialSearch = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'in ấn', catalogIntent: 'product_search', exactIdentity: false,
+            responseLanguage: 'vi', responseLanguageEvidence: ['Có', 'mặt hàng'],
+            activityPresentation: productActivity('trong cửa hàng')
+        }
+    });
+    assert.equal(initialSearch.visibleProducts, true);
+
+    const categories = await flow.execute({
+        name: 'listCategories',
+        args: {
+            lookupPurpose: 'product_discovery', responseLanguage: 'vi', responseLanguageEvidence: ['Có', 'mặt hàng']
+        }
+    });
+    assert.equal(categories.blocked, false);
+    assert.equal(flow.getState().categoryScopeRequiredAfterDiscovery, true);
+    assert.equal(flow.getState().hasVisibleProducts, false);
+    assert.equal(flow.shouldForceProductSearch(), true);
+
+    const unverifiedCategory = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'Druck', categoryId: 999, catalogIntent: 'product_search', exactIdentity: false,
+            responseLanguage: 'vi', responseLanguageEvidence: ['Có', 'mặt hàng'],
+            activityPresentation: productActivity('trong danh mục {category}')
+        }
+    });
+    assert.equal(unverifiedCategory.blocked, true);
+    assert.equal(unverifiedCategory.outcome.content.reason, 'category_scope_required_after_discovery');
+
+    const scopedSearch = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: '', categoryId: 701, catalogIntent: 'product_search', exactIdentity: false,
+            responseLanguage: 'vi', responseLanguageEvidence: ['Có', 'mặt hàng'],
+            activityPresentation: productActivity('trong danh mục {category}')
+        }
+    });
+    assert.equal(scopedSearch.blocked, false);
+    assert.equal(scopedSearch.visibleProducts, true);
+    assert.equal(scopedSearch.productPresentation.products.catalog_context.request.category_id, 701);
+    assert.equal(flow.getState().categoryScopeRequiredAfterDiscovery, false);
+    assert.equal(flow.shouldForceProductSearch(), false);
+    assert.deepEqual(calls.map(call => call.name), ['searchProducts', 'listCategories', 'searchProducts']);
+    assert.equal(calls.at(-1).args.query, 'in ấn');
+});
+
+test('preserves a lowest-price budget after category discovery when the provider omits it on retry', async () => {
+    const calls = [];
+    const productActivity = (searchScope) => ({
+        language: 'vi',
+        runningLabel: 'Đang tìm sản phẩm {scope}',
+        completedLabel: 'Đã tìm xong sản phẩm {scope}',
+        failedLabel: 'Không thể tìm sản phẩm {scope}',
+        runningSummary: 'Đang xử lý trong {duration}',
+        completedSummary: 'Đã xử lý trong {duration}',
+        searchScope
+    });
+    const flow = createProviderNeutralToolFlow({
+        provider: 'gemini',
+        // The structural guard must work even when a shopper message has no
+        // language-specific spelling markers.  It relies only on the model's
+        // closed pricePreference enum and Magento's returned category IDs.
+        currentUserMessage: { text: 'Co mat hang in an nao gia re khong' },
+        options: {
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                if (name === 'listCategories') {
+                    return {
+                        data: [{ id: 701, parent_id: 2, level: 2, name: 'Druckprodukte', product_count: 36 }]
+                    };
+                }
+                if (name === 'searchProducts' && args.categoryId === 701 && args.query === '') {
+                    return {
+                        data: [{ id: 12, sku: 'PRINT-LOWEST', name: 'Kurzprogramm der AfD', price: '0,40 €' }],
+                        html: '<div class="product-card">Kurzprogramm der AfD</div>',
+                        meta: {
+                            pagination: { total: 36, page: 1, page_size: 5, returned: 1, has_more: true },
+                            scope: { category_id: 701, category_name: 'Druckprodukte', price_preference: 'lowest' }
+                        }
+                    };
+                }
+                if (name === 'searchProducts' && args.categoryId === 701) {
+                    return {
+                        data: [],
+                        meta: {
+                            pagination: { total: 0, page: 1, page_size: 5, returned: 0, has_more: false },
+                            scope: { category_id: 701, category_name: 'Druckprodukte', price_preference: 'lowest' }
+                        }
+                    };
+                }
+                throw new Error(`Unexpected tool ${name}`);
+            }
+        }
+    });
+
+    const looseLowest = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'Druck', catalogIntent: 'product_search', maxPrice: 10, priceCurrency: 'EUR', pricePreference: 'lowest', exactIdentity: false,
+            responseLanguage: 'vi', responseLanguageEvidence: ['Co', 'mat hang'],
+            activityPresentation: productActivity('trong cửa hàng')
+        }
+    });
+    assert.equal(looseLowest.blocked, true);
+    assert.equal(looseLowest.outcome.content.reason, 'lowest_price_category_discovery_required');
+    assert.equal(looseLowest.visibleProducts, false);
+    assert.equal(flow.getState().catalogSearchAttempted, true);
+    assert.equal(flow.getState().lowestPriceCategoryDiscoveryRequired, true);
+    assert.equal(flow.shouldForceCategoryDiscovery(), true);
+    assert.equal(flow.shouldForceProductSearch(), false);
+    assert.deepEqual(calls, []);
+
+    const categories = await flow.execute({
+        name: 'listCategories',
+        args: {
+            lookupPurpose: 'product_discovery', responseLanguage: 'vi', responseLanguageEvidence: ['Co', 'mat hang']
+        }
+    });
+    assert.equal(categories.blocked, false);
+    assert.equal(flow.getState().lowestPriceCategoryDiscoveryCompleted, true);
+    assert.equal(flow.shouldForceCategoryDiscovery(), false);
+    assert.equal(flow.getState().categoryScopeRequiredAfterDiscovery, true);
+    assert.deepEqual(calls.map(call => call.name), ['listCategories']);
+
+    const finalSearch = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            // Simulate the provider retaining its verified category but
+            // dropping the price fields after the mandatory taxonomy call.
+            // The gateway must restore the original structured contract.
+            query: 'Druckprodukte', categoryId: 701, catalogIntent: 'product_search', exactIdentity: false,
+            responseLanguage: 'vi', responseLanguageEvidence: ['Co', 'mat hang'],
+            activityPresentation: productActivity('trong danh mục {category}')
+        }
+    });
+    assert.equal(finalSearch.blocked, false);
+    assert.equal(finalSearch.visibleProducts, true);
+    assert.equal(finalSearch.productPresentation.products.catalog_context.request.category_id, 701);
+    assert.equal(calls.at(-2).args.maxPrice, 10);
+    assert.equal(calls.at(-2).args.priceCurrency, 'EUR');
+    assert.equal(calls.at(-1).args.pricePreference, 'lowest');
+    assert.equal(calls.at(-1).args.maxPrice, 10);
+    assert.equal(calls.at(-1).args.priceCurrency, 'EUR');
+    assert.equal(calls.at(-1).args.query, '');
+    assert.deepEqual(calls.map(call => call.name), ['listCategories', 'searchProducts', 'searchProducts']);
+    assert.equal(flow.getState().categoryScopeRequiredAfterDiscovery, false);
+});
+
+test('retries one different Magento-returned category before declaring a lowest-price request empty', async () => {
+    const calls = [];
+    const activityPresentation = {
+        language: 'vi',
+        runningLabel: 'Đang tìm sản phẩm {scope}',
+        completedLabel: 'Đã tìm xong sản phẩm {scope}',
+        failedLabel: 'Không thể tìm sản phẩm {scope}',
+        runningSummary: 'Đang xử lý trong {duration}',
+        completedSummary: 'Đã xử lý trong {duration}',
+        searchScope: 'trong danh mục {category}'
+    };
+    const emptySearch = (categoryId) => ({
+        data: [],
+        meta: {
+            pagination: { total: 0, page: 1, page_size: 5, returned: 0, has_more: false },
+            scope: { category_id: categoryId, price_preference: 'lowest' }
+        }
+    });
+    const flow = createProviderNeutralToolFlow({
+        provider: 'anthropic',
+        currentUserMessage: { text: 'Có yêu cầu mua hàng với giới hạn rõ ràng 10 €.' },
+        options: {
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                if (name === 'listCategories') {
+                    return {
+                        data: [
+                            { id: 701, name: 'First scope', product_count: 4 },
+                            { id: 702, name: 'Second scope', product_count: 9 }
+                        ]
+                    };
+                }
+                if (name === 'searchProducts' && args.categoryId === 701) return emptySearch(701);
+                if (name === 'searchProducts' && args.categoryId === 702) {
+                    return {
+                        data: [{ id: 72, sku: 'PRICE-OK', name: 'Verified lower-priced item', price: '0.40' }],
+                        html: '<div class="product-card">Verified lower-priced item</div>',
+                        meta: {
+                            pagination: { total: 1, page: 1, page_size: 5, returned: 1, has_more: false },
+                            scope: { category_id: 702, price_preference: 'lowest' }
+                        }
+                    };
+                }
+                throw new Error(`Unexpected tool ${name}`);
+            }
+        }
+    });
+
+    const initial = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'print products', catalogIntent: 'product_search', maxPrice: 10, priceCurrency: 'EUR', pricePreference: 'lowest', exactIdentity: false,
+            responseLanguage: 'vi', responseLanguageEvidence: ['Có', 'yêu cầu'], activityPresentation
+        }
+    });
+    assert.equal(initial.blocked, true);
+    assert.equal(initial.outcome.content.reason, 'lowest_price_category_discovery_required');
+
+    await flow.execute({
+        name: 'listCategories',
+        args: { lookupPurpose: 'product_discovery', responseLanguage: 'vi', responseLanguageEvidence: ['Có', 'yêu cầu'] }
+    });
+
+    const firstScope = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'First scope', categoryId: 701, catalogIntent: 'product_search', exactIdentity: false,
+            responseLanguage: 'vi', responseLanguageEvidence: ['Có', 'yêu cầu'], activityPresentation
+        }
+    });
+    assert.equal(firstScope.visibleProducts, false);
+    assert.match(firstScope.modelContext.instruction, /different categoryId/u);
+    assert.equal(flow.shouldForceProductSearch(), true);
+
+    const secondScope = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: '', categoryId: 702, catalogIntent: 'product_search', exactIdentity: false,
+            responseLanguage: 'vi', responseLanguageEvidence: ['Có', 'yêu cầu'], activityPresentation
+        }
+    });
+    assert.equal(secondScope.visibleProducts, true);
+    assert.equal(secondScope.productPresentation.products.catalog_context.request.category_id, 702);
+    assert.equal(secondScope.productPresentation.products.catalog_context.request.max_price, 10);
+    assert.equal(flow.shouldForceProductSearch(), false);
+    assert.equal(calls.at(-1).args.categoryId, 702);
+    assert.equal(calls.at(-1).args.maxPrice, 10);
+    assert.equal(calls.at(-1).args.pricePreference, 'lowest');
+});
+
+test('requires a structured bound before a lowest-price search when the shopper wrote a money amount', async () => {
+    const calls = [];
+    const flow = createProviderNeutralToolFlow({
+        provider: 'gemini',
+        // This is intentionally a neutral synthetic request: the guard
+        // recognises only money notation, while the provider still decides
+        // whether the amount is a minimum, maximum, or range.
+        currentUserMessage: { text: 'Any-language request with a €10 amount.' },
+        options: {
+            executeMagentoTool: async (name, args) => calls.push({ name, args })
+        }
+    });
+
+    const result = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'print product', catalogIntent: 'product_search', pricePreference: 'lowest', exactIdentity: false,
+            responseLanguage: 'en', responseLanguageEvidence: ['Any-language', 'request'],
+            activityPresentation: {
+                language: 'en', runningLabel: 'Searching products {scope}', completedLabel: 'Finished searching products {scope}',
+                failedLabel: 'Could not search products {scope}', runningSummary: 'Working for {duration}',
+                completedSummary: 'Worked for {duration}', searchScope: 'in the store'
+            }
+        }
+    });
+
+    assert.equal(result.blocked, true);
+    assert.equal(result.outcome.content.reason, 'explicit_price_bound_required');
+    assert.deepEqual(calls, []);
+});
+
+test('does not treat an empty taxonomy response as a verified lowest-price scope', async () => {
+    const calls = [];
+    const flow = createProviderNeutralToolFlow({
+        provider: 'gemini',
+        currentUserMessage: { text: 'Co mat hang in an nao gia re khong' },
+        options: {
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                if (name === 'listCategories') return { data: [] };
+                throw new Error(`Unexpected tool ${name}`);
+            }
+        }
+    });
+    const lowestSearch = {
+        name: 'searchProducts',
+        args: {
+            query: 'Druck', catalogIntent: 'product_search', pricePreference: 'lowest', exactIdentity: false,
+            responseLanguage: 'vi', responseLanguageEvidence: ['Co', 'mat hang']
+        }
+    };
+
+    const initial = await flow.execute(lowestSearch);
+    assert.equal(initial.blocked, true);
+    assert.equal(initial.outcome.content.reason, 'lowest_price_category_discovery_required');
+
+    const categories = await flow.execute({
+        name: 'listCategories',
+        args: { lookupPurpose: 'product_discovery', responseLanguage: 'vi', responseLanguageEvidence: ['Co', 'mat hang'] }
+    });
+    assert.equal(categories.blocked, false);
+    assert.equal(flow.getState().lowestPriceCategoryDiscoveryRequired, true);
+    assert.equal(flow.getState().lowestPriceCategoryDiscoveryCompleted, false);
+
+    const retry = await flow.execute(lowestSearch);
+    assert.equal(retry.blocked, true);
+    assert.equal(retry.outcome.content.reason, 'lowest_price_category_discovery_required');
+    assert.deepEqual(calls.map(call => call.name), ['listCategories']);
 });
 
 test('finishes a general store overview from taxonomy without selecting an arbitrary product category', async () => {
@@ -365,7 +734,8 @@ test('finishes a general store overview from taxonomy without selecting an arbit
                         data: [
                             { id: 101, name: 'Textilien', product_count: 29, parent_id: 2, level: 2 },
                             { id: 102, name: 'T-Shirts & Polohemden', product_count: 10, parent_id: 101, level: 3 }
-                        ]
+                        ],
+                        meta: { total_products: 264, total_is_verified: true }
                     };
                 }
                 throw new Error(`Unexpected tool ${name}`);
@@ -386,8 +756,17 @@ test('finishes a general store overview from taxonomy without selecting an arbit
     assert.equal(overview.blocked, false);
     assert.equal(overview.visibleProducts, false);
     assert.equal(overview.modelContext.categories.length, 2);
+    assert.equal(overview.modelContext.total_products, 264);
     assert.match(overview.modelContext.instruction, /general store overview/i);
     assert.equal(flow.getState().taxonomyOverviewResolved, true);
+    assert.equal(
+        flow.assessFinalResponseCatalogGrounding('Cửa hàng có các mặt hàng theo từng danh mục.').accepted,
+        false
+    );
+    assert.equal(
+        flow.assessFinalResponseCatalogGrounding('Cửa hàng hiện có 264 sản phẩm đang được bán.').accepted,
+        true
+    );
 
     const productSearch = await flow.execute({
         id: 'unwanted-category-search',
@@ -818,6 +1197,141 @@ test('refreshes live availability after a configurable single-card follow-up wit
     assert.deepEqual(calls.map(call => call.name), ['searchProducts', 'getProductAvailability']);
 });
 
+test('refreshes live availability after a simple single-card follow-up', async () => {
+    const calls = [];
+    const flow = createProviderNeutralToolFlow({
+        provider: 'gemini',
+        currentUserMessage: { text: 'Is that exact item still available?' },
+        options: {
+            singleProductAnchor: { productRef: 'product:500', sku: 'SIMPLE-500' },
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                if (name === 'getProductAvailability') {
+                    return { data: [{ sku: 'SIMPLE-500', availability: 'in_stock', salable_qty: 7 }] };
+                }
+                return {
+                    data: [{ id: 500, sku: 'SIMPLE-500', name: 'Simple current item', product_type: 'simple' }],
+                    html: '<div class="product-card">Simple item</div>',
+                    meta: { pagination: { total: 1, page: 1, page_size: 5, returned: 1, has_more: false } }
+                };
+            }
+        }
+    });
+    const presentation = {
+        language: 'en',
+        runningLabel: 'Checking product {scope}', completedLabel: 'Checked product {scope}',
+        failedLabel: 'Could not check product {scope}', runningSummary: 'Working for {duration}',
+        completedSummary: 'Worked for {duration}', searchScope: 'in the store'
+    };
+
+    const search = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'ignored', catalogIntent: 'product_search', exactIdentity: false,
+            catalogContextDecision: 'follow_up', followUpProductRef: 'product:500',
+            responseLanguage: 'en', responseLanguageEvidence: ['Is', 'that', 'still', 'available'],
+            activityPresentation: presentation
+        }
+    });
+
+    assert.equal(search.blocked, false);
+    assert.equal(flow.shouldForceProductAvailability(), true);
+    assert.equal(calls[0].args.query, 'SIMPLE-500');
+
+    const availability = await flow.execute({
+        name: 'getProductAvailability',
+        args: { sku: 'OTHER-SKU' }
+    });
+    assert.equal(availability.blocked, false);
+    assert.deepEqual(calls.map(call => call.name), ['searchProducts', 'getProductAvailability']);
+    assert.equal(calls[1].args.sku, 'SIMPLE-500');
+});
+
+test('requires a locale-neutral anchor decision before a single-card current-fact follow-up', async () => {
+    const calls = [];
+    const flow = createProviderNeutralToolFlow({
+        provider: 'gemini',
+        currentUserMessage: { text: 'Please verify whether the exact previous product is still current.' },
+        options: {
+            singleProductAnchor: { productRef: 'product:500', sku: 'SIMPLE-500' },
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                return {
+                    data: [{ id: 500, sku: 'SIMPLE-500', name: 'Simple current item', product_type: 'simple' }],
+                    html: '<div class="product-card">Simple item</div>',
+                    meta: { pagination: { total: 1, page: 1, page_size: 5, returned: 1, has_more: false } }
+                };
+            }
+        }
+    });
+    const presentation = {
+        language: 'en',
+        runningLabel: 'Checking product {scope}', completedLabel: 'Checked product {scope}',
+        failedLabel: 'Could not check product {scope}', runningSummary: 'Working for {duration}',
+        completedSummary: 'Worked for {duration}', searchScope: 'in the store'
+    };
+
+    assert.equal(flow.shouldForceCatalogAnchorResolution(), true);
+    const decision = await flow.execute({
+        name: 'resolveCatalogAnchor',
+        args: { decision: 'follow_up' }
+    });
+
+    assert.equal(decision.blocked, false);
+    assert.equal(flow.shouldForceCatalogAnchorResolution(), false);
+    assert.equal(flow.shouldForceProductSearch(), true);
+    assert.deepEqual(calls, []);
+
+    const search = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'ignored', catalogIntent: 'product_search', exactIdentity: false,
+            catalogIdentityKind: 'none', catalogContextDecision: 'follow_up', followUpProductRef: 'product:500',
+            responseLanguage: 'en', responseLanguageEvidence: ['Please', 'verify', 'current'],
+            activityPresentation: presentation
+        }
+    });
+
+    assert.equal(search.blocked, false);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].args.query, 'SIMPLE-500');
+    assert.equal(calls[0].args.exactSku, true);
+    assert.equal(flow.shouldForceProductSearch(), false);
+});
+
+test('verifies the anchored SKU before final synthesis after a non-catalogue anchor decision', async () => {
+    const calls = [];
+    const flow = createProviderNeutralToolFlow({
+        provider: 'gemini',
+        currentUserMessage: { text: 'Thank you.' },
+        options: {
+            singleProductAnchor: { productRef: 'product:500', sku: 'SIMPLE-500' },
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                return { data: [{ sku: 'SIMPLE-500', availability: 'in_stock', salable_qty: 7 }] };
+            }
+        }
+    });
+
+    const decision = await flow.execute({
+        name: 'resolveCatalogAnchor',
+        args: { decision: 'no_catalog_fact' }
+    });
+
+    assert.equal(decision.blocked, false);
+    assert.equal(flow.shouldForceCatalogAnchorResolution(), false);
+    assert.equal(flow.shouldForceProductSearch(), false);
+    assert.equal(flow.shouldForceProductAvailability(), true);
+
+    const availability = await flow.execute({
+        name: 'getProductAvailability',
+        args: { sku: 'UNTRUSTED-SKU' }
+    });
+    assert.equal(availability.blocked, false);
+    assert.deepEqual(calls, [{ name: 'getProductAvailability', args: { sku: 'SIMPLE-500' } }]);
+    assert.equal(flow.shouldForceProductAvailability(), false);
+});
+
 test('requires live availability after a one-card configurable search without a product anchor', async () => {
     const calls = [];
     const flow = createProviderNeutralToolFlow({
@@ -886,6 +1400,56 @@ test('requires live availability after a one-card configurable search without a 
     assert.equal(calls[1].args.sku, 'N042.A104');
     assert.deepEqual(calls[1].args.selectedOptions, { size: 'M' });
     assert.equal(flow.shouldForceProductAvailability(), false);
+});
+
+test('requires live availability after a one-card exact-SKU search without a product anchor', async () => {
+    const calls = [];
+    const flow = createProviderNeutralToolFlow({
+        provider: 'gemini',
+        currentUserMessage: { text: 'Please check the current options for SKU SIMPLE-500.' },
+        options: {
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                if (name === 'getProductAvailability') {
+                    return { data: [{ sku: 'SIMPLE-500', availability: 'in_stock', salable_qty: 7 }] };
+                }
+                if (name !== 'searchProducts') throw new Error(`Unexpected tool ${name}`);
+                return {
+                    data: [{ id: 500, sku: 'SIMPLE-500', name: 'Simple current item', product_type: 'simple' }],
+                    html: '<div class="product-card">Simple item</div>',
+                    meta: { pagination: { total: 1, page: 1, page_size: 5, returned: 1, has_more: false } }
+                };
+            }
+        }
+    });
+    const presentation = {
+        language: 'en',
+        runningLabel: 'Checking product {scope}', completedLabel: 'Checked product {scope}',
+        failedLabel: 'Could not check product {scope}', runningSummary: 'Working for {duration}',
+        completedSummary: 'Worked for {duration}', searchScope: 'in the store'
+    };
+
+    const search = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'SIMPLE-500', catalogIntent: 'product_search', exactIdentity: true,
+            catalogIdentityKind: 'sku', responseLanguage: 'en',
+            responseLanguageEvidence: ['Please', 'check', 'current', 'options'],
+            activityPresentation: presentation
+        }
+    });
+
+    assert.equal(search.blocked, false);
+    assert.equal(calls[0].args.exactSku, true);
+    assert.equal(flow.shouldForceProductAvailability(), true);
+
+    const availability = await flow.execute({
+        name: 'getProductAvailability',
+        args: { sku: 'UNTRUSTED-SKU' }
+    });
+    assert.equal(availability.blocked, false);
+    assert.deepEqual(calls.map(call => call.name), ['searchProducts', 'getProductAvailability']);
+    assert.equal(calls[1].args.sku, 'SIMPLE-500');
 });
 
 test('uses Magento SKU equality only when the provider declares an exact SKU identity', async () => {
@@ -1149,6 +1713,7 @@ test('refreshes an exact multi-card result set only with its opaque search refer
             categoryId: 17,
             minPrice: 2.5,
             priceCurrency: 'EUR',
+            pricePreference: 'lowest',
             requiredVariantAttributeCode: 'farbe',
             requiredVariantOptionValues: ['schwarz']
         }
@@ -1232,6 +1797,7 @@ test('refreshes an exact multi-card result set only with its opaque search refer
     assert.equal(calls[0].args.categoryId, 17);
     assert.equal(calls[0].args.minPrice, 2.5);
     assert.equal(calls[0].args.priceCurrency, 'EUR');
+    assert.equal(calls[0].args.pricePreference, 'lowest');
     assert.equal(calls[0].args.requiredVariantAttributeCode, 'farbe');
     assert.deepEqual(calls[0].args.requiredVariantOptionValues, ['schwarz']);
     assert.equal(Object.hasOwn(calls[0].args, 'followUpSearchRef'), false);
@@ -1271,6 +1837,79 @@ test('refreshes an exact multi-card result set only with its opaque search refer
     assert.equal(newSearch.blocked, false);
     assert.equal(newSearchCalls[0].args.query, 'posters');
     assert.equal(newSearchCalls[0].args.categoryId, undefined);
+});
+
+test('resolves one explicitly selected multi-card reference through its opaque product reference', async () => {
+    const calls = [];
+    const activityPresentation = {
+        language: 'en',
+        runningLabel: 'Checking product {scope}',
+        completedLabel: 'Checked product {scope}',
+        failedLabel: 'Could not check product {scope}',
+        runningSummary: 'Working for {duration}',
+        completedSummary: 'Worked for {duration}',
+        searchScope: 'in the store'
+    };
+    const flow = createProviderNeutralToolFlow({
+        provider: 'anthropic',
+        currentUserMessage: { text: 'Is the first displayed product still in stock?' },
+        options: {
+            resultSetAnchor: {
+                searchRef: 'search:0a1b2c3d4e5f6a7b8c9d0e1f',
+                request: { query: 'rollup' },
+                products: [
+                    { productRef: 'product:701', sku: 'ROLLUP-701' },
+                    { productRef: 'product:702', sku: 'ROLLUP-702' }
+                ]
+            },
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                return name === 'searchProducts'
+                    ? {
+                        data: [{ id: 701, sku: 'ROLLUP-701', name: 'Rollup', product_type: 'configurable' }],
+                        html: '<div class="product-card">Rollup</div>',
+                        meta: { pagination: { total: 1, page: 1, page_size: 5, returned: 1, has_more: false } }
+                    }
+                    : { data: { sku: 'ROLLUP-701', is_salable: true } };
+            }
+        }
+    });
+
+    assert.equal(flow.shouldForceCatalogAnchorResolution(), true);
+    const decision = await flow.execute({
+        name: 'resolveCatalogAnchor',
+        args: { decision: 'select_product', productRef: 'product:701' }
+    });
+    assert.equal(decision.blocked, false);
+    assert.equal(flow.shouldForceCatalogAnchorResolution(), false);
+    assert.equal(flow.shouldForceProductSearch(), true);
+
+    const search = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'ignored',
+            catalogIntent: 'product_search',
+            catalogIdentityKind: 'none',
+            exactIdentity: false,
+            catalogContextDecision: 'follow_up',
+            followUpProductRef: 'product:701',
+            responseLanguage: 'en',
+            responseLanguageEvidence: ['Is', 'first', 'displayed', 'product'],
+            activityPresentation
+        }
+    });
+    assert.equal(search.blocked, false);
+    assert.equal(calls[0].args.query, 'ROLLUP-701');
+    assert.equal(calls[0].args.exactSku, true);
+    assert.equal(flow.shouldForceProductAvailability(), true);
+
+    const availability = await flow.execute({
+        name: 'getProductAvailability',
+        args: { sku: 'OTHER-SKU' }
+    });
+    assert.equal(availability.blocked, false);
+    assert.equal(calls[1].args.sku, 'ROLLUP-701');
+    assert.equal(flow.shouldForceProductAvailability(), false);
 });
 
 test('keeps prose and cards on the same product result set within one shopper turn', async () => {
@@ -1504,7 +2143,9 @@ test('keeps the original exact identity through a refinement and rejects a repla
     assert.equal(refined.productPresentation, null);
     assert.equal(refined.outcome.content.meta.scope.exact_query_miss, true);
     assert.equal(flow.getState().terminalCatalog, true);
-    assert.equal(calls.length, 2);
+    // The first exact miss also receives one bounded retry with the original
+    // shopper sentence before the provider is asked for a refined spelling.
+    assert.equal(calls.length, 3);
 });
 
 test('does not let a model drop the hard option constraint after attribute discovery', async () => {
@@ -2138,7 +2779,9 @@ test('allows one exact-identity catalogue-language refinement before a terminal 
     });
     assert.equal(missingCatalogLanguage.blocked, true);
     assert.equal(missingCatalogLanguage.modelContext.reason, 'catalog_query_language_required');
-    assert.equal(calls.length, 1);
+    // The original shopper sentence was attempted once before the provider
+    // receives the catalogue-language refinement request.
+    assert.equal(calls.length, 2);
 
     const second = await flow.execute({
         name: 'searchProducts',
@@ -2155,9 +2798,254 @@ test('allows one exact-identity catalogue-language refinement before a terminal 
     assert.equal(second.visibleProducts, true);
     assert.equal(second.modelContext.products[0].sku, '021.J201');
     assert.deepEqual(second.modelContext.products[0].quantity_prices, [{ minimum_qty: 1, price: '12,00 €' }]);
+    assert.equal(calls.length, 3);
+    assert.equal(calls[2].args.catalogQueryLanguage, undefined);
+    assert.equal(calls[2].args.catalog_query_language, undefined);
+});
+
+test('retries one exact-title miss with the original shopper sentence without broadening the identity', async () => {
+    const calls = [];
+    const activityPresentation = {
+        language: 'vi',
+        runningLabel: 'Đang tìm sản phẩm {scope}',
+        completedLabel: 'Đã tìm xong sản phẩm {scope}',
+        failedLabel: 'Không thể tìm sản phẩm {scope}',
+        runningSummary: 'Đang xử lý trong {duration}',
+        completedSummary: 'Đã xử lý trong {duration}',
+        searchScope: 'trong toàn bộ cửa hàng'
+    };
+    const flow = createProviderNeutralToolFlow({
+        provider: 'gemini',
+        currentUserMessage: { text: 'Tôi muốn tìm Regenschrim hellblau AfD.' },
+        options: {
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                if (calls.length === 1) {
+                    return {
+                        data: [],
+                        html: '',
+                        meta: {
+                            pagination: { total: 0, page: 1, page_size: 5, returned: 0, has_more: false },
+                            scope: { exact_query_miss: true }
+                        }
+                    };
+                }
+                return {
+                    data: [{ id: 103, sku: 'N021.C103', name: 'Regenschirm hellblau "AfD"', price: '25.00' }],
+                    html: '<div class="product-card">Regenschirm hellblau</div>',
+                    meta: {
+                        pagination: { total: 1, page: 1, page_size: 5, returned: 1, has_more: false },
+                        scope: { exact_query_match: true }
+                    }
+                };
+            }
+        }
+    });
+
+    const result = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'Regenschrim AfD',
+            catalogIntent: 'product_search',
+            exactIdentity: true,
+            catalogIdentityKind: 'product_name',
+            responseLanguage: 'vi',
+            responseLanguageEvidence: ['Tôi', 'muốn', 'tìm'],
+            activityPresentation
+        }
+    });
+
+    assert.equal(result.blocked, false);
+    assert.equal(result.visibleProducts, true);
+    assert.equal(result.modelContext.products[0].sku, 'N021.C103');
     assert.equal(calls.length, 2);
-    assert.equal(calls[1].args.catalogQueryLanguage, undefined);
-    assert.equal(calls[1].args.catalog_query_language, undefined);
+    assert.equal(calls[0].args.query, 'Regenschrim AfD');
+    assert.equal(calls[1].args.query, 'Tôi muốn tìm Regenschrim hellblau AfD.');
+    assert.equal(calls[1].args.exactIdentity, true);
+});
+
+test('recovers a complete exact title from a failed plain product query without relaxing constraints', async () => {
+    const calls = [];
+    const flow = createProviderNeutralToolFlow({
+        provider: 'gemini',
+        currentUserMessage: { text: 'Tôi muốn tìm Regenschrim hellblau AfD.' },
+        options: {
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                if (calls.length === 1) {
+                    return {
+                        data: [], html: '',
+                        meta: { pagination: { total: 0, page: 1, page_size: 5, returned: 0, has_more: false } }
+                    };
+                }
+                return {
+                    data: [{ id: 103, sku: 'N021.C103', name: 'Regenschirm hellblau "AfD"', price: '25.00' }],
+                    html: '<div class="product-card">Regenschirm hellblau</div>',
+                    meta: {
+                        pagination: { total: 1, page: 1, page_size: 5, returned: 1, has_more: false },
+                        scope: { exact_query_match: true }
+                    }
+                };
+            }
+        }
+    });
+    const activityPresentation = {
+        language: 'vi', runningLabel: 'Đang tìm sản phẩm {scope}', completedLabel: 'Đã tìm xong sản phẩm {scope}',
+        failedLabel: 'Không thể tìm sản phẩm {scope}', runningSummary: 'Đang xử lý trong {duration}',
+        completedSummary: 'Đã xử lý trong {duration}', searchScope: 'trong toàn bộ cửa hàng'
+    };
+
+    const result = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'ô AfD', catalogIntent: 'product_search', exactIdentity: false, catalogIdentityKind: 'none',
+            responseLanguage: 'vi', responseLanguageEvidence: ['Tôi', 'muốn', 'tìm'], activityPresentation
+        }
+    });
+
+    assert.equal(result.blocked, false);
+    assert.equal(result.visibleProducts, true);
+    assert.equal(result.modelContext.products[0].sku, 'N021.C103');
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1].args.query, 'Tôi muốn tìm Regenschrim hellblau AfD.');
+    assert.equal(calls[1].args.exactIdentity, true);
+});
+
+test('replaces a broad result grid with one Magento-verified embedded exact title', async () => {
+    const calls = [];
+    const flow = createProviderNeutralToolFlow({
+        provider: 'gemini',
+        currentUserMessage: { text: 'Tôi muốn tìm Regenschrim hellblau AfD.' },
+        options: {
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                if (calls.length === 1) {
+                    return {
+                        data: [
+                            { id: 103, sku: 'N021.C103', name: 'Regenschirm hellblau "AfD"', price: '25.00' },
+                            { id: 104, sku: 'N021.C104', name: 'Regenschirm royalblau "AfD"', price: '25.00' }
+                        ],
+                        html: '<div class="product-card">mixed results</div>',
+                        meta: { pagination: { total: 2, page: 1, page_size: 5, returned: 2, has_more: false } }
+                    };
+                }
+                return {
+                    data: [{ id: 103, sku: 'N021.C103', name: 'Regenschirm hellblau "AfD"', price: '25.00' }],
+                    html: '<div class="product-card">Regenschirm hellblau</div>',
+                    meta: {
+                        pagination: { total: 1, page: 1, page_size: 5, returned: 1, has_more: false },
+                        scope: { exact_query_match: true }
+                    }
+                };
+            }
+        }
+    });
+    const result = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'Regenschirm hellblau AfD', catalogIntent: 'product_search', exactIdentity: false, catalogIdentityKind: 'none',
+            responseLanguage: 'vi', responseLanguageEvidence: ['Tôi', 'muốn', 'tìm'],
+            activityPresentation: {
+                language: 'vi', runningLabel: 'Đang tìm sản phẩm {scope}', completedLabel: 'Đã tìm xong sản phẩm {scope}',
+                failedLabel: 'Không thể tìm sản phẩm {scope}', runningSummary: 'Đang xử lý trong {duration}',
+                completedSummary: 'Đã xử lý trong {duration}', searchScope: 'trong toàn bộ cửa hàng'
+            }
+        }
+    });
+
+    assert.equal(result.blocked, false);
+    assert.equal(result.visibleProducts, true);
+    assert.deepEqual(result.modelContext.products.map(product => product.sku), ['N021.C103']);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1].args.query, 'Regenschirm hellblau "AfD"');
+    assert.equal(calls[1].args.exactIdentity, true);
+});
+
+test('an embedded exact title overrides an accidental category and variant interpretation', async () => {
+    const calls = [];
+    const flow = createProviderNeutralToolFlow({
+        provider: 'gemini',
+        currentUserMessage: { text: 'Có T-Shirt blau personalisierbar không?' },
+        options: {
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                if (calls.length === 1) {
+                    return {
+                        data: [
+                            { id: 22, sku: 'N022.A00', name: 'T-Shirt blau personalisierbar', price: '15.00' },
+                            { id: 23, sku: 'N042.A103', name: 'T-Shirt "#TeamAlice"', price: '20.00' }
+                        ],
+                        html: '<div class="product-card">mixed shirts</div>',
+                        meta: { pagination: { total: 2, page: 1, page_size: 5, returned: 2, has_more: false } }
+                    };
+                }
+                return {
+                    data: [{ id: 22, sku: 'N022.A00', name: 'T-Shirt blau personalisierbar', price: '15.00' }],
+                    html: '<div class="product-card">exact shirt</div>',
+                    meta: {
+                        pagination: { total: 1, page: 1, page_size: 5, returned: 1, has_more: false },
+                        scope: { exact_query_match: true }
+                    }
+                };
+            }
+        }
+    });
+
+    const result = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'T-Shirt', categoryId: 102, catalogIntent: 'product_search', exactIdentity: false,
+            catalogIdentityKind: 'none', requiresVariantAttribute: true,
+            requiredVariantAttributeCode: 'farbe', requiredVariantOptionValues: ['blau'],
+            responseLanguage: 'vi', responseLanguageEvidence: ['Có', 'không'],
+            activityPresentation: {
+                language: 'vi', runningLabel: 'Đang tìm sản phẩm {scope}', completedLabel: 'Đã tìm xong sản phẩm {scope}',
+                failedLabel: 'Không thể tìm sản phẩm {scope}', runningSummary: 'Đang xử lý trong {duration}',
+                completedSummary: 'Đã xử lý trong {duration}', searchScope: 'trong danh mục {category}'
+            }
+        }
+    });
+
+    assert.equal(result.blocked, false);
+    assert.deepEqual(result.modelContext.products.map(product => product.sku), ['N022.A00']);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[1].args.query, 'T-Shirt blau personalisierbar');
+    assert.equal(calls[1].args.exactIdentity, true);
+    assert.equal(calls[1].args.categoryId, undefined);
+    assert.equal(calls[1].args.requiredVariantAttributeCode, undefined);
+    assert.equal(calls[1].args.requiredVariantOptionValues, undefined);
+});
+
+test('does not run embedded exact-title recovery when a product query has a hard filter', async () => {
+    const calls = [];
+    const flow = createProviderNeutralToolFlow({
+        provider: 'gemini',
+        currentUserMessage: { text: 'Tôi muốn tìm Regenschrim hellblau AfD.' },
+        options: {
+            executeMagentoTool: async (name, args) => {
+                calls.push({ name, args });
+                return {
+                    data: [], html: '',
+                    meta: { pagination: { total: 0, page: 1, page_size: 5, returned: 0, has_more: false } }
+                };
+            }
+        }
+    });
+    const result = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'ô AfD', categoryId: 93, catalogIntent: 'product_search', exactIdentity: false, catalogIdentityKind: 'none',
+            responseLanguage: 'vi', responseLanguageEvidence: ['Tôi', 'muốn', 'tìm'],
+            activityPresentation: {
+                language: 'vi', runningLabel: 'Đang tìm sản phẩm {scope}', completedLabel: 'Đã tìm xong sản phẩm {scope}',
+                failedLabel: 'Không thể tìm sản phẩm {scope}', runningSummary: 'Đang xử lý trong {duration}',
+                completedSummary: 'Đã xử lý trong {duration}', searchScope: 'trong danh mục {category}'
+            }
+        }
+    });
+
+    assert.equal(result.blocked, false);
+    assert.equal(calls.length, 1);
 });
 
 test('does not let an explicit exact identity be overwritten by a previous product anchor', async () => {
@@ -2186,4 +3074,64 @@ test('does not let an explicit exact identity be overwritten by a previous produ
 
     assert.equal(result.blocked, true);
     assert.equal(result.outcome.content.reason, 'exact_identity_requires_new_search');
+});
+
+test('rejects a final monetary claim that is not present in the rendered Magento cards', async () => {
+    const flow = createProviderNeutralToolFlow({
+        provider: 'anthropic',
+        currentUserMessage: { text: 'Please show the lowest-priced print product.' },
+        options: {
+            executeMagentoTool: async () => ({
+                data: [{
+                    id: 5091,
+                    sku: 'N024.B5091',
+                    name: 'Kurzprogramm der AfD',
+                    price: '0.40',
+                    quantity_prices: [{ minimum_qty: 100, price: '0.30' }]
+                }],
+                html: '<div class="product-card">Kurzprogramm der AfD</div>',
+                meta: {
+                    currency: { code: 'EUR' },
+                    pagination: { total: 1, page: 1, page_size: 5, returned: 1, has_more: false }
+                }
+            })
+        }
+    });
+
+    const result = await flow.execute({
+        name: 'searchProducts',
+        args: {
+            query: 'print product',
+            categoryId: 109,
+            pricePreference: 'lowest',
+            catalogIntent: 'product_search',
+            exactIdentity: false,
+            catalogIdentityKind: 'none',
+            responseLanguage: 'en',
+            responseLanguageEvidence: ['Please', 'show'],
+            activityPresentation: {
+                language: 'en',
+                runningLabel: 'Searching products {scope}',
+                completedLabel: 'Finished searching products {scope}',
+                failedLabel: 'Could not search products {scope}',
+                runningSummary: 'Working for {duration}',
+                completedSummary: 'Worked for {duration}',
+                searchScope: 'in category {category}'
+            }
+        }
+    });
+
+    assert.equal(result.visibleProducts, true);
+    assert.deepEqual(
+        flow.assessFinalResponseCatalogGrounding('The cheapest matching item costs 38 €.').unsupportedMinorUnits,
+        [3800]
+    );
+    assert.equal(
+        flow.assessFinalResponseCatalogGrounding('The cheapest matching item costs 0,40 €.').accepted,
+        true
+    );
+    assert.equal(
+        flow.assessFinalResponseCatalogGrounding('For 100 units, it costs EUR 0.30 each.').accepted,
+        true
+    );
 });

@@ -66,6 +66,30 @@ class ProductAvailabilityToolTest extends TestCase
         self::assertSame(12, $variants[0]['salable_qty']);
     }
 
+    public function testPartialConfigurableSelectionCannotIdentifyOnePurchasableVariant(): void
+    {
+        $tool = (new ReflectionClass(ProductAvailabilityTool::class))->newInstanceWithoutConstructor();
+        $method = new ReflectionMethod(ProductAvailabilityTool::class, 'missingConfigurableOptionCodes');
+
+        self::assertSame(
+            ['bedruckung', 'logoauswahl', 'gender'],
+            $method->invoke($tool, ['bedruckung', 'logoauswahl', 'grosse', 'gender'], ['grosse' => 'S'])
+        );
+        self::assertSame(
+            [],
+            $method->invoke(
+                $tool,
+                ['bedruckung', 'logoauswahl', 'grosse', 'gender'],
+                [
+                    'bedruckung' => 'Brustdruck',
+                    'logoauswahl' => 'Standard-Logo',
+                    'grosse' => 'S',
+                    'gender' => 'Damen',
+                ]
+            )
+        );
+    }
+
     private function labelsMatch(string $actual, string $requested): bool
     {
         // labelsMatch is a pure helper; building it without the constructor

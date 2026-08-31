@@ -69,6 +69,7 @@ class CatalogSearchTool
         float $minPrice = 0.0,
         float $maxPrice = 0.0,
         string $priceCurrency = '',
+        string $pricePreference = 'standard',
         bool $directAddOnly = false,
         bool $browseAll = false,
         bool $exactIdentity = false,
@@ -100,6 +101,7 @@ class CatalogSearchTool
         $priceConstraints = $this->priceConstraintConverter->convert($minPrice, $maxPrice, $priceCurrency);
         $minPrice = $priceConstraints['min_price'];
         $maxPrice = $priceConstraints['max_price'];
+        $pricePreference = $this->normalizePricePreference($pricePreference);
 
         if (!$priceConstraints['available']) {
             return $this->emptyResponse($page, $limit, $shopperScope, $categoryScope, $priceConstraints['meta']);
@@ -130,6 +132,7 @@ class CatalogSearchTool
             $requiredVariantOptionValues,
             $excludedVariantOptionValues,
             $exactSku,
+            $pricePreference,
             $shopperScope
         );
         $collection->setCurPage($page);
@@ -149,6 +152,7 @@ class CatalogSearchTool
                     $requiredVariantAttributeCode,
                     $requiredVariantOptionValues,
                     $excludedVariantOptionValues,
+                    $pricePreference,
                     $shopperScope,
                     $engineTotal
                 );
@@ -179,6 +183,7 @@ class CatalogSearchTool
             $requiredVariantAttributeCode,
             $requiredVariantOptionValues,
             $excludedVariantOptionValues,
+            $pricePreference,
             $shopperScope,
             $page,
             $limit,
@@ -186,6 +191,25 @@ class CatalogSearchTool
         );
         if ($categoryFallback !== null) {
             [$resultData, $productIds, $totalResults, $engineTotal] = $categoryFallback;
+            $totalVerified = true;
+        }
+
+        // Search adapters can occasionally return a broad default page for
+        // a shopper-language query that has no indexed match.  A non-empty
+        // response is not enough to present those unrelated cards as a
+        // result.  Require one exact normalized token overlap with a returned
+        // product identity (name, SKU, or selectable option).  This remains
+        // language-neutral and makes the existing model-led catalogue-query
+        // refinement path run instead of showing an arbitrary store sample.
+        // It never translates or chooses a substitute product.
+        if ($query !== ''
+            && !$exactSku
+            && $resultData !== []
+            && !$this->hasVerifiedQueryLexicalEvidence($query, $resultData)) {
+            $resultData = [];
+            $productIds = [];
+            $totalResults = 0;
+            $engineTotal = 0;
             $totalVerified = true;
         }
 
@@ -238,6 +262,26 @@ class CatalogSearchTool
             }
             $activeIdentityDistance = $this->bestPresentedProductIdentityDistance($query, $resultData);
         }
+        // A provider can correctly preserve a typed product identity while
+        // omitting exactIdentity=true.  Full-text then returns a broad page
+        // because one generic title token matches, even though Magento has
+        // already returned one uniquely closest identity on that page.  Keep
+        // the normal discovery grid unless the structural matcher has exactly
+        // one best candidate; this is deliberately independent of any product
+        // word, store language, or translated shopper phrasing.
+        if (!$exactIdentity && $identityFallbackAllowed && $resultData !== []) {
+            $uniqueIdentityMatch = $this->filterPresentedUniqueIdentityMatch(
+                $query,
+                $resultData,
+                $productIds
+            );
+            if ($uniqueIdentityMatch !== null) {
+                [$resultData, $productIds] = $uniqueIdentityMatch;
+                $totalResults = count($resultData);
+                $totalVerified = true;
+                $activeIdentityDistance = $this->bestPresentedProductIdentityDistance($query, $resultData);
+            }
+        }
         $disabledIdentityDistance = $identityFallbackAllowed
             ? $this->bestUnavailableProductIdentityDistance($query, $shopperScope)
             : null;
@@ -288,6 +332,7 @@ class CatalogSearchTool
                 'category_id' => $categoryId > 0 ? $categoryId : null,
                 'includes_descendants' => $categoryId > 0,
                 'direct_add_only' => $directAddOnly,
+                'price_preference' => $pricePreference,
                 'browse_all' => $browseAll,
                 'exact_identity' => $exactIdentity,
                 'exact_sku_lookup' => $exactSku,
@@ -354,6 +399,7 @@ class CatalogSearchTool
         array $requiredVariantOptionValues,
         array $excludedVariantOptionValues,
         bool $exactSku,
+        string $pricePreference,
         ShopperScope $shopperScope
     ) {
         // A non-empty query remains a hard product-type constraint even after
@@ -371,6 +417,7 @@ class CatalogSearchTool
         }
 
         $this->applyAvailabilityAndPriceFilters($collection, $minPrice, $maxPrice);
+        $this->applyPricePreference($collection, $pricePreference);
         $this->applyExcludedNameTerms($collection, $excludedNameTerms);
         if ($directAddOnly) {
             $this->applyDirectAddOnlyFilter($collection);
@@ -426,6 +473,7 @@ class CatalogSearchTool
         string $requiredVariantAttributeCode,
         array $requiredVariantOptionValues,
         array $excludedVariantOptionValues,
+        string $pricePreference,
         ShopperScope $shopperScope,
         int $engineTotal
     ): int {
@@ -444,6 +492,7 @@ class CatalogSearchTool
             $requiredVariantOptionValues,
             $excludedVariantOptionValues,
             false,
+            'standard',
             $shopperScope
         );
         $countCollection->setCurPage(1);
@@ -473,6 +522,37 @@ class CatalogSearchTool
         }
 
         return $collection;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $products
+     */
+    private function hasVerifiedQueryLexicalEvidence(string $query, array $products): bool
+    {
+        foreach ($products as $product) {
+            $candidateParts = [
+                (string)($product['name'] ?? ''),
+                (string)($product['sku'] ?? ''),
+            ];
+            foreach ((array)($product['variant_options'] ?? []) as $option) {
+                if (!is_array($option)) {
+                    continue;
+                }
+                $candidateParts[] = (string)($option['code'] ?? '');
+                $candidateParts[] = (string)($option['label'] ?? '');
+                foreach ((array)($option['values'] ?? []) as $value) {
+                    $candidateParts[] = (string)$value;
+                }
+            }
+            if ($this->catalogIdentityMatcher->hasLexicalOverlap(
+                $query,
+                implode(' ', array_filter($candidateParts, static fn (string $value): bool => $value !== ''))
+            )) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function createCategoryProductCollection(ShopperScope $shopperScope)
@@ -505,6 +585,7 @@ class CatalogSearchTool
         string $requiredVariantAttributeCode,
         array $requiredVariantOptionValues,
         array $excludedVariantOptionValues,
+        string $pricePreference,
         ShopperScope $shopperScope,
         int $page,
         int $limit,
@@ -521,6 +602,7 @@ class CatalogSearchTool
         $collection = $this->createCategoryProductCollection($shopperScope);
         $collection->addCategoriesFilter(['in' => $categoryIds]);
         $this->applyAvailabilityAndPriceFilters($collection, $minPrice, $maxPrice);
+        $this->applyPricePreference($collection, $pricePreference);
         $this->applyExcludedNameTerms($collection, $excludedNameTerms);
         if ($directAddOnly) {
             $this->applyDirectAddOnlyFilter($collection);
@@ -631,6 +713,27 @@ class CatalogSearchTool
         if ($minPrice > 0 || $maxPrice > 0) {
             $collection->getSelect()->order('price_index.min_price ASC');
         }
+    }
+
+    /**
+     * Reset engine/category relevance ordering only for a structured lowest
+     * price request. The provider determines that semantic intent in the
+     * shopper's language; Magento receives a closed, language-neutral value.
+     */
+    private function applyPricePreference($collection, string $pricePreference): void
+    {
+        if ($pricePreference !== 'lowest') {
+            return;
+        }
+
+        $collection->getSelect()
+            ->reset(\Magento\Framework\DB\Select::ORDER)
+            ->order('price_index.min_price ASC');
+    }
+
+    private function normalizePricePreference(string $pricePreference): string
+    {
+        return strtolower(trim($pricePreference)) === 'lowest' ? 'lowest' : 'standard';
     }
 
     /** @param string[] $excludedNameTerms */
@@ -744,6 +847,7 @@ class CatalogSearchTool
             $product->setCustomerGroupId($shopperScope->getCustomerGroupId());
             $quantityPolicy = $this->saleQuantityPolicy->getPolicy($product);
             $displayFinalPrice = $this->getDisplayFinalPrice($product);
+            $isConfigurable = $product->getTypeId() === 'configurable';
             $resultData[] = [
                 'id' => (int)$product->getId(),
                 'product_ref' => 'product:' . (int)$product->getId(),
@@ -762,9 +866,14 @@ class CatalogSearchTool
                 'maximum_qty' => $quantityPolicy['maximum_qty'],
                 'qty_increment' => $quantityPolicy['qty_increment'],
                 'default_add_qty' => $quantityPolicy['default_add_qty'],
-                'requires_variant_selection' => $product->getTypeId() === 'configurable',
-                'in_stock' => true,
-                'availability' => 'in_stock',
+                'requires_variant_selection' => $isConfigurable,
+                // The storefront collection proves a configurable parent is
+                // presentable, not that an arbitrary partial set of options
+                // resolves to one salable child. Keep that distinction in the
+                // model context so a search card cannot become false stock
+                // evidence before ProductAvailabilityTool has an exact child.
+                'in_stock' => $isConfigurable ? null : true,
+                'availability' => $isConfigurable ? 'selection_required' : 'in_stock',
                 'variant_options' => $this->getVariantOptions($product),
                 'variant_options_policy' => 'A selectable characteristic is identified by its option label, not by its values. If a requested characteristic has no matching option label, say it is unavailable, then briefly introduce the actual option labels and their purpose. Do not present another option as the requested characteristic; summarize a long value list unless details are requested. Keep shopper-facing prose in the shopper language; the catalogue label itself may remain unchanged.',
             ];
@@ -1040,7 +1149,7 @@ class CatalogSearchTool
         $bestDistance = null;
         $bestProducts = [];
         foreach ($collection as $product) {
-            $distance = $this->catalogIdentityMatcher->identityDistance(
+            $distance = $this->candidateIdentityDistance(
                 $query,
                 (string)$product->getName()
             );
@@ -1106,7 +1215,7 @@ class CatalogSearchTool
     {
         $bestDistance = null;
         foreach ($products as $product) {
-            $distance = $this->catalogIdentityMatcher->identityDistance(
+            $distance = $this->candidateIdentityDistance(
                 $query,
                 (string)($product['name'] ?? '')
             );
@@ -1135,7 +1244,7 @@ class CatalogSearchTool
         $filteredProducts = [];
         $filteredIds = [];
         foreach ($products as $index => $product) {
-            if ($this->catalogIdentityMatcher->identityDistance(
+            if ($this->candidateIdentityDistance(
                 $query,
                 (string)($product['name'] ?? '')
             ) !== $bestDistance) {
@@ -1148,6 +1257,58 @@ class CatalogSearchTool
         }
 
         return [$filteredProducts, $filteredIds];
+    }
+
+    /**
+     * Narrow a non-exact full-text page only when one card is structurally the
+     * unambiguous closest product identity.  Returning null rather than the
+     * original arrays makes the caller preserve ordinary family/category
+     * browsing, where several similarly close products are useful results.
+     *
+     * @param array<int, array<string, mixed>> $products
+     * @param int[] $productIds
+     * @return array{0: array<int, array<string, mixed>>, 1: int[]}|null
+     */
+    private function filterPresentedUniqueIdentityMatch(string $query, array $products, array $productIds): ?array
+    {
+        $bestDistance = null;
+        $bestIndexes = [];
+        foreach ($products as $index => $product) {
+            $distance = $this->candidateIdentityDistance(
+                $query,
+                (string)($product['name'] ?? '')
+            );
+            if ($distance === null || ($bestDistance !== null && $distance > $bestDistance)) {
+                continue;
+            }
+            if ($bestDistance === null || $distance < $bestDistance) {
+                $bestDistance = $distance;
+                $bestIndexes = [];
+            }
+            $bestIndexes[] = $index;
+        }
+
+        if ($bestDistance === null || count($bestIndexes) !== 1) {
+            return null;
+        }
+
+        $index = $bestIndexes[0];
+        return [
+            [$products[$index]],
+            isset($productIds[$index]) ? [(int)$productIds[$index]] : []
+        ];
+    }
+
+    /**
+     * Keep ordinary exact-title matching strict, but accept a whole candidate
+     * title when it is the contiguous identity portion of a longer model
+     * query. This is deliberately lexical and language-neutral; it never
+     * strips hard-coded lead-in words or chooses a related product.
+     */
+    private function candidateIdentityDistance(string $query, string $candidate): ?int
+    {
+        return $this->catalogIdentityMatcher->identityDistance($query, $candidate)
+            ?? $this->catalogIdentityMatcher->embeddedIdentityDistance($query, $candidate);
     }
 
     /** @return array<string, mixed> */
@@ -1226,6 +1387,11 @@ class CatalogSearchTool
         // unusable assignments.
         $activeProducts = $this->createCategoryProductCollection($shopperScope);
         $this->applyAvailabilityAndPriceFilters($activeProducts, 0.0, 0.0);
+        // Category memberships overlap, so their individual product_count
+        // values must never be added to describe the whole storefront. Count
+        // the same filtered collection once to expose the exact distinct
+        // product total for a store-wide availability question.
+        $totalProducts = $this->getCollectionSize($activeProducts);
         $activeProducts->addCountToCategories($collection);
 
         $categoriesByName = [];
@@ -1253,6 +1419,10 @@ class CatalogSearchTool
         $response = $this->toolResponseFactory->create();
         $response->setData($resultData);
         $response->setHtml('');
+        $response->setMeta([
+            'total_products' => max(0, $totalProducts),
+            'total_is_verified' => true,
+        ]);
 
         return $response;
     }

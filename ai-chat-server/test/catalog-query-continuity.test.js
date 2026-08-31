@@ -46,6 +46,25 @@ test('allows a verified leaf category to resolve a shopper-language synonym', ()
     });
 });
 
+test('keeps a successful product query while product discovery narrows it to a category', () => {
+    const continuity = createCatalogQueryContinuity();
+    continuity.observe('searchProducts', { query: 'Regenschirm transparent 5 Meter' }, {
+        data: [{ id: 1 }],
+        meta: { pagination: { total: 1 } }
+    });
+    continuity.observe('listCategories', { lookupPurpose: 'product_discovery' }, {
+        data: [{ id: 130, parent_id: 2, product_count: 2 }]
+    });
+
+    assert.deepEqual(continuity.normalize('searchProducts', {
+        query: '',
+        categoryId: 130
+    }), {
+        query: 'Regenschirm transparent 5 Meter',
+        categoryId: 130
+    });
+});
+
 test('does not drop a missed query for a broad parent category', () => {
     const continuity = createCatalogQueryContinuity();
     continuity.observe('searchProducts', { query: 'Hose' }, {
@@ -63,6 +82,30 @@ test('does not drop a missed query for a broad parent category', () => {
         continuity.normalize('searchProducts', { query: '', categoryId: 101 }).query,
         'Hose'
     );
+});
+
+test('browses a verified broad category for a lowest-price request', () => {
+    const continuity = createCatalogQueryContinuity();
+    continuity.observe('searchProducts', { query: 'printed products' }, {
+        data: [],
+        meta: { pagination: { total: 0 } }
+    });
+    continuity.observe('listCategories', { lookupPurpose: 'product_discovery' }, {
+        data: [
+            { id: 101, parent_id: 2, product_count: 29 },
+            { id: 103, parent_id: 101, product_count: 13 }
+        ]
+    });
+
+    assert.deepEqual(continuity.normalize('searchProducts', {
+        query: '',
+        categoryId: 101,
+        pricePreference: 'lowest'
+    }), {
+        query: '',
+        categoryId: 101,
+        pricePreference: 'lowest'
+    });
 });
 
 test('keeps an attribute-filtered alternative browse separate from the prior miss', () => {
